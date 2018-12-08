@@ -1,0 +1,8 @@
+[package]
+name = "ldraw"
+version = "0.1.0"
+authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+cgmath = "~0.16.1"
