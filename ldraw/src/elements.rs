@@ -37,7 +37,7 @@ pub enum PartResolution<'a> {
     Unresolved,
     Missing,
     External(Rc<Document<'a>>),
-    Subpart(&'a Document<'a>),
+    Subpart(Rc<Document<'a>>),
 }
 
 #[derive(Clone, Debug)]
@@ -45,7 +45,6 @@ pub struct PartReference<'a> {
     pub color: ColorReference<'a>,
     pub matrix: Matrix4<f32>,
     pub name: NormalizedAlias,
-    pub resolution: PartResolution<'a>,
 }
 
 #[derive(Clone, Debug)]

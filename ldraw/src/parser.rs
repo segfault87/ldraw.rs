@@ -12,7 +12,7 @@ use crate::color::{
 };
 use crate::document::{BfcCertification, Document, MultipartDocument};
 use crate::elements::{
-    BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference, PartResolution,
+    BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference,
     Quad, Triangle,
 };
 use crate::error::{ColorDefinitionParseError, DocumentParseError, ParseError};
@@ -203,7 +203,6 @@ fn parse_line_1<'a>(
         color: ColorReference::resolve(color, materials),
         matrix: matrix,
         name: NormalizedAlias::from(name),
-        resolution: PartResolution::Unresolved,
     })
 }
 

@@ -1,0 +1,8 @@
+[package]
+name = "loader"
+edition = "2018"
+version = "0.1.0"
+authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
+
+[dependencies]
+ldraw = { path = "../../ldraw" }

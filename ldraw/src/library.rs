@@ -4,6 +4,7 @@ use std::hash;
 use std::rc::Rc;
 
 use crate::document::{Document, MultipartDocument};
+use crate::elements::PartReference;
 use crate::NormalizedAlias;
 
 #[derive(Clone, Copy, Debug)]
@@ -105,7 +106,7 @@ pub enum ResolutionResult<'a, T> {
 pub struct ResolutionMap<'a, T> {
     directory: &'a PartDirectory<T>,
     cache: &'a RefCell<PartCache<'a>>,
-    pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>
+    map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>
 }
 
 impl<'a, T: Clone> ResolutionMap<'a, T> {
@@ -117,7 +118,7 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
         }
     }
 
-    pub fn pending(&self) -> Vec<(NormalizedAlias, PartEntry<T>)> {
+    pub fn get_pending(&self) -> Vec<(NormalizedAlias, PartEntry<T>)> {
         self.map.iter().filter_map(|(key, value)| match value {
             ResolutionResult::Pending(a) => Some((key.clone(), a.clone())),
             _ => None,
@@ -170,7 +171,16 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
         self.map.insert(key.clone(), ResolutionResult::Associated(Rc::clone(document)));
     }
 
-    pub fn commit(&self, document: Rc<Document<'a>>) {
+    pub fn query(&self, elem: &PartReference) -> Option<Rc<Document<'a>>> {
+        match self.map.get(&elem.name) {
+            Some(e) => match e {
+                ResolutionResult::Missing => None,
+                ResolutionResult::Pending(_) => None,
+                ResolutionResult::Subpart(e) => Some(Rc::clone(e)),
+                ResolutionResult::Associated(e) => Some(Rc::clone(e)),
+            },
+            None => None,
+        }
     }
 }
 
