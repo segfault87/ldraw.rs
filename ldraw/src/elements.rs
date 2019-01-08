@@ -1,12 +1,15 @@
+use std::rc::Rc;
+
 use cgmath::{Matrix4, Vector3};
 
+use crate::NormalizedAlias;
 use crate::color::ColorReference;
 use crate::document::Document;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Header(pub String, pub String);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum BfcStatement {
     Cw,
     Ccw,
@@ -17,7 +20,7 @@ pub enum BfcStatement {
     InvertNext,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Meta {
     Comment(String),
     Step,
@@ -29,29 +32,30 @@ pub enum Meta {
     Bfc(BfcStatement),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PartResolution<'a> {
     Unresolved,
     Missing,
-    External(&'a Document<'a>),
+    External(Rc<Document<'a>>),
     Subpart(&'a Document<'a>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PartReference<'a> {
     pub color: ColorReference<'a>,
     pub matrix: Matrix4<f32>,
-    pub name: String,
+    pub name: NormalizedAlias,
+    pub resolution: PartResolution<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Line<'a> {
     pub color: ColorReference<'a>,
     pub a: Vector3<f32>,
     pub b: Vector3<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Triangle<'a> {
     pub color: ColorReference<'a>,
     pub a: Vector3<f32>,
@@ -59,7 +63,7 @@ pub struct Triangle<'a> {
     pub c: Vector3<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Quad<'a> {
     pub color: ColorReference<'a>,
     pub a: Vector3<f32>,
@@ -68,7 +72,7 @@ pub struct Quad<'a> {
     pub d: Vector3<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OptionalLine<'a> {
     pub color: ColorReference<'a>,
     pub a: Vector3<f32>,
@@ -77,7 +81,7 @@ pub struct OptionalLine<'a> {
     pub d: Vector3<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Command<'a> {
     Meta(Meta),
     PartReference(PartReference<'a>),

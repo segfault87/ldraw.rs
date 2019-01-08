@@ -1,18 +1,22 @@
 use std::collections::HashMap;
 use std::io::{BufRead, Lines};
 use std::iter::Enumerate;
+use std::rc::Rc;
 use std::str::Chars;
 
 use cgmath::{Matrix4, Vector3};
 
-use crate::NormalizedAlias;
-use crate::color::{ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter,
-                   MaterialRegistry, MaterialSpeckle, Rgba};
-use crate::context::Context;
+use crate::color::{
+    ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter, MaterialRegistry,
+    MaterialSpeckle, Rgba,
+};
 use crate::document::{BfcCertification, Document, MultipartDocument};
-use crate::elements::{BfcStatement, Command, Header, Line, Meta,
-                      OptionalLine, PartReference, Quad, Triangle};
+use crate::elements::{
+    BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference, PartResolution,
+    Quad, Triangle,
+};
 use crate::error::{ColorDefinitionParseError, DocumentParseError, ParseError};
+use crate::NormalizedAlias;
 
 #[derive(Debug)]
 enum Line0 {
@@ -27,7 +31,7 @@ enum Line0 {
 fn is_whitespace(ch: char) -> bool {
     match ch {
         ' ' | '\t' | '\r' | '\n' => true,
-        _ => false
+        _ => false,
     }
 }
 
@@ -47,7 +51,7 @@ fn next_token(iterator: &mut Chars, glob_remaining: bool) -> Result<String, Pars
 
     match buffer.len() {
         0 => Err(ParseError::EndOfLine),
-        _ => Ok(buffer.trim_end().to_string())
+        _ => Ok(buffer.trim_end().to_string()),
     }
 }
 
@@ -80,7 +84,7 @@ fn next_token_rgb(iterator: &mut Chars) -> Result<(u8, u8, u8), ParseError> {
             if v != '#' {
                 return Err(ParseError::InvalidToken(v.to_string()));
             }
-        },
+        }
         None => {
             return Err(ParseError::EndOfLine);
         }
@@ -168,75 +172,118 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
     }
 }
 
-fn parse_line_1<'a>(context: &'a Context, iterator: &mut Chars) -> Result<PartReference<'a>, ParseError> {
+fn parse_line_1<'a>(
+    materials: &'a MaterialRegistry,
+    iterator: &mut Chars,
+) -> Result<PartReference<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
     let x = next_token_f32(iterator)?;
     let y = next_token_f32(iterator)?;
     let z = next_token_f32(iterator)?;
     let matrix = Matrix4::new(
-        next_token_f32(iterator)?, next_token_f32(iterator)?, next_token_f32(iterator)?, x,
-        next_token_f32(iterator)?, next_token_f32(iterator)?, next_token_f32(iterator)?, y,
-        next_token_f32(iterator)?, next_token_f32(iterator)?, next_token_f32(iterator)?, z,
-        0.0, 0.0, 0.0, 1.0
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        x,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        y,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        z,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     );
     let name = next_token(iterator, true)?;
     Ok(PartReference {
-        color: ColorReference::resolve(color, &context.materials),
+        color: ColorReference::resolve(color, materials),
         matrix: matrix,
-        name: name
+        name: NormalizedAlias::from(name),
+        resolution: PartResolution::Unresolved,
     })
 }
 
-fn parse_line_2<'a>(context: &'a Context, iterator: &mut Chars) -> Result<Line<'a>, ParseError> {
+fn parse_line_2<'a>(
+    materials: &'a MaterialRegistry,
+    iterator: &mut Chars,
+) -> Result<Line<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
-    let a = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let b = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
+    let a = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let b = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
     Ok(Line {
-        color: ColorReference::resolve(color, &context.materials),
+        color: ColorReference::resolve(color, materials),
         a: a,
-        b: b
+        b: b,
     })
 }
 
-fn parse_line_3<'a>(context: &'a Context, iterator: &mut Chars) -> Result<Triangle<'a>, ParseError> {
+fn parse_line_3<'a>(
+    materials: &'a MaterialRegistry,
+    iterator: &mut Chars,
+) -> Result<Triangle<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
-    let a = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let b = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let c = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
+    let a = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let b = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let c = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
     Ok(Triangle {
-        color: ColorReference::resolve(color, &context.materials),
+        color: ColorReference::resolve(color, materials),
         a: a,
         b: b,
         c: c,
     })
 }
 
-fn parse_line_4<'a>(context: &'a Context, iterator: &mut Chars) -> Result<Quad<'a>, ParseError> {
+fn parse_line_4<'a>(
+    materials: &'a MaterialRegistry,
+    iterator: &mut Chars,
+) -> Result<Quad<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
-    let a = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let b = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let c = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let d = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
+    let a = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let b = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let c = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let d = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
     Ok(Quad {
-        color: ColorReference::resolve(color, &context.materials),
+        color: ColorReference::resolve(color, materials),
         a: a,
         b: b,
         c: c,
@@ -244,22 +291,33 @@ fn parse_line_4<'a>(context: &'a Context, iterator: &mut Chars) -> Result<Quad<'
     })
 }
 
-fn parse_line_5<'a>(context: &'a Context, iterator: &mut Chars) -> Result<OptionalLine<'a>, ParseError> {
+fn parse_line_5<'a>(
+    materials: &'a MaterialRegistry,
+    iterator: &mut Chars,
+) -> Result<OptionalLine<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
-    let a = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let b = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let c = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
-    let d = Vector3::new(next_token_f32(iterator)?,
-                         next_token_f32(iterator)?,
-                         next_token_f32(iterator)?);
+    let a = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let b = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let c = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
+    let d = Vector3::new(
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+    );
     Ok(OptionalLine {
-        color: ColorReference::resolve(color, &context.materials),
+        color: ColorReference::resolve(color, materials),
         a: a,
         b: b,
         c: c,
@@ -268,7 +326,9 @@ fn parse_line_5<'a>(context: &'a Context, iterator: &mut Chars) -> Result<Option
 }
 
 fn parse_inner<'a, T: BufRead>(
-    context: &'a Context, iterator: &mut Enumerate<Lines<T>>, multipart: bool
+    materials: &'a MaterialRegistry,
+    iterator: &mut Enumerate<Lines<T>>,
+    multipart: bool,
 ) -> Result<(Document<'a>, Option<String>), DocumentParseError> {
     let mut next: Option<String> = None;
     let mut name = String::new();
@@ -284,107 +344,121 @@ fn parse_inner<'a, T: BufRead>(
 
         let line = match line_ {
             Ok(v) => v,
-            Err(e) => return Err(DocumentParseError {
-                line: index + 1,
-                error: ParseError::from(e),
-            }),
+            Err(e) => {
+                return Err(DocumentParseError {
+                    line: index + 1,
+                    error: ParseError::from(e),
+                });
+            }
         };
         let mut it = line.chars();
         match next_token(&mut it, false) {
-            Ok(token) => {
-                match token.as_str() {
-                    "0" => match parse_line_0(&mut it) {
-                        Ok(val) => {
-                            match val {
-                                Line0::BfcCertification(bfc_) => {
-                                    bfc = bfc_;
-                                },
-                                Line0::File(file_) => {
-                                    if multipart {
-                                        if description.len() != 0 {
-                                            next = Some(file_);
-                                            break 'read_loop;
-                                        }
-                                    } else {
-                                        return Err(DocumentParseError {
-                                            line: index + 1,
-                                            error: ParseError::MultipartDocument,
-                                        });
-                                    }
-                                },
-                                Line0::Name(name_) => {
-                                    name = name_;
-                                },
-                                Line0::Author(author_) => {
-                                    author = author_;
-                                },
-                                Line0::Meta(meta) => {
-                                    if let Meta::Comment(comment) = meta {
-                                        if description.len() == 0 {
-                                            description = comment;
-                                        } else {
-                                            commands.push(Command::Meta(Meta::Comment(comment)));
-                                        }
-                                    } else {
-                                        commands.push(Command::Meta(meta));
-                                    }
-                                },
-                                Line0::Header(header) => {
-                                    headers.push(header);
-                                },
+            Ok(token) => match token.as_str() {
+                "0" => match parse_line_0(&mut it) {
+                    Ok(val) => match val {
+                        Line0::BfcCertification(bfc_) => {
+                            bfc = bfc_;
+                        }
+                        Line0::File(file_) => {
+                            if multipart {
+                                if description.len() != 0 {
+                                    next = Some(file_);
+                                    break 'read_loop;
+                                }
+                            } else {
+                                return Err(DocumentParseError {
+                                    line: index + 1,
+                                    error: ParseError::MultipartDocument,
+                                });
                             }
-                        },
-                        Err(e) => return Err(DocumentParseError {
+                        }
+                        Line0::Name(name_) => {
+                            name = name_;
+                        }
+                        Line0::Author(author_) => {
+                            author = author_;
+                        }
+                        Line0::Meta(meta) => {
+                            if let Meta::Comment(comment) = meta {
+                                if description.len() == 0 {
+                                    description = comment;
+                                } else {
+                                    commands.push(Command::Meta(Meta::Comment(comment)));
+                                }
+                            } else {
+                                commands.push(Command::Meta(meta));
+                            }
+                        }
+                        Line0::Header(header) => {
+                            headers.push(header);
+                        }
+                    },
+                    Err(e) => {
+                        return Err(DocumentParseError {
                             line: index + 1,
                             error: e,
-                        }),
-                    },
-                    "1" => match parse_line_1(&context, &mut it) {
-                        Ok(val) => commands.push(Command::PartReference(val)),
-                        Err(e) => return Err(DocumentParseError {
+                        });
+                    }
+                },
+                "1" => match parse_line_1(materials, &mut it) {
+                    Ok(val) => commands.push(Command::PartReference(val)),
+                    Err(e) => {
+                        return Err(DocumentParseError {
                             line: index + 1,
                             error: e,
-                        }),
-                    },
-                    "2" => match parse_line_2(&context, &mut it) {
-                        Ok(val) => commands.push(Command::Line(val)),
-                        Err(e) => return Err(DocumentParseError {
+                        });
+                    }
+                },
+                "2" => match parse_line_2(materials, &mut it) {
+                    Ok(val) => commands.push(Command::Line(val)),
+                    Err(e) => {
+                        return Err(DocumentParseError {
                             line: index + 1,
                             error: e,
-                        }),
-                    },
-                    "3" => match parse_line_3(&context, &mut it) {
-                        Ok(val) => commands.push(Command::Triangle(val)),
-                        Err(e) => return Err(DocumentParseError {
+                        });
+                    }
+                },
+                "3" => match parse_line_3(materials, &mut it) {
+                    Ok(val) => commands.push(Command::Triangle(val)),
+                    Err(e) => {
+                        return Err(DocumentParseError {
                             line: index + 1,
                             error: e,
-                        }),
-                    },
-                    "4" => match parse_line_4(&context, &mut it) {
-                        Ok(val) => commands.push(Command::Quad(val)),
-                        Err(e) => return Err(DocumentParseError {
+                        });
+                    }
+                },
+                "4" => match parse_line_4(materials, &mut it) {
+                    Ok(val) => commands.push(Command::Quad(val)),
+                    Err(e) => {
+                        return Err(DocumentParseError {
                             line: index + 1,
                             error: e,
-                        }),
-                    },
-                    "5" => match parse_line_5(&context, &mut it) {
-                        Ok(val) => commands.push(Command::OptionalLine(val)),
-                        Err(e) => return Err(DocumentParseError {
+                        });
+                    }
+                },
+                "5" => match parse_line_5(materials, &mut it) {
+                    Ok(val) => commands.push(Command::OptionalLine(val)),
+                    Err(e) => {
+                        return Err(DocumentParseError {
                             line: index + 1,
                             error: e,
-                        }),
-                    },
-                    _ => return Err(DocumentParseError {
+                        });
+                    }
+                },
+                _ => {
+                    return Err(DocumentParseError {
                         line: index + 1,
-                        error: ParseError::UnexpectedCommand(token)
-                    }),
+                        error: ParseError::UnexpectedCommand(token),
+                    });
                 }
             },
-            Err(ParseError::EndOfLine) => {},
-            Err(e) => return Err(DocumentParseError {
-                line: index + 1,
-                error: e
-            }),
+            Err(ParseError::EndOfLine) => {}
+            Err(e) => {
+                return Err(DocumentParseError {
+                    line: index + 1,
+                    error: e,
+                });
+            }
         }
     }
 
@@ -394,43 +468,54 @@ fn parse_inner<'a, T: BufRead>(
             error: ParseError::InvalidDocumentStructure,
         })
     } else {
-        Ok((Document { name: name,
-                       description: description,
-                       author: author,
-                       bfc: bfc,
-                       headers: headers,
-                       commands: commands,
-        }, next))
+        Ok((
+            Document {
+                name: name,
+                description: description,
+                author: author,
+                bfc: bfc,
+                headers: headers,
+                commands: commands,
+            },
+            next,
+        ))
     }
 }
 
 pub fn parse_single_document<'a, T: BufRead>(
-    context: &'a Context, reader: &mut T
+    materials: &'a MaterialRegistry,
+    reader: &mut T,
 ) -> Result<Document<'a>, DocumentParseError> {
     let mut it = reader.lines().enumerate();
-    let (document, _) = parse_inner(context, &mut it, false)?;
+    let (document, _) = parse_inner(materials, &mut it, false)?;
 
     Ok(document)
 }
 
 pub fn parse_multipart_document<'a, T: BufRead>(
-    context: &'a Context, reader: &mut T
+    materials: &'a MaterialRegistry,
+    reader: &mut T,
 ) -> Result<MultipartDocument<'a>, DocumentParseError> {
     let mut it = reader.lines().enumerate();
-    let (document, mut next) = parse_inner(context, &mut it, true)?;
+    let (document, mut next) = parse_inner(materials, &mut it, true)?;
     let mut subparts = HashMap::new();
 
     while next.is_some() {
-        let (part, next_) = parse_inner(context, &mut it, true)?;
+        let (part, next_) = parse_inner(materials, &mut it, true)?;
 
-        subparts.insert(NormalizedAlias::from(&next.unwrap()), part);
+        subparts.insert(NormalizedAlias::from(&next.unwrap()), Rc::new(part));
         next = next_;
     }
 
-    Ok(MultipartDocument { body: document, subparts: subparts })
+    Ok(MultipartDocument {
+        body: Rc::new(document),
+        subparts: subparts,
+    })
 }
 
-fn parse_customized_material(mut iterator: &mut Chars) -> Result<CustomizedMaterial, ColorDefinitionParseError> {
+fn parse_customized_material(
+    mut iterator: &mut Chars,
+) -> Result<CustomizedMaterial, ColorDefinitionParseError> {
     match next_token(&mut iterator, false)?.as_str() {
         "GLITTER" => {
             let mut alpha = 255u8;
@@ -442,11 +527,11 @@ fn parse_customized_material(mut iterator: &mut Chars) -> Result<CustomizedMater
             let mut maxsize = 0u32;
             match next_token(&mut iterator, false)?.as_str() {
                 "VALUE" => (),
-                e => return Err(
-                    ColorDefinitionParseError::ParseError(
-                        ParseError::InvalidToken(e.to_string())
-                    )
-                ),
+                e => {
+                    return Err(ColorDefinitionParseError::ParseError(
+                        ParseError::InvalidToken(e.to_string()),
+                    ));
+                }
             };
             let (vr, vg, vb) = next_token_rgb(&mut iterator)?;
             loop {
@@ -459,26 +544,30 @@ fn parse_customized_material(mut iterator: &mut Chars) -> Result<CustomizedMater
                 match token.as_str() {
                     "ALPHA" => {
                         alpha = next_token_u32(&mut iterator)? as u8;
-                    },
+                    }
                     "LUMINANCE" => {
                         luminance = next_token_u32(&mut iterator)? as u8;
-                    },
+                    }
                     "FRACTION" => {
                         fraction = next_token_f32(&mut iterator)?;
-                    },
+                    }
                     "VFRACTION" => {
                         vfraction = next_token_f32(&mut iterator)?;
-                    },
+                    }
                     "SIZE" => {
                         size = next_token_u32(&mut iterator)?;
-                    },
+                    }
                     "MINSIZE" => {
                         minsize = next_token_u32(&mut iterator)?;
-                    },
+                    }
                     "MAXSIZE" => {
                         maxsize = next_token_u32(&mut iterator)?;
-                    },
-                    _  => return Err(ColorDefinitionParseError::ParseError(ParseError::InvalidToken(token.clone()))),
+                    }
+                    _ => {
+                        return Err(ColorDefinitionParseError::ParseError(
+                            ParseError::InvalidToken(token.clone()),
+                        ));
+                    }
                 }
             }
             Ok(CustomizedMaterial::Glitter(MaterialGlitter {
@@ -490,7 +579,7 @@ fn parse_customized_material(mut iterator: &mut Chars) -> Result<CustomizedMater
                 minsize: minsize,
                 maxsize: maxsize,
             }))
-        },
+        }
         "SPECKLE" => {
             let mut alpha = 255u8;
             let mut luminance = 0u8;
@@ -500,11 +589,11 @@ fn parse_customized_material(mut iterator: &mut Chars) -> Result<CustomizedMater
             let mut maxsize = 0u32;
             match next_token(&mut iterator, false)?.as_str() {
                 "VALUE" => (),
-                e => return Err(
-                    ColorDefinitionParseError::ParseError(
-                        ParseError::InvalidToken(e.to_string())
-                    )
-                ),
+                e => {
+                    return Err(ColorDefinitionParseError::ParseError(
+                        ParseError::InvalidToken(e.to_string()),
+                    ));
+                }
             };
             let (vr, vg, vb) = next_token_rgb(&mut iterator)?;
             loop {
@@ -517,23 +606,27 @@ fn parse_customized_material(mut iterator: &mut Chars) -> Result<CustomizedMater
                 match token.as_str() {
                     "ALPHA" => {
                         alpha = next_token_u32(&mut iterator)? as u8;
-                    },
+                    }
                     "LUMINANCE" => {
                         luminance = next_token_u32(&mut iterator)? as u8;
-                    },
+                    }
                     "FRACTION" => {
                         fraction = next_token_f32(&mut iterator)?;
-                    },
+                    }
                     "SIZE" => {
                         size = next_token_u32(&mut iterator)?;
-                    },
+                    }
                     "MINSIZE" => {
                         minsize = next_token_u32(&mut iterator)?;
-                    },
+                    }
                     "MAXSIZE" => {
                         maxsize = next_token_u32(&mut iterator)?;
-                    },
-                    _  => return Err(ColorDefinitionParseError::ParseError(ParseError::InvalidToken(token.clone()))),
+                    }
+                    _ => {
+                        return Err(ColorDefinitionParseError::ParseError(
+                            ParseError::InvalidToken(token.clone()),
+                        ));
+                    }
                 }
             }
             Ok(CustomizedMaterial::Speckle(MaterialSpeckle {
@@ -544,44 +637,54 @@ fn parse_customized_material(mut iterator: &mut Chars) -> Result<CustomizedMater
                 minsize: minsize,
                 maxsize: maxsize,
             }))
-        },
+        }
         e => Err(ColorDefinitionParseError::UnknownMaterial(e.to_string())),
     }
 }
 
 pub fn parse_color_definition<'a, T: BufRead>(
-    reader: &mut T
+    reader: &mut T,
 ) -> Result<MaterialRegistry, ColorDefinitionParseError> {
     // Use an empty context here
-    let context = Context {
-        materials: MaterialRegistry::new(),
-    };
-    let document = parse_single_document(&context, reader)?;
-    
+    let materials = MaterialRegistry::new();
+    let document = parse_single_document(&materials, reader)?;
+
     let mut materials = MaterialRegistry::new();
     for Header(_, value) in document.headers.iter().filter(|s| s.0 == "COLOUR") {
         let mut finish = Finish::Plastic;
         let mut alpha = 255u8;
         let mut luminance = 0u8;
-        
+
         let mut it = value.chars();
         let name = next_token(&mut it, false)?;
-        
+
         match next_token(&mut it, false)?.as_str() {
             "CODE" => (),
-            e => return Err(ColorDefinitionParseError::ParseError(ParseError::InvalidToken(e.to_string()))),
+            e => {
+                return Err(ColorDefinitionParseError::ParseError(
+                    ParseError::InvalidToken(e.to_string()),
+                ));
+            }
         };
         let code = next_token_u32(&mut it)?;
 
         match next_token(&mut it, false)?.as_str() {
             "VALUE" => (),
-            e => return Err(ColorDefinitionParseError::ParseError(ParseError::InvalidToken(e.to_string()))),
+            e => {
+                return Err(ColorDefinitionParseError::ParseError(
+                    ParseError::InvalidToken(e.to_string()),
+                ));
+            }
         };
         let (cr, cg, cb) = next_token_rgb(&mut it)?;
 
         match next_token(&mut it, false)?.as_str() {
             "EDGE" => (),
-            e => return Err(ColorDefinitionParseError::ParseError(ParseError::InvalidToken(e.to_string()))),
+            e => {
+                return Err(ColorDefinitionParseError::ParseError(
+                    ParseError::InvalidToken(e.to_string()),
+                ));
+            }
         };
         let (er, eg, eb) = next_token_rgb(&mut it)?;
 
@@ -595,40 +698,47 @@ pub fn parse_color_definition<'a, T: BufRead>(
             match token.as_str() {
                 "ALPHA" => {
                     alpha = next_token_u32(&mut it)? as u8;
-                },
+                }
                 "LUMINANCE" => {
                     luminance = next_token_u32(&mut it)? as u8;
-                },
+                }
                 "CHROME" => {
                     finish = Finish::Chrome;
-                },
+                }
                 "PEARLESCENT" => {
                     finish = Finish::Pearlescent;
-                },
+                }
                 "METAL" => {
                     finish = Finish::Metal;
-                },
+                }
                 "RUBBER" => {
                     finish = Finish::Rubber;
-                },
+                }
                 "MATTE_METALLIC" => {
                     finish = Finish::MatteMetallic;
-                },
+                }
                 "MATERIAL" => {
                     finish = Finish::Custom(parse_customized_material(&mut it)?);
-                },
-                _  => return Err(ColorDefinitionParseError::ParseError(ParseError::InvalidToken(token.clone()))),
+                }
+                _ => {
+                    return Err(ColorDefinitionParseError::ParseError(
+                        ParseError::InvalidToken(token.clone()),
+                    ));
+                }
             }
         }
 
-        materials.insert(code, Material {
-            code: code,
-            name: name,
-            color: Rgba::new(cr, cg, cb, alpha),
-            edge: Rgba::new(er, eg, eb, 255),
-            luminance: luminance,
-            finish: finish
-        });
+        materials.insert(
+            code,
+            Material {
+                code: code,
+                name: name,
+                color: Rgba::new(cr, cg, cb, alpha),
+                edge: Rgba::new(er, eg, eb, 255),
+                luminance: luminance,
+                finish: finish,
+            },
+        );
     }
 
     Ok(materials)
@@ -636,11 +746,9 @@ pub fn parse_color_definition<'a, T: BufRead>(
 
 #[cfg(test)]
 mod tests {
-    use crate::context::Context;
+    use super::{parse_color_definition, parse_multipart_document, parse_single_document};
     use crate::color::MaterialRegistry;
     use crate::error::{ColorDefinitionParseError, ParseError};
-    use super::{parse_single_document, parse_multipart_document,
-                parse_color_definition};
     use std::fs::File;
     use std::io::BufReader;
 
@@ -648,57 +756,59 @@ mod tests {
     const PATH_PART: &str = "/home/segfault/.ldraw/parts/u9318.dat";
     const PATH_MPD: &str = "/home/segfault/Downloads/6973.ldr";
 
-    fn set_up_context() -> Result<Context, ColorDefinitionParseError> {
+    fn set_up_materials() -> Result<MaterialRegistry, ColorDefinitionParseError> {
         let mut reader = BufReader::new(File::open(PATH_LDCONFIG).unwrap());
         match parse_color_definition::<BufReader<File>>(&mut reader) {
-            Ok(m) => Ok(Context {
-                materials: m,
-            }),
+            Ok(m) => Ok(m),
             Err(e) => Err(e),
         }
     }
 
     #[test]
     fn test_parse_color_definition() {
-        let context = set_up_context().unwrap();
+        let materials = set_up_materials().unwrap();
 
-        println!("{:#?}\n", context.materials);
+        println!("{:#?}\n", materials);
     }
 
     #[test]
     fn test_parse_single_document() {
-        let context = set_up_context().unwrap();
+        let materials = set_up_materials().unwrap();
         let mut reader_part = BufReader::new(File::open(PATH_PART).unwrap());
-        match parse_single_document::<BufReader<File>>(&context, &mut reader_part) {
+        match parse_single_document::<BufReader<File>>(&materials, &mut reader_part) {
             Ok(model) => {
                 println!("{:#?}\n", model);
-            },
+            }
             Err(e) => {
                 assert!(false, "{}", e);
             }
         };
 
         let mut reader_mpd = BufReader::new(File::open(PATH_MPD).unwrap());
-        match parse_single_document::<BufReader<File>>(&context, &mut reader_mpd) {
+        match parse_single_document::<BufReader<File>>(&materials, &mut reader_mpd) {
             Ok(_) => {
                 assert!(false, "Should not read properly");
-            },
+            }
             Err(e) => {
-                assert!(if let ParseError::MultipartDocument = e.error { true } else { false });
+                assert!(if let ParseError::MultipartDocument = e.error {
+                    true
+                } else {
+                    false
+                });
             }
         };
     }
 
     #[test]
     fn test_parse_multipart_document() {
-        let context = set_up_context().unwrap();
+        let materials = set_up_materials().unwrap();
         let f = File::open(PATH_MPD).unwrap();
         let mut reader = BufReader::new(f);
 
-        match parse_multipart_document::<BufReader<File>>(&context, &mut reader) {
+        match parse_multipart_document::<BufReader<File>>(&materials, &mut reader) {
             Ok(model) => {
                 println!("{:#?}\n", model);
-            },
+            }
             Err(e) => {
                 assert!(false, "{}", e);
             }

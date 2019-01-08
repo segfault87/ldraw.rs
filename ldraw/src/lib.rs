@@ -12,12 +12,38 @@ pub mod library;
 pub mod parser;
 pub mod writer;
 
-#[derive(Debug)]
-pub struct NormalizedAlias(String);
+#[derive(Clone, Debug)]
+pub struct NormalizedAlias {
+    normalized: String,
+    pub original: String,
+}
+
+impl NormalizedAlias {
+    pub fn set(&mut self, alias: String) {
+        self.normalized = Self::normalize(&alias);
+        self.original = alias;
+    }
+
+    pub fn normalize(alias: &String) -> String {
+        alias.trim().to_lowercase().replace("\\", "/")
+    }
+}
+
+impl From<String> for NormalizedAlias {
+    fn from(alias: String) -> NormalizedAlias {
+        NormalizedAlias {
+            normalized: Self::normalize(&alias),
+            original: alias,
+        }
+    }
+}
 
 impl From<&String> for NormalizedAlias {
     fn from(alias: &String) -> NormalizedAlias {
-        NormalizedAlias(alias.trim().to_lowercase().replace("\\", "/"))
+        NormalizedAlias {
+            normalized: Self::normalize(alias),
+            original: alias.clone(),
+        }
     }
 }
 
@@ -25,12 +51,12 @@ impl cmp::Eq for NormalizedAlias {}
 
 impl cmp::PartialEq for NormalizedAlias {
     fn eq(&self, other: &NormalizedAlias) -> bool {
-        self.0.eq(&other.0)
+        self.normalized.eq(&other.normalized)
     }
 }
 
 impl hash::Hash for NormalizedAlias {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state)
+        self.normalized.hash(state)
     }
 }

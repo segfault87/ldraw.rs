@@ -5,8 +5,9 @@ use cgmath::Vector3;
 
 use crate::color::ColorReference;
 use crate::document::{BfcCertification, Document, MultipartDocument};
-use crate::elements::{BfcStatement, Header, Command, Line, Meta, OptionalLine,
-                      PartReference, Quad, Triangle};
+use crate::elements::{
+    BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle,
+};
 use crate::error::SerializeError;
 
 fn serialize_vec3(vec: &Vector3<f32>) -> String {
@@ -76,15 +77,15 @@ impl<'a> LDrawWriter for Document<'a> {
         match self.bfc.write(writer) {
             Ok(()) => {
                 writer.write("\n".as_bytes())?;
-            },
-            Err(SerializeError::NoSerializable) => {},
+            }
+            Err(SerializeError::NoSerializable) => {}
             Err(e) => return Err(e),
         };
         for command in &self.commands {
             command.write(writer)?;
         }
         writer.write("0\n\n".as_bytes())?;
-        
+
         Ok(())
     }
 }
@@ -108,32 +109,32 @@ impl LDrawWriter for Meta {
                 for line in message.lines() {
                     writer.write(format!("0 {}\n", line).as_bytes())?;
                 }
-            },
+            }
             Meta::Step => {
                 writer.write("0 STEP\n".as_bytes())?;
-            },
+            }
             Meta::Write(message) => {
                 for line in message.lines() {
                     writer.write(format!("0 WRITE {}\n", line).as_bytes())?;
                 }
-            },
+            }
             Meta::Print(message) => {
                 for line in message.lines() {
                     writer.write(format!("0 PRINT {}\n", line).as_bytes())?;
                 }
-            },
+            }
             Meta::Clear => {
                 writer.write("0 CLEAR\n".as_bytes())?;
-            },
+            }
             Meta::Pause => {
                 writer.write("0 PAUSE\n".as_bytes())?;
-            },
+            }
             Meta::Save => {
                 writer.write("0 SAVE\n".as_bytes())?;
-            },
+            }
             Meta::Bfc(bfc) => {
                 bfc.write(writer)?;
-            },
+            }
         };
 
         Ok(())
@@ -143,51 +144,90 @@ impl LDrawWriter for Meta {
 impl<'a> LDrawWriter for PartReference<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         let m = &self.matrix;
-        writer.write(format!("1 {} {} {} {} {} {} {} {} {} {} {} {} {}\n",
-                             self.color,
-                             m.x.w, m.y.w, m.z.w,
-                             m.x.x, m.x.y, m.x.z,
-                             m.y.x, m.y.y, m.y.z,
-                             m.z.x, m.z.y, m.z.z).as_bytes())?;
+        writer.write(
+            format!(
+                "1 {} {} {} {} {} {} {} {} {} {} {} {} {}\n",
+                self.color,
+                m.x.w,
+                m.y.w,
+                m.z.w,
+                m.x.x,
+                m.x.y,
+                m.x.z,
+                m.y.x,
+                m.y.y,
+                m.y.z,
+                m.z.x,
+                m.z.y,
+                m.z.z
+            )
+            .as_bytes(),
+        )?;
         Ok(())
     }
 }
 
 impl<'a> LDrawWriter for Line<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(format!("2 {} {} {}\n",
-                             self.color,
-                             serialize_vec3(&self.a), serialize_vec3(&self.b)).as_bytes())?;
+        writer.write(
+            format!(
+                "2 {} {} {}\n",
+                self.color,
+                serialize_vec3(&self.a),
+                serialize_vec3(&self.b)
+            )
+            .as_bytes(),
+        )?;
         Ok(())
     }
 }
 
 impl<'a> LDrawWriter for Triangle<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(format!("2 {} {} {} {}\n",
-                             self.color,
-                             serialize_vec3(&self.a), serialize_vec3(&self.b),
-                             serialize_vec3(&self.c)).as_bytes())?;
+        writer.write(
+            format!(
+                "2 {} {} {} {}\n",
+                self.color,
+                serialize_vec3(&self.a),
+                serialize_vec3(&self.b),
+                serialize_vec3(&self.c)
+            )
+            .as_bytes(),
+        )?;
         Ok(())
     }
 }
 
 impl<'a> LDrawWriter for Quad<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(format!("2 {} {} {} {} {}\n",
-                             self.color,
-                             serialize_vec3(&self.a), serialize_vec3(&self.b),
-                             serialize_vec3(&self.c), serialize_vec3(&self.d)).as_bytes())?;
+        writer.write(
+            format!(
+                "2 {} {} {} {} {}\n",
+                self.color,
+                serialize_vec3(&self.a),
+                serialize_vec3(&self.b),
+                serialize_vec3(&self.c),
+                serialize_vec3(&self.d)
+            )
+            .as_bytes(),
+        )?;
         Ok(())
     }
 }
 
 impl<'a> LDrawWriter for OptionalLine<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(format!("2 {} {} {} {} {}\n",
-                             self.color,
-                             serialize_vec3(&self.a), serialize_vec3(&self.b),
-                             serialize_vec3(&self.c), serialize_vec3(&self.d)).as_bytes())?;
+        writer.write(
+            format!(
+                "2 {} {} {} {} {}\n",
+                self.color,
+                serialize_vec3(&self.a),
+                serialize_vec3(&self.b),
+                serialize_vec3(&self.c),
+                serialize_vec3(&self.d)
+            )
+            .as_bytes(),
+        )?;
         Ok(())
     }
 }
@@ -204,4 +244,3 @@ impl<'a> LDrawWriter for Command<'a> {
         }
     }
 }
-
