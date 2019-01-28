@@ -1,5 +1,7 @@
 use std::cmp;
-use std::hash;
+use std::hash::{Hash, Hasher};
+
+use cgmath::{Matrix4 as Matrix4_, Vector3 as Vector3_, Vector4 as Vector4_};
 
 pub mod color;
 pub mod context;
@@ -11,6 +13,10 @@ pub mod library;
 #[cfg(not(target_arch = "wasm32"))] pub mod library_native;
 pub mod parser;
 pub mod writer;
+
+pub type Matrix4 = Matrix4_<f32>;
+pub type Vector3 = Vector3_<f32>;
+pub type Vector4 = Vector4_<f32>;
 
 #[derive(Clone, Debug)]
 pub struct NormalizedAlias {
@@ -24,7 +30,7 @@ impl NormalizedAlias {
         self.original = alias;
     }
 
-    pub fn normalize(alias: &String) -> String {
+    pub fn normalize(alias: &str) -> String {
         alias.trim().to_lowercase().replace("\\", "/")
     }
 }
@@ -55,8 +61,8 @@ impl cmp::PartialEq for NormalizedAlias {
     }
 }
 
-impl hash::Hash for NormalizedAlias {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+impl Hash for NormalizedAlias {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.normalized.hash(state)
     }
 }

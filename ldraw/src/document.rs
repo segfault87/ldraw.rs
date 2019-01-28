@@ -14,6 +14,29 @@ pub enum BfcCertification {
     CertifyCw,
 }
 
+impl BfcCertification {
+    pub fn is_certified(&self) -> bool {
+        match self {
+            BfcCertification::CertifyCw | BfcCertification::CertifyCcw => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_ccw(&self) -> bool {
+        match self {
+            BfcCertification::CertifyCcw => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_cw(&self) -> bool {
+        match self {
+            BfcCertification::CertifyCw => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Document<'a> {
     pub name: String,

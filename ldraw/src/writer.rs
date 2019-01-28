@@ -1,7 +1,7 @@
 use std::fmt;
 use std::io::Write;
 
-use cgmath::Vector3;
+use cgmath::Vector4;
 
 use crate::color::ColorReference;
 use crate::document::{BfcCertification, Document, MultipartDocument};
@@ -10,18 +10,18 @@ use crate::elements::{
 };
 use crate::error::SerializeError;
 
-fn serialize_vec3(vec: &Vector3<f32>) -> String {
+fn serialize_vec3(vec: &Vector4<f32>) -> String {
     format!("{} {} {}", vec.x, vec.y, vec.z)
 }
 
 impl<'a> fmt::Display for ColorReference<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let code = match self {
-            ColorReference::Unknown(code) => code.clone(),
-            ColorReference::Current => 16,
-            ColorReference::Complement => 24,
-            ColorReference::PredefinedMaterial(material) => material.code.clone(),
-            ColorReference::CustomMaterial(material) => material.code.clone(),
+            ColorReference::Unknown(code) => code,
+            ColorReference::Current => &16u32,
+            ColorReference::Complement => &24u32,
+            ColorReference::PredefinedMaterial(material) => &material.code,
+            ColorReference::CustomMaterial(material) => &material.code,
         };
         write!(f, "{}", code)
     }
@@ -33,7 +33,7 @@ trait LDrawWriter {
 
 impl LDrawWriter for Header {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(format!("0 !{} {}\n", self.0, self.1).as_bytes())?;
+        writer.write_all(format!("0 !{} {}\n", self.0, self.1).as_bytes())?;
         Ok(())
     }
 }
@@ -41,9 +41,9 @@ impl LDrawWriter for Header {
 impl LDrawWriter for BfcCertification {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         match self {
-            BfcCertification::NoCertify => writer.write("0 BFC NOCERTIFY\n".as_bytes())?,
-            BfcCertification::CertifyCcw => writer.write("0 BFC CERTIFY CCW\n".as_bytes())?,
-            BfcCertification::CertifyCw => writer.write("0 BFC CERTIFY CW\n".as_bytes())?,
+            BfcCertification::NoCertify => writer.write_all("0 BFC NOCERTIFY\n".as_bytes())?,
+            BfcCertification::CertifyCcw => writer.write_all("0 BFC CERTIFY CCW\n".as_bytes())?,
+            BfcCertification::CertifyCw => writer.write_all("0 BFC CERTIFY CW\n".as_bytes())?,
             _ => return Err(SerializeError::NoSerializable),
         };
         Ok(())
@@ -53,13 +53,13 @@ impl LDrawWriter for BfcCertification {
 impl LDrawWriter for BfcStatement {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         match self {
-            BfcStatement::Cw => writer.write("0 BFC CW\n".as_bytes())?,
-            BfcStatement::Ccw => writer.write("0 BFC CCW\n".as_bytes())?,
-            BfcStatement::Clip => writer.write("0 BFC CLIP\n".as_bytes())?,
-            BfcStatement::ClipCw => writer.write("0 BFC CLIP CW\n".as_bytes())?,
-            BfcStatement::ClipCcw => writer.write("0 BFC CLIP CW\n".as_bytes())?,
-            BfcStatement::NoClip => writer.write("0 BFC NOCLIP\n".as_bytes())?,
-            BfcStatement::InvertNext => writer.write("0 BFC INVERTNEXT\n".as_bytes())?,
+            BfcStatement::Cw => writer.write_all("0 BFC CW\n".as_bytes())?,
+            BfcStatement::Ccw => writer.write_all("0 BFC CCW\n".as_bytes())?,
+            BfcStatement::Clip => writer.write_all("0 BFC CLIP\n".as_bytes())?,
+            BfcStatement::ClipCw => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
+            BfcStatement::ClipCcw => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
+            BfcStatement::NoClip => writer.write_all("0 BFC NOCLIP\n".as_bytes())?,
+            BfcStatement::InvertNext => writer.write_all("0 BFC INVERTNEXT\n".as_bytes())?,
         };
         Ok(())
     }
@@ -67,16 +67,16 @@ impl LDrawWriter for BfcStatement {
 
 impl<'a> LDrawWriter for Document<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(format!("0 {}\n", self.description).as_bytes())?;
-        writer.write(format!("0 Name: {}\n", self.name).as_bytes())?;
-        writer.write(format!("0 Author: {}\n", self.author).as_bytes())?;
+        writer.write_all(format!("0 {}\n", self.description).as_bytes())?;
+        writer.write_all(format!("0 Name: {}\n", self.name).as_bytes())?;
+        writer.write_all(format!("0 Author: {}\n", self.author).as_bytes())?;
         for header in &self.headers {
             header.write(writer)?;
         }
-        writer.write("\n".as_bytes())?;
+        writer.write_all("\n".as_bytes())?;
         match self.bfc.write(writer) {
             Ok(()) => {
-                writer.write("\n".as_bytes())?;
+                writer.write_all("\n".as_bytes())?;
             }
             Err(SerializeError::NoSerializable) => {}
             Err(e) => return Err(e),
@@ -84,7 +84,7 @@ impl<'a> LDrawWriter for Document<'a> {
         for command in &self.commands {
             command.write(writer)?;
         }
-        writer.write("0\n\n".as_bytes())?;
+        writer.write_all("0\n\n".as_bytes())?;
 
         Ok(())
     }
@@ -94,7 +94,7 @@ impl<'a> LDrawWriter for MultipartDocument<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         self.body.write(writer)?;
         for subpart in self.subparts.values() {
-            writer.write(format!("0 FILE {}\n", subpart.name).as_bytes())?;
+            writer.write_all(format!("0 FILE {}\n", subpart.name).as_bytes())?;
             subpart.write(writer)?;
         }
 
@@ -107,30 +107,30 @@ impl LDrawWriter for Meta {
         match self {
             Meta::Comment(message) => {
                 for line in message.lines() {
-                    writer.write(format!("0 {}\n", line).as_bytes())?;
+                    writer.write_all(format!("0 {}\n", line).as_bytes())?;
                 }
             }
             Meta::Step => {
-                writer.write("0 STEP\n".as_bytes())?;
+                writer.write_all("0 STEP\n".as_bytes())?;
             }
             Meta::Write(message) => {
                 for line in message.lines() {
-                    writer.write(format!("0 WRITE {}\n", line).as_bytes())?;
+                    writer.write_all(format!("0 WRITE {}\n", line).as_bytes())?;
                 }
             }
             Meta::Print(message) => {
                 for line in message.lines() {
-                    writer.write(format!("0 PRINT {}\n", line).as_bytes())?;
+                    writer.write_all(format!("0 PRINT {}\n", line).as_bytes())?;
                 }
             }
             Meta::Clear => {
-                writer.write("0 CLEAR\n".as_bytes())?;
+                writer.write_all("0 CLEAR\n".as_bytes())?;
             }
             Meta::Pause => {
-                writer.write("0 PAUSE\n".as_bytes())?;
+                writer.write_all("0 PAUSE\n".as_bytes())?;
             }
             Meta::Save => {
-                writer.write("0 SAVE\n".as_bytes())?;
+                writer.write_all("0 SAVE\n".as_bytes())?;
             }
             Meta::Bfc(bfc) => {
                 bfc.write(writer)?;
@@ -144,7 +144,7 @@ impl LDrawWriter for Meta {
 impl<'a> LDrawWriter for PartReference<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         let m = &self.matrix;
-        writer.write(
+        writer.write_all(
             format!(
                 "1 {} {} {} {} {} {} {} {} {} {} {} {} {}\n",
                 self.color,
@@ -169,7 +169,7 @@ impl<'a> LDrawWriter for PartReference<'a> {
 
 impl<'a> LDrawWriter for Line<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(
+        writer.write_all(
             format!(
                 "2 {} {} {}\n",
                 self.color,
@@ -184,7 +184,7 @@ impl<'a> LDrawWriter for Line<'a> {
 
 impl<'a> LDrawWriter for Triangle<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(
+        writer.write_all(
             format!(
                 "2 {} {} {} {}\n",
                 self.color,
@@ -200,7 +200,7 @@ impl<'a> LDrawWriter for Triangle<'a> {
 
 impl<'a> LDrawWriter for Quad<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(
+        writer.write_all(
             format!(
                 "2 {} {} {} {} {}\n",
                 self.color,
@@ -217,7 +217,7 @@ impl<'a> LDrawWriter for Quad<'a> {
 
 impl<'a> LDrawWriter for OptionalLine<'a> {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        writer.write(
+        writer.write_all(
             format!(
                 "2 {} {} {} {} {}\n",
                 self.color,

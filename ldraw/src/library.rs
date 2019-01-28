@@ -22,7 +22,7 @@ pub struct PartEntry<T> {
 impl<T> Clone for PartEntry<T> where T: Clone {
     fn clone(&self) -> PartEntry<T> {
         PartEntry {
-            kind: self.kind.clone(),
+            kind: self.kind,
             locator: self.locator.clone(),
         }
     }
@@ -40,14 +40,16 @@ pub struct PartDirectory<T> {
     pub parts: HashMap<NormalizedAlias, PartEntry<T>>,
 }
 
-impl<T> PartDirectory<T> {
-    pub fn new() -> PartDirectory<T> {
+impl<T> Default for PartDirectory<T> {
+    fn default() -> PartDirectory<T> {
         PartDirectory {
             primitives: HashMap::new(),
             parts: HashMap::new(),
         }
     }
+}
 
+impl<T> PartDirectory<T> {
     pub fn add(&mut self, key: NormalizedAlias, entry: PartEntry<T>) {
         match entry.kind {
             PartKind::Primitive => self.primitives.insert(key, entry),
@@ -71,13 +73,15 @@ pub struct PartCache<'a> {
     items: HashMap<NormalizedAlias, Rc<Document<'a>>>,
 }
 
-impl<'a> PartCache<'a> {
-    pub fn new() -> PartCache<'a> {
+impl<'a> Default for PartCache<'a> {
+    fn default() -> PartCache<'a> {
         PartCache {
             items: HashMap::new(),
         }
     }
+}
 
+impl<'a> PartCache<'a> {
     pub fn register(&mut self, alias: NormalizedAlias, document: Document<'a>) {
         self.items.insert(alias, Rc::new(document));
     }
@@ -90,11 +94,11 @@ impl<'a> PartCache<'a> {
     }
 
     pub fn collect(&mut self) {
-        self.items.retain(|_, v| Rc::strong_count(&v) > 1);
+        self.items.retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 1);
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum ResolutionResult<'a, T> {
     Missing,
     Pending(PartEntry<T>),
@@ -102,18 +106,18 @@ pub enum ResolutionResult<'a, T> {
     Associated(Rc<Document<'a>>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ResolutionMap<'a, T> {
     directory: &'a PartDirectory<T>,
     cache: &'a RefCell<PartCache<'a>>,
-    map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>
+    pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>
 }
 
 impl<'a, T: Clone> ResolutionMap<'a, T> {
     pub fn new(directory: &'a PartDirectory<T>, cache: &'a RefCell<PartCache<'a>>) -> ResolutionMap<'a, T> {
         ResolutionMap {
-            directory: directory,
-            cache: cache,
+            directory,
+            cache,
             map: HashMap::new(),
         }
     }
@@ -133,36 +137,24 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
                 continue;
             }
             
-            match parent {
-                Some(e) => {
-                    match e.query(&alias) {
-                        Some(doc) => {
-                            self.resolve(Rc::clone(&doc), parent);
-                            self.map.insert(alias, ResolutionResult::Subpart(Rc::clone(&doc)));
-                            continue;
-                        },
-                        None => (),
-                    };
-                },
-                None => (),
-            };
-            
-            match self.cache.borrow().query(&alias) {
-                Some(e) => {
-                    self.map.insert(alias, ResolutionResult::Associated(Rc::clone(&e)));
+            if let Some(e) = parent {
+                if let Some(doc) = e.query(&alias) {
+                    self.resolve(Rc::clone(&doc), parent);
+                    self.map.insert(alias, ResolutionResult::Subpart(Rc::clone(&doc)));
                     continue;
-                },
-                None => (),
-            };
+                }
+            }
             
-            match self.directory.query(&alias) {
-                Some(e) => {
-                    self.map.insert(alias, ResolutionResult::Pending(e.clone()));
-                },
-                None => {
-                    self.map.insert(alias, ResolutionResult::Missing);
-                },
-            };
+            if let Some(e) = self.cache.borrow().query(&alias) {
+                self.map.insert(alias, ResolutionResult::Associated(Rc::clone(&e)));
+                continue;
+            }
+            
+            if let Some(e) = self.directory.query(&alias) {
+                self.map.insert(alias, ResolutionResult::Pending(e.clone()));
+            } else {
+                self.map.insert(alias, ResolutionResult::Missing);
+            }
         }
     }
 
@@ -181,6 +173,10 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
             },
             None => None,
         }
+    }
+
+    pub fn get(&self, elem: &PartReference) -> Option<&ResolutionResult<T>> {
+        self.map.get(&elem.name)
     }
 }
 

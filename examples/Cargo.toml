@@ -1,2 +1,2 @@
 [workspace]
-members = ["loader"]
+members = ["loader", "baker"]

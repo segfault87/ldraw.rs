@@ -24,7 +24,7 @@ fn scan_directory(
     basepath: &PathBuf,
     relpath: PathBuf,
     mut dir: &mut HashMap<NormalizedAlias, PartEntryNative>,
-    kind: &'static PartKind,
+    kind: PartKind,
 ) -> Result<(), LibraryError> {
     for entry in basepath.read_dir()? {
         let entry = entry?;
@@ -43,7 +43,7 @@ fn scan_directory(
             dir.insert(
                 alias,
                 PartEntryNative {
-                    kind: kind.clone(),
+                    kind,
                     locator: path.into_os_string(),
                 },
             );
@@ -63,14 +63,9 @@ pub fn scan_ldraw_directory(path_str: &str) -> Result<PartDirectoryNative, Libra
         return Err(LibraryError::NoLDrawDir);
     }
 
-    let mut dir = PartDirectoryNative::new();
-    scan_directory(&path_parts, PathBuf::new(), &mut dir.parts, &PartKind::Part)?;
-    scan_directory(
-        &path_primitives,
-        PathBuf::new(),
-        &mut dir.primitives,
-        &PartKind::Primitive,
-    )?;
+    let mut dir = PartDirectoryNative::default();
+    scan_directory(&path_parts, PathBuf::new(), &mut dir.parts, PartKind::Part)?;
+    scan_directory(&path_primitives, PathBuf::new(), &mut dir.primitives, PartKind::Primitive)?;
 
     Ok(dir)
 }

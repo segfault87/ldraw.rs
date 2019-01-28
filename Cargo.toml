@@ -1,5 +1,5 @@
 [workspace]
 members = [
     "ldraw",
-#    "renderer"
+    "renderer"
 ]

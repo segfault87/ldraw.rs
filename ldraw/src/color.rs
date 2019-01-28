@@ -1,56 +1,62 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
-use cgmath::Vector4;
+use crate::Vector4;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Rgba {
     value: [u8; 4],
-    vec: Vector4<f32>,
 }
 
 impl Rgba {
     pub fn new(r: u8, g: u8, b: u8, a: u8) -> Rgba {
-        Rgba {
-            value: [r, g, b, a],
-            vec: Vector4::new(
-                r as f32 / 255.0,
-                g as f32 / 255.0,
-                b as f32 / 255.0,
-                a as f32 / 255.0,
-            ),
-        }
+        Rgba { value: [r, g, b, a] }
     }
 
     pub fn from_value(value: u32) -> Rgba {
-        let r = (value & 0x00ff0000 >> 16) as u8;
-        let g = (value & 0x0000ff00 >> 8) as u8;
-        let b = (value & 0x000000ff) as u8;
-        let a = (value & 0xff000000 >> 24) as u8;
-        Rgba {
-            value: [r, g, b, a],
-            vec: Vector4::new(
-                r as f32 / 255.0,
-                g as f32 / 255.0,
-                b as f32 / 255.0,
-                a as f32 / 255.0,
-            ),
-        }
+        let r = (value & 0x00ff_0000 >> 16) as u8;
+        let g = (value & 0x0000_ff00 >> 8) as u8;
+        let b = (value & 0x0000_00ff) as u8;
+        let a = (value & 0xff00_0000 >> 24) as u8;
+        Rgba { value: [r, g, b, a] }
     }
 
-    pub fn red(&self) -> u8 {
+    pub fn red(self) -> u8 {
         self.value[0]
     }
 
-    pub fn green(&self) -> u8 {
+    pub fn green(self) -> u8 {
         self.value[1]
     }
 
-    pub fn blue(&self) -> u8 {
+    pub fn blue(self) -> u8 {
         self.value[2]
     }
 
-    pub fn alpha(&self) -> u8 {
+    pub fn alpha(self) -> u8 {
         self.value[3]
+    }
+}
+
+impl From<&Rgba> for Vector4 {
+    fn from(src: &Rgba) -> Vector4 {
+        Vector4::new(
+            f32::from(src.red()) / 255.0,
+            f32::from(src.green()) / 255.0,
+            f32::from(src.blue()) / 255.0,
+            f32::from(src.alpha()) / 255.0,
+        )
+    }
+}
+
+impl From<Rgba> for Vector4 {
+    fn from(src: Rgba) -> Vector4 {
+        Vector4::new(
+            f32::from(src.red()) / 255.0,
+            f32::from(src.green()) / 255.0,
+            f32::from(src.blue()) / 255.0,
+            f32::from(src.alpha()) / 255.0,
+        )
     }
 }
 
@@ -102,6 +108,12 @@ pub struct Material {
     pub finish: Finish,
 }
 
+impl Material {
+    pub fn is_semi_transparent(&self) -> bool {
+        self.color.alpha() < 255u8
+    }
+}
+
 pub type MaterialRegistry = HashMap<u32, Material>;
 
 #[derive(Clone, Debug)]
@@ -113,14 +125,57 @@ pub enum ColorReference<'a> {
     CustomMaterial(Material),
 }
 
+impl<'a> Eq for ColorReference<'a> {}
+
+impl<'a> PartialEq for ColorReference<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.code() == other.code()
+    }
+}
+
+impl<'a> Hash for ColorReference<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.code().hash(state)
+    }
+}
+
 impl<'a> ColorReference<'a> {
     pub fn code(&self) -> u32 {
         match self {
-            ColorReference::Unknown(c) => c.clone(),
+            ColorReference::Unknown(c) => *c,
             ColorReference::Current => 16,
             ColorReference::Complement => 24,
-            ColorReference::PredefinedMaterial(m) => m.code.clone(),
-            ColorReference::CustomMaterial(m) => m.code.clone(),
+            ColorReference::PredefinedMaterial(m) => m.code,
+            ColorReference::CustomMaterial(m) => m.code,
+        }
+    }
+
+    pub fn is_current(&self) -> bool {
+        match self {
+            ColorReference::Current => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_complement(&self) -> bool {
+        match self {
+            ColorReference::Complement => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_material(&self) -> bool {
+        match self {
+            ColorReference::PredefinedMaterial(_) | ColorReference::CustomMaterial(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_material(&'a self) -> Option<&'a Material> {
+        match self {
+            ColorReference::PredefinedMaterial(m) => Some(m),
+            ColorReference::CustomMaterial(m) => Some(&m),
+            _ => None,
         }
     }
 
@@ -144,10 +199,10 @@ impl<'a> ColorReference<'a> {
             255,
         );
         Some(Material {
-            code: code,
+            code,
             name: format!("Blended Color ({} and {})", code1, code2),
             color: new_color,
-            edge: Rgba::from_value(0xff595959),
+            edge: Rgba::from_value(0xff59_5959),
             luminance: 0,
             finish: Finish::Plastic,
         })
@@ -158,12 +213,12 @@ impl<'a> ColorReference<'a> {
         let green = (((code & 0x0f0) >> 4) * 16) as u8;
         let blue = ((code & 0x00f) * 16) as u8;
 
-        let edge_red = (((code & 0xf00000) >> 20) * 16) as u8;
-        let edge_green = (((code & 0x0f0000) >> 16) * 16) as u8;
-        let edge_blue = (((code & 0x00f000) >> 12) * 16) as u8;
+        let edge_red = (((code & 0xf0_0000) >> 20) * 16) as u8;
+        let edge_green = (((code & 0x0f_0000) >> 16) * 16) as u8;
+        let edge_blue = (((code & 0x00_f000) >> 12) * 16) as u8;
 
         Material {
-            code: code,
+            code,
             name: format!("RGB Color ({:03x})", code & 0xfff),
             color: Rgba::new(red, green, blue, 255),
             edge: Rgba::new(edge_red, edge_green, edge_blue, 255),
@@ -174,10 +229,10 @@ impl<'a> ColorReference<'a> {
 
     fn resolve_rgb_2(code: u32) -> Material {
         Material {
-            code: code,
-            name: format!("RGB Color ({:06x})", code & 0xffffff),
-            color: Rgba::from_value(0xff000000 | (code & 0xffffff)),
-            edge: Rgba::from_value(0xff595959),
+            code,
+            name: format!("RGB Color ({:06x})", code & 0xff_ffff),
+            color: Rgba::from_value(0xff00_0000 | (code & 0xff_ffff)),
+            edge: Rgba::from_value(0xff59_5959),
             luminance: 0,
             finish: Finish::Plastic,
         }
@@ -196,9 +251,9 @@ impl<'a> ColorReference<'a> {
             }
         }
 
-        if (code & 0xff000000) == 0x02000000 {
+        if (code & 0xff00_0000) == 0x0200_0000 {
             return ColorReference::CustomMaterial(ColorReference::resolve_rgb_2(code));
-        } else if (code & 0xff000000) == 0x04000000 {
+        } else if (code & 0xff00_0000) == 0x0400_0000 {
             return ColorReference::CustomMaterial(ColorReference::resolve_rgb_4(code));
         }
 

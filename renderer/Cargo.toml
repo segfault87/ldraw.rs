@@ -1,9 +1,11 @@
 [package]
-name = "ldraw"
+name = "ldraw_renderer"
 version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+approx = "~0.3.1"
+ldraw = { path = "../ldraw" }
 cgmath = "~0.17.0"
-#futures-preview = "0.3.0-alpha.10"
+kdtree = "~0.5.1"

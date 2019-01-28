@@ -4,8 +4,7 @@ use std::iter::Enumerate;
 use std::rc::Rc;
 use std::str::Chars;
 
-use cgmath::{Matrix4, Vector3};
-
+use crate::{Matrix4, Vector4};
 use crate::color::{
     ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter, MaterialRegistry,
     MaterialSpeckle, Rgba,
@@ -37,10 +36,10 @@ fn is_whitespace(ch: char) -> bool {
 
 fn next_token(iterator: &mut Chars, glob_remaining: bool) -> Result<String, ParseError> {
     let mut buffer = String::new();
-    while let Some(v) = iterator.next() {
+    for v in iterator {
         if !is_whitespace(v) {
             buffer.push(v);
-        } else if buffer.len() > 0 {
+        } else if !buffer.is_empty() {
             if !glob_remaining {
                 break;
             } else {
@@ -184,24 +183,24 @@ fn parse_line_1<'a>(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        0.0,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        0.0,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        0.0,
         x,
-        next_token_f32(iterator)?,
-        next_token_f32(iterator)?,
-        next_token_f32(iterator)?,
         y,
-        next_token_f32(iterator)?,
-        next_token_f32(iterator)?,
-        next_token_f32(iterator)?,
         z,
-        0.0,
-        0.0,
-        0.0,
         1.0,
     );
     let name = next_token(iterator, true)?;
     Ok(PartReference {
         color: ColorReference::resolve(color, materials),
-        matrix: matrix,
+        matrix,
         name: NormalizedAlias::from(name),
     })
 }
@@ -211,20 +210,20 @@ fn parse_line_2<'a>(
     iterator: &mut Chars,
 ) -> Result<Line<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
-    let a = Vector3::new(
+    let a = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let b = Vector3::new(
+    let b = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
     Ok(Line {
-        color: ColorReference::resolve(color, materials),
-        a: a,
-        b: b,
+        color: ColorReference::resolve(color, materials), a, b
     })
 }
 
@@ -233,26 +232,26 @@ fn parse_line_3<'a>(
     iterator: &mut Chars,
 ) -> Result<Triangle<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
-    let a = Vector3::new(
+    let a = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let b = Vector3::new(
+    let b = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let c = Vector3::new(
+    let c = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
     Ok(Triangle {
-        color: ColorReference::resolve(color, materials),
-        a: a,
-        b: b,
-        c: c,
+        color: ColorReference::resolve(color, materials), a, b, c
     })
 }
 
@@ -261,32 +260,32 @@ fn parse_line_4<'a>(
     iterator: &mut Chars,
 ) -> Result<Quad<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
-    let a = Vector3::new(
+    let a = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let b = Vector3::new(
+    let b = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let c = Vector3::new(
+    let c = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let d = Vector3::new(
+    let d = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
     Ok(Quad {
-        color: ColorReference::resolve(color, materials),
-        a: a,
-        b: b,
-        c: c,
-        d: d,
+        color: ColorReference::resolve(color, materials), a, b, c, d
     })
 }
 
@@ -295,32 +294,32 @@ fn parse_line_5<'a>(
     iterator: &mut Chars,
 ) -> Result<OptionalLine<'a>, ParseError> {
     let color = next_token_u32(iterator)?;
-    let a = Vector3::new(
+    let a = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let b = Vector3::new(
+    let b = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let c = Vector3::new(
+    let c = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
-    let d = Vector3::new(
+    let d = Vector4::new(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
+        1.0,
     );
     Ok(OptionalLine {
-        color: ColorReference::resolve(color, materials),
-        a: a,
-        b: b,
-        c: c,
-        d: d,
+        color: ColorReference::resolve(color, materials), a, b, c, d
     })
 }
 
@@ -338,8 +337,8 @@ fn parse_inner<'a, T: BufRead>(
     let mut headers = Vec::new();
     let mut last_index: usize = 0;
 
-    'read_loop: while let Some((index, line_)) = iterator.next() {
-        last_index = index.clone();
+    'read_loop: for (index, line_) in iterator {
+        last_index = index;
 
         let line = match line_ {
             Ok(v) => v,
@@ -360,7 +359,7 @@ fn parse_inner<'a, T: BufRead>(
                         }
                         Line0::File(file_) => {
                             if multipart {
-                                if description.len() != 0 {
+                                if !description.is_empty() {
                                     next = Some(file_);
                                     break 'read_loop;
                                 }
@@ -379,7 +378,7 @@ fn parse_inner<'a, T: BufRead>(
                         }
                         Line0::Meta(meta) => {
                             if let Meta::Comment(comment) = meta {
-                                if description.len() == 0 {
+                                if description.is_empty() {
                                     description = comment;
                                 } else {
                                     commands.push(Command::Meta(Meta::Comment(comment)));
@@ -461,7 +460,7 @@ fn parse_inner<'a, T: BufRead>(
         }
     }
 
-    if name.len() == 0 || author.len() == 0 || description.len() == 0 {
+    if name.is_empty() || author.is_empty() || description.is_empty() {
         Err(DocumentParseError {
             line: last_index + 1,
             error: ParseError::InvalidDocumentStructure,
@@ -469,12 +468,12 @@ fn parse_inner<'a, T: BufRead>(
     } else {
         Ok((
             Document {
-                name: name,
-                description: description,
-                author: author,
-                bfc: bfc,
-                headers: headers,
-                commands: commands,
+                name,
+                description,
+                author,
+                bfc,
+                headers,
+                commands,
             },
             next,
         ))
@@ -508,7 +507,7 @@ pub fn parse_multipart_document<'a, T: BufRead>(
 
     Ok(MultipartDocument {
         body: Rc::new(document),
-        subparts: subparts,
+        subparts,
     })
 }
 
@@ -571,12 +570,12 @@ fn parse_customized_material(
             }
             Ok(CustomizedMaterial::Glitter(MaterialGlitter {
                 value: Rgba::new(vr, vg, vb, alpha),
-                luminance: luminance,
-                fraction: fraction,
-                vfraction: vfraction,
-                size: size,
-                minsize: minsize,
-                maxsize: maxsize,
+                luminance,
+                fraction,
+                vfraction,
+                size,
+                minsize,
+                maxsize,
             }))
         }
         "SPECKLE" => {
@@ -630,18 +629,18 @@ fn parse_customized_material(
             }
             Ok(CustomizedMaterial::Speckle(MaterialSpeckle {
                 value: Rgba::new(vr, vg, vb, alpha),
-                luminance: luminance,
-                fraction: fraction,
-                size: size,
-                minsize: minsize,
-                maxsize: maxsize,
+                luminance,
+                fraction,
+                size,
+                minsize,
+                maxsize,
             }))
         }
         e => Err(ColorDefinitionParseError::UnknownMaterial(e.to_string())),
     }
 }
 
-pub fn parse_color_definition<'a, T: BufRead>(
+pub fn parse_color_definition<T: BufRead>(
     reader: &mut T,
 ) -> Result<MaterialRegistry, ColorDefinitionParseError> {
     // Use an empty context here
@@ -730,12 +729,12 @@ pub fn parse_color_definition<'a, T: BufRead>(
         materials.insert(
             code,
             Material {
-                code: code,
-                name: name,
+                code,
+                name,
                 color: Rgba::new(cr, cg, cb, alpha),
                 edge: Rgba::new(er, eg, eb, 255),
-                luminance: luminance,
-                finish: finish,
+                luminance,
+                finish,
             },
         );
     }
