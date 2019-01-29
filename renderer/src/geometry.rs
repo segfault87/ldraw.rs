@@ -8,13 +8,13 @@ use std::vec::Vec;
 
 use approx::{abs_diff_eq, AbsDiffEq};
 use cgmath::{InnerSpace, SquareMatrix};
-use kdtree::KdTree;
 use kdtree::distance::squared_euclidean;
-use ldraw::{Matrix4, NormalizedAlias, Vector3, Vector4};
+use kdtree::KdTree;
 use ldraw::color::{ColorReference, MaterialRegistry};
 use ldraw::document::Document;
 use ldraw::elements::{BfcStatement, Command, Meta};
 use ldraw::library::{ResolutionMap, ResolutionResult};
+use ldraw::{Matrix4, NormalizedAlias, Vector3, Vector4};
 
 const NORMAL_BLEND_THRESHOLD: f32 = f32::consts::FRAC_PI_4;
 
@@ -56,7 +56,7 @@ impl Ord for GroupKey {
 
         match self.color_ref.code().cmp(&other.color_ref.code()) {
             Ordering::Equal => self.bfc.cmp(&other.bfc),
-            e => e
+            e => e,
         }
     }
 }
@@ -81,20 +81,20 @@ impl AbsDiffEq for Face {
     fn default_epsilon() -> Self::Epsilon {
         f32::default_epsilon()
     }
-    
+
     fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
         match (self, other) {
             (Face::Triangle(lhs), Face::Triangle(rhs)) => {
-                (lhs[0].abs_diff_eq(&rhs[0], epsilon) &&
-                 lhs[1].abs_diff_eq(&rhs[1], epsilon) &&
-                 lhs[2].abs_diff_eq(&rhs[2], epsilon))
-            },
+                (lhs[0].abs_diff_eq(&rhs[0], epsilon)
+                    && lhs[1].abs_diff_eq(&rhs[1], epsilon)
+                    && lhs[2].abs_diff_eq(&rhs[2], epsilon))
+            }
             (Face::Quad(lhs), Face::Quad(rhs)) => {
-                (lhs[0].abs_diff_eq(&rhs[0], epsilon) &&
-                 lhs[1].abs_diff_eq(&rhs[1], epsilon) &&
-                 lhs[2].abs_diff_eq(&rhs[2], epsilon) &&
-                 lhs[3].abs_diff_eq(&rhs[3], epsilon))
-            },
+                (lhs[0].abs_diff_eq(&rhs[0], epsilon)
+                    && lhs[1].abs_diff_eq(&rhs[1], epsilon)
+                    && lhs[2].abs_diff_eq(&rhs[2], epsilon)
+                    && lhs[3].abs_diff_eq(&rhs[3], epsilon))
+            }
             (_, _) => false,
         }
     }
@@ -114,7 +114,7 @@ const QUAD_INDEX_ORDER: &[usize] = &[0, 1, 2, 2, 3, 0];
 
 struct FaceIterator<'a> {
     face: &'a [Vector3],
-    iterator: Box<dyn Iterator<Item = &'static usize>>
+    iterator: Box<dyn Iterator<Item = &'static usize>>,
 }
 
 impl<'a> Iterator for FaceIterator<'a> {
@@ -157,10 +157,10 @@ impl<'a> Face {
 
         FaceIterator {
             face: self.as_ref(),
-            iterator
+            iterator,
         }
     }
-    
+
     pub fn edge(&'a self, index: usize) -> (&'a Vector3, &'a Vector3) {
         match self {
             Face::Triangle(v) => (&v[index], &v[(index + 1) % 3]),
@@ -173,17 +173,17 @@ impl<'a> Face {
             Face::Triangle(v) => {
                 for i in v {
                     if abs_diff_eq!(vec, i) {
-                        return true
+                        return true;
                     }
                 }
-            },
+            }
             Face::Quad(v) => {
                 for i in v {
                     if abs_diff_eq!(vec, i) {
-                        return true
+                        return true;
                     }
                 }
-            },
+            }
         }
         false
     }
@@ -213,8 +213,14 @@ impl<'a> Adjacency {
         }
     }
 
-    pub fn query(&'a self, v: &'a Vector3, exclude: &'a Face) -> impl Iterator<Item = &'a Face> + 'a {
-        self.faces.iter().filter(move |&i| i.contains(v) && i != exclude)
+    pub fn query(
+        &'a self,
+        v: &'a Vector3,
+        exclude: &'a Face,
+    ) -> impl Iterator<Item = &'a Face> + 'a {
+        self.faces
+            .iter()
+            .filter(move |&i| i.contains(v) && i != exclude)
     }
 }
 
@@ -285,15 +291,13 @@ struct MeshBuilder {
 
 impl MeshBuilder {
     pub fn new() -> MeshBuilder {
-        MeshBuilder {
-            faces: Vec::new(),
-        }
+        MeshBuilder { faces: Vec::new() }
     }
-    
+
     pub fn add(&mut self, face: Face) {
         self.faces.push(face);
     }
-    
+
     pub fn bake(&self) -> MeshBuffer {
         let mut buffer = MeshBuffer {
             vertices: Vec::new(),
@@ -338,50 +342,81 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                 },
                 bfc: group.bfc,
             };
-            
+
             let len = mesh.vertices.len();
             if len % 9 != 0 && len != mesh.normals.len() {
                 panic!("Malformed mesh buffer");
             }
-            
+
             let target = match self.merge_buffer.meshes.get_mut(&igroup) {
                 Some(e) => e,
                 None => {
-                    self.merge_buffer.meshes.insert(igroup.clone(), MeshBuffer {
-                        vertices: Vec::new(), normals: Vec::new(),
-                    });
+                    self.merge_buffer.meshes.insert(
+                        igroup.clone(),
+                        MeshBuffer {
+                            vertices: Vec::new(),
+                            normals: Vec::new(),
+                        },
+                    );
                     self.merge_buffer.meshes.get_mut(&igroup).unwrap()
-                },
+                }
             };
 
             target.vertices.reserve(len);
             target.normals.reserve(len);
 
             for i in 0..(len / 9) {
-                let v1 = (matrix * Vector4::new(mesh.vertices[i * 9],
-                                                mesh.vertices[i * 9 + 1],
-                                                mesh.vertices[i * 9 + 2],
-                                                1.0)).truncate();
-                let v2 = (matrix * Vector4::new(mesh.vertices[i * 9 + 3],
-                                                mesh.vertices[i * 9 + 4],
-                                                mesh.vertices[i * 9 + 5],
-                                                1.0)).truncate();
-                let v3 = (matrix * Vector4::new(mesh.vertices[i * 9 + 6],
-                                                mesh.vertices[i * 9 + 7],
-                                                mesh.vertices[i * 9 + 8],
-                                                1.0)).truncate();
-                let n1 = (matrix * Vector4::new(mesh.normals[i * 9],
-                                                mesh.normals[i * 9 + 1],
-                                                mesh.normals[i * 9 + 2],
-                                                1.0)).truncate().normalize();
-                let n2 = (matrix * Vector4::new(mesh.normals[i * 9 + 3],
-                                                mesh.normals[i * 9 + 4],
-                                                mesh.normals[i * 9 + 5],
-                                                1.0)).truncate().normalize();
-                let n3 = (matrix * Vector4::new(mesh.normals[i * 9 + 6],
-                                                mesh.normals[i * 9 + 7],
-                                                mesh.normals[i * 9 + 8],
-                                                1.0)).truncate().normalize();
+                let v1 = (matrix
+                    * Vector4::new(
+                        mesh.vertices[i * 9],
+                        mesh.vertices[i * 9 + 1],
+                        mesh.vertices[i * 9 + 2],
+                        1.0,
+                    ))
+                .truncate();
+                let v2 = (matrix
+                    * Vector4::new(
+                        mesh.vertices[i * 9 + 3],
+                        mesh.vertices[i * 9 + 4],
+                        mesh.vertices[i * 9 + 5],
+                        1.0,
+                    ))
+                .truncate();
+                let v3 = (matrix
+                    * Vector4::new(
+                        mesh.vertices[i * 9 + 6],
+                        mesh.vertices[i * 9 + 7],
+                        mesh.vertices[i * 9 + 8],
+                        1.0,
+                    ))
+                .truncate();
+                let n1 = (matrix
+                    * Vector4::new(
+                        mesh.normals[i * 9],
+                        mesh.normals[i * 9 + 1],
+                        mesh.normals[i * 9 + 2],
+                        1.0,
+                    ))
+                .truncate()
+                .normalize();
+                let n2 = (matrix
+                    * Vector4::new(
+                        mesh.normals[i * 9 + 3],
+                        mesh.normals[i * 9 + 4],
+                        mesh.normals[i * 9 + 5],
+                        1.0,
+                    ))
+                .truncate()
+                .normalize();
+                let n3 = (matrix
+                    * Vector4::new(
+                        mesh.normals[i * 9 + 6],
+                        mesh.normals[i * 9 + 7],
+                        mesh.normals[i * 9 + 8],
+                        1.0,
+                    ))
+                .truncate()
+                .normalize();
 
                 if invert {
                     target.vertices.push(v3.x);
@@ -422,7 +457,6 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                     target.normals.push(-n1.y);
                     target.normals.push(-n1.z);
                 }
-                
             }
         }
 
@@ -458,21 +492,29 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
         target.vertices.reserve(edge_len);
         target.colors.reserve(edge_len);
         for i in 0..(edge_len / 6) {
-            let v1 = (matrix * Vector4::new(edge.vertices[i * 6],
-                                            edge.vertices[i * 6 + 1],
-                                            edge.vertices[i * 6 + 2],
-                                            1.0)).truncate();
-            let v2 = (matrix * Vector4::new(edge.vertices[i * 6 + 3],
-                                            edge.vertices[i * 6 + 4],
-                                            edge.vertices[i * 6 + 5],
-                                            1.0)).truncate();
+            let v1 = (matrix
+                * Vector4::new(
+                    edge.vertices[i * 6],
+                    edge.vertices[i * 6 + 1],
+                    edge.vertices[i * 6 + 2],
+                    1.0,
+                ))
+            .truncate();
+            let v2 = (matrix
+                * Vector4::new(
+                    edge.vertices[i * 6 + 3],
+                    edge.vertices[i * 6 + 4],
+                    edge.vertices[i * 6 + 5],
+                    1.0,
+                ))
+            .truncate();
             target.vertices.push(v1.x);
             target.vertices.push(v1.y);
             target.vertices.push(v1.z);
             target.vertices.push(v2.x);
             target.vertices.push(v2.y);
             target.vertices.push(v2.z);
-            
+
             let c1 = edge.colors[i * 6];
             let c2 = edge.colors[i * 6 + 3];
 
@@ -505,10 +547,15 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
             }
         }
     }
-    
+
     fn traverse<S: BuildHasher, D: Deref<Target = Document>>(
-        &mut self, baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
-        document: &D, matrix: Matrix4, cull: bool, invert: bool) {
+        &mut self,
+        baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
+        document: &D,
+        matrix: Matrix4,
+        cull: bool,
+        invert: bool,
+    ) {
         let mut local_cull = true;
         let mut ccw = true;
         let bfc_certified = document.bfc.is_certified();
@@ -541,38 +588,51 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                     match self.resolutions.get(cmd) {
                         Some(ResolutionResult::Subpart(part)) => {
                             self.color_stack.push(color);
-                            self.traverse(baked_subfiles, part,
-                                          matrix * cmd.matrix, cull_next, invert_child);
+                            self.traverse(
+                                baked_subfiles,
+                                part,
+                                matrix * cmd.matrix,
+                                cull_next,
+                                invert_child,
+                            );
                             self.color_stack.pop();
-                        },
+                        }
                         Some(ResolutionResult::Associated(part)) => {
                             let subfile = match baked_subfiles.get(&cmd.name) {
                                 Some(subfile) => subfile,
                                 None => {
-                                    let mut builder = ModelBuilder::new(self.materials, self.resolutions);
+                                    let mut builder =
+                                        ModelBuilder::new(self.materials, self.resolutions);
 
-                                    builder.traverse(baked_subfiles, &Rc::clone(part),
-                                                     Matrix4::identity(), true, false);
+                                    builder.traverse(
+                                        baked_subfiles,
+                                        &Rc::clone(part),
+                                        Matrix4::identity(),
+                                        true,
+                                        false,
+                                    );
                                     baked_subfiles.insert(cmd.name.clone(), builder.bake());
                                     baked_subfiles.get(&cmd.name).unwrap()
                                 }
                             };
 
                             self.merge(subfile, matrix * cmd.matrix, invert_child, &color);
-                        },
+                        }
                         _ => (),
                     };
-                },
+                }
                 Command::Line(cmd) => {
                     let top = self.color_stack.last().unwrap();
 
-                    self.edges.add(&(matrix * cmd.a).truncate(), &cmd.color, top);
-                    self.edges.add(&(matrix * cmd.b).truncate(), &cmd.color, top);
-                },
+                    self.edges
+                        .add(&(matrix * cmd.a).truncate(), &cmd.color, top);
+                    self.edges
+                        .add(&(matrix * cmd.b).truncate(), &cmd.color, top);
+                }
                 Command::Triangle(cmd) => {
                     let color = match &cmd.color {
                         ColorReference::Current => self.color_stack.last().unwrap(),
-                        e => e
+                        e => e,
                     };
 
                     let face = if ccw {
@@ -606,11 +666,11 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                             self.meshes.insert(category, mesh);
                         }
                     };
-                },
+                }
                 Command::Quad(cmd) => {
                     let color = match &cmd.color {
                         ColorReference::Current => self.color_stack.last().unwrap(),
-                        e => e
+                        e => e,
                     };
 
                     let face = if ccw {
@@ -646,36 +706,36 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                             self.meshes.insert(category, mesh);
                         }
                     };
-                },
+                }
                 Command::Meta(cmd) => {
                     if let Meta::Bfc(statement) = cmd {
                         match statement {
                             BfcStatement::InvertNext => {
                                 invert_next = true;
-                            },
+                            }
                             BfcStatement::NoClip => {
                                 local_cull = false;
-                            },
+                            }
                             BfcStatement::ClipCw => {
                                 local_cull = true;
                                 ccw = invert;
-                            },
+                            }
                             BfcStatement::ClipCcw => {
                                 local_cull = true;
                                 ccw = !invert;
-                            },
+                            }
                             BfcStatement::Clip => {
                                 local_cull = true;
-                            },
+                            }
                             BfcStatement::Cw => {
                                 ccw = invert;
-                            },
+                            }
                             BfcStatement::Ccw => {
                                 ccw = !invert;
-                            },
+                            }
                         }
                     }
-                },
+                }
                 _ => (),
             };
         }
@@ -695,24 +755,34 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
             let target = match model.meshes.get_mut(&group) {
                 Some(e) => e,
                 None => {
-                    model.meshes.insert(group.clone(), MeshBuffer {
-                        vertices: Vec::new(), normals: Vec::new(),
-                    });
+                    model.meshes.insert(
+                        group.clone(),
+                        MeshBuffer {
+                            vertices: Vec::new(),
+                            normals: Vec::new(),
+                        },
+                    );
                     model.meshes.get_mut(group).unwrap()
-                },
+                }
             };
 
             target.vertices.extend(&mesh.vertices);
             target.normals.extend(&mesh.normals);
         }
 
-        model.edges.vertices.extend(&self.merge_buffer.edges.vertices);
+        model
+            .edges
+            .vertices
+            .extend(&self.merge_buffer.edges.vertices);
         model.edges.colors.extend(&self.merge_buffer.edges.colors);
 
         model
     }
-    
-    pub fn new(materials: &'a MaterialRegistry, resolutions: &'b ResolutionMap<T>) -> ModelBuilder<'a, 'b, T> {
+
+    pub fn new(
+        materials: &'a MaterialRegistry,
+        resolutions: &'b ResolutionMap<T>,
+    ) -> ModelBuilder<'a, 'b, T> {
         let mut mb = ModelBuilder {
             materials,
             resolutions,
@@ -740,9 +810,11 @@ pub struct BakedModel {
 }
 
 pub fn bake_model<'a, T: Clone, S: BuildHasher>(
-    materials: &MaterialRegistry, resolution: &'a ResolutionMap<'a, T>,
+    materials: &MaterialRegistry,
+    resolution: &'a ResolutionMap<'a, T>,
     baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
-    document: &Document) -> BakedModel {
+    document: &Document,
+) -> BakedModel {
     let mut builder = ModelBuilder::new(materials, resolution);
 
     builder.traverse(baked_subfiles, &document, Matrix4::identity(), true, false);

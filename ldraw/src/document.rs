@@ -67,11 +67,26 @@ macro_rules! define_iterator(
 );
 
 define_iterator!(iter_meta, iter_meta_mut, Command::Meta, Meta);
-define_iterator!(iter_refs, iter_refs_mut, Command::PartReference, PartReference);
+define_iterator!(
+    iter_refs,
+    iter_refs_mut,
+    Command::PartReference,
+    PartReference
+);
 define_iterator!(iter_lines, iter_lines_mut, Command::Line, Line);
-define_iterator!(iter_triangles, iter_triangles_mut, Command::Triangle, Triangle);
+define_iterator!(
+    iter_triangles,
+    iter_triangles_mut,
+    Command::Triangle,
+    Triangle
+);
 define_iterator!(iter_quads, iter_quads_mut, Command::Quad, Quad);
-define_iterator!(iter_optional_lines, iter_optioanl_lines_mut, Command::OptionalLine, OptionalLine);
+define_iterator!(
+    iter_optional_lines,
+    iter_optioanl_lines_mut,
+    Command::OptionalLine,
+    OptionalLine
+);
 
 #[derive(Debug)]
 pub struct MultipartDocument {

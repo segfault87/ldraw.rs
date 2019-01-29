@@ -4,13 +4,14 @@ use std::hash::{Hash, Hasher};
 use cgmath::{Matrix4 as Matrix4_, Vector3 as Vector3_, Vector4 as Vector4_};
 
 pub mod color;
-pub mod context;
 pub mod document;
 pub mod elements;
 pub mod error;
 pub mod library;
-#[cfg(target_arch = "wasm32")] pub mod library_wasm;
-#[cfg(not(target_arch = "wasm32"))] pub mod library_native;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod library_native;
+#[cfg(target_arch = "wasm32")]
+pub mod library_wasm;
 pub mod parser;
 pub mod writer;
 

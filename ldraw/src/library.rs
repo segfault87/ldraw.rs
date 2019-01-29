@@ -20,7 +20,10 @@ pub struct PartEntry<T> {
     pub locator: T,
 }
 
-impl<T> Clone for PartEntry<T> where T: Clone {
+impl<T> Clone for PartEntry<T>
+where
+    T: Clone,
+{
     fn clone(&self) -> PartEntry<T> {
         PartEntry {
             kind: self.kind,
@@ -29,7 +32,10 @@ impl<T> Clone for PartEntry<T> where T: Clone {
     }
 }
 
-impl<T> hash::Hash for PartEntry<T> where T: hash::Hash {
+impl<T> hash::Hash for PartEntry<T>
+where
+    T: hash::Hash,
+{
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.locator.hash(state)
     }
@@ -95,7 +101,8 @@ impl PartCache {
     }
 
     pub fn collect(&mut self) {
-        self.items.retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 1);
+        self.items
+            .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 1);
     }
 }
 
@@ -111,11 +118,14 @@ pub enum ResolutionResult<'a, T> {
 pub struct ResolutionMap<'a, T> {
     directory: &'a PartDirectory<T>,
     cache: &'a RefCell<PartCache>,
-    pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>
+    pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>,
 }
 
 impl<'a, T: Clone> ResolutionMap<'a, T> {
-    pub fn new(directory: &'a PartDirectory<T>, cache: &'a RefCell<PartCache>) -> ResolutionMap<'a, T> {
+    pub fn new(
+        directory: &'a PartDirectory<T>,
+        cache: &'a RefCell<PartCache>,
+    ) -> ResolutionMap<'a, T> {
         ResolutionMap {
             directory,
             cache,
@@ -124,46 +134,57 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
     }
 
     pub fn get_pending(&self) -> Vec<(NormalizedAlias, PartEntry<T>)> {
-        self.map.iter().filter_map(|(key, value)| match value {
-            ResolutionResult::Pending(a) => Some((key.clone(), a.clone())),
-            _ => None,
-        }).collect::<Vec<_>>()
+        self.map
+            .iter()
+            .filter_map(|(key, value)| match value {
+                ResolutionResult::Pending(a) => Some((key.clone(), a.clone())),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
     }
 
     pub fn resolve<D: Deref<Target = Document>>(
-        &mut self, document: &D, parent: Option<&'a MultipartDocument>
+        &mut self,
+        document: &D,
+        parent: Option<&'a MultipartDocument>,
     ) {
         for i in document.iter_refs() {
-            let alias = i.name.clone();
-            
-            if self.map.contains_key(&alias) {
+            let name = &i.name;
+
+            if self.map.contains_key(name) {
                 continue;
             }
-            
+
             if let Some(e) = parent {
-                if let Some(doc) = e.subparts.get(&alias) {
+                if let Some(doc) = e.subparts.get(name) {
                     self.resolve(&doc, parent);
-                    self.map.insert(alias, ResolutionResult::Subpart(&doc));
+                    self.map
+                        .insert(name.clone(), ResolutionResult::Subpart(&doc));
                     continue;
                 }
             }
-            
-            if let Some(e) = self.cache.borrow().query(&alias) {
-                self.map.insert(alias, ResolutionResult::Associated(Rc::clone(&e)));
+
+            if let Some(e) = self.cache.borrow().query(name) {
+                self.map
+                    .insert(name.clone(), ResolutionResult::Associated(Rc::clone(&e)));
                 continue;
             }
-            
-            if let Some(e) = self.directory.query(&alias) {
-                self.map.insert(alias, ResolutionResult::Pending(e.clone()));
+
+            if let Some(e) = self.directory.query(name) {
+                self.map
+                    .insert(name.clone(), ResolutionResult::Pending(e.clone()));
             } else {
-                self.map.insert(alias, ResolutionResult::Missing);
+                self.map.insert(name.clone(), ResolutionResult::Missing);
             }
         }
     }
 
     pub fn update(&mut self, key: &NormalizedAlias, document: Rc<Document>) {
         self.resolve(&Rc::clone(&document), None);
-        self.map.insert(key.clone(), ResolutionResult::Associated(Rc::clone(&document)));
+        self.map.insert(
+            key.clone(),
+            ResolutionResult::Associated(Rc::clone(&document)),
+        );
     }
 
     pub fn query(&'a self, elem: &PartReference) -> Option<&'a Document> {

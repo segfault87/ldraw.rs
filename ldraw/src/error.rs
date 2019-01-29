@@ -16,7 +16,7 @@ pub enum ParseError {
 #[derive(Debug)]
 pub struct DocumentParseError {
     pub line: usize,
-    pub error: ParseError
+    pub error: ParseError,
 }
 
 #[derive(Debug)]
@@ -71,7 +71,9 @@ impl From<DocumentParseError> for ColorDefinitionParseError {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ParseError::TypeMismatch(type_, val) => write!(f, "Error reading value '{}' into {}", val, type_),
+            ParseError::TypeMismatch(type_, val) => {
+                write!(f, "Error reading value '{}' into {}", val, type_)
+            }
             ParseError::IoError(err) => write!(f, "{}", err),
             ParseError::EndOfLine => write!(f, "End of line"),
             ParseError::InvalidBfcStatement(stmt) => write!(f, "Invalid BFC statement: {}", stmt),

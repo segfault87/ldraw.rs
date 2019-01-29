@@ -10,7 +10,9 @@ pub struct Rgba {
 
 impl Rgba {
     pub fn new(r: u8, g: u8, b: u8, a: u8) -> Rgba {
-        Rgba { value: [r, g, b, a] }
+        Rgba {
+            value: [r, g, b, a],
+        }
     }
 
     pub fn from_value(value: u32) -> Rgba {
@@ -18,7 +20,9 @@ impl Rgba {
         let g = (value & 0x0000_ff00 >> 8) as u8;
         let b = (value & 0x0000_00ff) as u8;
         let a = (value & 0xff00_0000 >> 24) as u8;
-        Rgba { value: [r, g, b, a] }
+        Rgba {
+            value: [r, g, b, a],
+        }
     }
 
     pub fn red(self) -> u8 {

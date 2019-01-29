@@ -3,18 +3,17 @@ use std::io::{BufRead, Lines};
 use std::iter::Enumerate;
 use std::str::Chars;
 
-use crate::{Matrix4, Vector4};
 use crate::color::{
     ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter, MaterialRegistry,
     MaterialSpeckle, Rgba,
 };
 use crate::document::{BfcCertification, Document, MultipartDocument};
 use crate::elements::{
-    BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference,
-    Quad, Triangle,
+    BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle,
 };
 use crate::error::{ColorDefinitionParseError, DocumentParseError, ParseError};
 use crate::NormalizedAlias;
+use crate::{Matrix4, Vector4};
 
 #[derive(Debug)]
 enum Line0 {
@@ -204,10 +203,7 @@ fn parse_line_1(
     })
 }
 
-fn parse_line_2(
-    materials: &MaterialRegistry,
-    iterator: &mut Chars,
-) -> Result<Line, ParseError> {
+fn parse_line_2(materials: &MaterialRegistry, iterator: &mut Chars) -> Result<Line, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -222,7 +218,9 @@ fn parse_line_2(
         1.0,
     );
     Ok(Line {
-        color: ColorReference::resolve(color, materials), a, b
+        color: ColorReference::resolve(color, materials),
+        a,
+        b,
     })
 }
 
@@ -250,14 +248,14 @@ fn parse_line_3(
         1.0,
     );
     Ok(Triangle {
-        color: ColorReference::resolve(color, materials), a, b, c
+        color: ColorReference::resolve(color, materials),
+        a,
+        b,
+        c,
     })
 }
 
-fn parse_line_4(
-    materials: &MaterialRegistry,
-    iterator: &mut Chars,
-) -> Result<Quad, ParseError> {
+fn parse_line_4(materials: &MaterialRegistry, iterator: &mut Chars) -> Result<Quad, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -284,7 +282,11 @@ fn parse_line_4(
         1.0,
     );
     Ok(Quad {
-        color: ColorReference::resolve(color, materials), a, b, c, d
+        color: ColorReference::resolve(color, materials),
+        a,
+        b,
+        c,
+        d,
     })
 }
 
@@ -318,7 +320,11 @@ fn parse_line_5(
         1.0,
     );
     Ok(OptionalLine {
-        color: ColorReference::resolve(color, materials), a, b, c, d
+        color: ColorReference::resolve(color, materials),
+        a,
+        b,
+        c,
+        d,
     })
 }
 

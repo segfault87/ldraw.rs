@@ -6,15 +6,16 @@ use std::io::BufReader;
 use std::path::Path;
 
 use ldraw::color::MaterialRegistry;
-use ldraw::library::{PartCache, PartDirectoryNative, ResolutionMap, load_files, scan_ldraw_directory};
+use ldraw::library::{
+    load_files, scan_ldraw_directory, PartCache, PartDirectoryNative, ResolutionMap,
+};
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
-use ldraw_renderer::geometry::{BakedModel, bake_model};
+use ldraw_renderer::geometry::{bake_model, BakedModel};
 
 fn bake(colors: &MaterialRegistry, directory: &PartDirectoryNative, path: &str) -> BakedModel {
     println!("Parsing document...");
-    let document = parse_multipart_document(
-        &colors, &mut BufReader::new(File::open(path).unwrap())
-    ).unwrap();
+    let document =
+        parse_multipart_document(&colors, &mut BufReader::new(File::open(path).unwrap())).unwrap();
 
     println!("Resolving dependencies...");
     let cache = RefCell::new(PartCache::default());
@@ -25,7 +26,7 @@ fn bake(colors: &MaterialRegistry, directory: &PartDirectoryNative, path: &str) 
         if pending.is_empty() {
             break;
         }
-        
+
         for key in load_files(&colors, &cache, pending.into_iter()) {
             let doc = cache.borrow().query(&key).unwrap();
             resolution.update(&key, doc);
@@ -47,9 +48,10 @@ fn main() {
     let directory = scan_ldraw_directory(&ldrawdir).unwrap();
 
     println!("Loading color definition...");
-    let colors = parse_color_definition(
-        &mut BufReader::new(File::open(ldrawpath.join("LDConfig.ldr")).unwrap())
-    ).unwrap();
+    let colors = parse_color_definition(&mut BufReader::new(
+        File::open(ldrawpath.join("LDConfig.ldr")).unwrap(),
+    ))
+    .unwrap();
 
     let ldrpath = match env::args().nth(1) {
         Some(e) => e,

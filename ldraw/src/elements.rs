@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
-use crate::{Matrix4, NormalizedAlias, Vector4};
 use crate::color::ColorReference;
 use crate::document::Document;
+use crate::{Matrix4, NormalizedAlias, Vector4};
 
 #[derive(Clone, Debug)]
 pub struct Header(pub String, pub String);

@@ -5,11 +5,11 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-use crate::NormalizedAlias;
 use crate::color::MaterialRegistry;
 use crate::error::LibraryError;
 use crate::library::{PartCache, PartDirectory, PartEntry, PartKind};
 use crate::parser::parse_single_document;
+use crate::NormalizedAlias;
 
 pub type PartEntryNative = PartEntry<OsString>;
 pub type PartDirectoryNative = PartDirectory<OsString>;
@@ -65,18 +65,27 @@ pub fn scan_ldraw_directory(path_str: &str) -> Result<PartDirectoryNative, Libra
 
     let mut dir = PartDirectoryNative::default();
     scan_directory(&path_parts, PathBuf::new(), &mut dir.parts, PartKind::Part)?;
-    scan_directory(&path_primitives, PathBuf::new(), &mut dir.primitives, PartKind::Primitive)?;
+    scan_directory(
+        &path_primitives,
+        PathBuf::new(),
+        &mut dir.primitives,
+        PartKind::Primitive,
+    )?;
 
     Ok(dir)
 }
 
-pub fn load_files<'a, T>(materials: &'a MaterialRegistry, cache: &RefCell<PartCache>, files: T) -> Vec<NormalizedAlias>
+pub fn load_files<'a, T>(
+    materials: &'a MaterialRegistry,
+    cache: &RefCell<PartCache>,
+    files: T,
+) -> Vec<NormalizedAlias>
 where
-    T: Iterator<Item = (NormalizedAlias, PartEntryNative)>
+    T: Iterator<Item = (NormalizedAlias, PartEntryNative)>,
 {
     let mut loaded = Vec::new();
     let mut cache = cache.borrow_mut();
-    
+
     for (alias, entry) in files {
         let file = match File::open(&entry.locator) {
             Ok(v) => v,
