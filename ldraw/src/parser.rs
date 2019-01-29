@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::io::{BufRead, Lines};
 use std::iter::Enumerate;
-use std::rc::Rc;
 use std::str::Chars;
 
 use crate::{Matrix4, Vector4};
@@ -501,12 +500,12 @@ pub fn parse_multipart_document<T: BufRead>(
     while next.is_some() {
         let (part, next_) = parse_inner(materials, &mut it, true)?;
 
-        subparts.insert(NormalizedAlias::from(&next.unwrap()), Rc::new(part));
+        subparts.insert(NormalizedAlias::from(&next.unwrap()), part);
         next = next_;
     }
 
     Ok(MultipartDocument {
-        body: Rc::new(document),
+        body: document,
         subparts,
     })
 }

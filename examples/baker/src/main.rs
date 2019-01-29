@@ -4,14 +4,13 @@ use std::env;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use std::rc::Rc;
 
 use ldraw::color::MaterialRegistry;
 use ldraw::library::{PartCache, PartDirectoryNative, ResolutionMap, load_files, scan_ldraw_directory};
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
 use ldraw_renderer::geometry::{BakedModel, bake_model};
 
-fn bake<'a>(colors: &MaterialRegistry, directory: &'a PartDirectoryNative, path: &str) -> BakedModel {
+fn bake(colors: &MaterialRegistry, directory: &PartDirectoryNative, path: &str) -> BakedModel {
     println!("Parsing document...");
     let document = parse_multipart_document(
         &colors, &mut BufReader::new(File::open(path).unwrap())
@@ -20,7 +19,7 @@ fn bake<'a>(colors: &MaterialRegistry, directory: &'a PartDirectoryNative, path:
     println!("Resolving dependencies...");
     let cache = RefCell::new(PartCache::default());
     let mut resolution = ResolutionMap::new(&directory, &cache);
-    resolution.resolve(Rc::clone(&document.body), Some(&document));
+    resolution.resolve(&&document.body, Some(&document));
     loop {
         let pending = resolution.get_pending();
         if pending.is_empty() {
@@ -29,14 +28,12 @@ fn bake<'a>(colors: &MaterialRegistry, directory: &'a PartDirectoryNative, path:
         
         for key in load_files(&colors, &cache, pending.into_iter()) {
             let doc = cache.borrow().query(&key).unwrap();
-            resolution.update(&key, &doc);
+            resolution.update(&key, doc);
         }
     }
 
     println!("Baking model...");
-    let model = bake_model(&colors, &resolution, &mut HashMap::new(), Rc::clone(&document.body));
-
-    model
+    bake_model(&colors, &resolution, &mut HashMap::new(), &document.body)
 }
 
 fn main() {

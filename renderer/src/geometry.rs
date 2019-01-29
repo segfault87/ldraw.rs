@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::f32;
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::ops::Deref;
 use std::rc::Rc;
 use std::vec::Vec;
 
@@ -505,9 +506,9 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
         }
     }
     
-    fn traverse<S: BuildHasher>(
+    fn traverse<S: BuildHasher, D: Deref<Target = Document>>(
         &mut self, baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
-        document: Rc<Document>, matrix: Matrix4, cull: bool, invert: bool) {
+        document: &D, matrix: Matrix4, cull: bool, invert: bool) {
         let mut local_cull = true;
         let mut ccw = true;
         let bfc_certified = document.bfc.is_certified();
@@ -540,7 +541,7 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                     match self.resolutions.get(cmd) {
                         Some(ResolutionResult::Subpart(part)) => {
                             self.color_stack.push(color);
-                            self.traverse(baked_subfiles, Rc::clone(part),
+                            self.traverse(baked_subfiles, part,
                                           matrix * cmd.matrix, cull_next, invert_child);
                             self.color_stack.pop();
                         },
@@ -550,7 +551,7 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                                 None => {
                                     let mut builder = ModelBuilder::new(self.materials, self.resolutions);
 
-                                    builder.traverse(baked_subfiles, Rc::clone(part),
+                                    builder.traverse(baked_subfiles, &Rc::clone(part),
                                                      Matrix4::identity(), true, false);
                                     baked_subfiles.insert(cmd.name.clone(), builder.bake());
                                     baked_subfiles.get(&cmd.name).unwrap()
@@ -741,9 +742,9 @@ pub struct BakedModel {
 pub fn bake_model<'a, T: Clone, S: BuildHasher>(
     materials: &MaterialRegistry, resolution: &'a ResolutionMap<'a, T>,
     baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
-    document: Rc<Document>) -> BakedModel {
+    document: &Document) -> BakedModel {
     let mut builder = ModelBuilder::new(materials, resolution);
 
-    builder.traverse(baked_subfiles, document, Matrix4::identity(), true, false);
+    builder.traverse(baked_subfiles, &document, Matrix4::identity(), true, false);
     builder.bake()
 }

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::iter::Iterator;
-use std::rc::Rc;
 use std::vec::Vec;
 
 use crate::elements::{Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle};
@@ -76,15 +75,6 @@ define_iterator!(iter_optional_lines, iter_optioanl_lines_mut, Command::Optional
 
 #[derive(Debug)]
 pub struct MultipartDocument {
-    pub body: Rc<Document>,
-    pub subparts: HashMap<NormalizedAlias, Rc<Document>>,
-}
-
-impl MultipartDocument {
-    pub fn query(&self, alias: &NormalizedAlias) -> Option<Rc<Document>> {
-        match self.subparts.get(alias) {
-            Some(e) => Some(Rc::clone(&e)),
-            None => None,
-        }
-    }
+    pub body: Document,
+    pub subparts: HashMap<NormalizedAlias, Document>,
 }

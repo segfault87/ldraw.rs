@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash;
+use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::document::{Document, MultipartDocument};
@@ -99,10 +100,10 @@ impl PartCache {
 }
 
 #[derive(Clone)]
-pub enum ResolutionResult<T> {
+pub enum ResolutionResult<'a, T> {
     Missing,
     Pending(PartEntry<T>),
-    Subpart(Rc<Document>),
+    Subpart(&'a Document),
     Associated(Rc<Document>),
 }
 
@@ -110,7 +111,7 @@ pub enum ResolutionResult<T> {
 pub struct ResolutionMap<'a, T> {
     directory: &'a PartDirectory<T>,
     cache: &'a RefCell<PartCache>,
-    pub map: HashMap<NormalizedAlias, ResolutionResult<T>>
+    pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>
 }
 
 impl<'a, T: Clone> ResolutionMap<'a, T> {
@@ -129,7 +130,9 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
         }).collect::<Vec<_>>()
     }
 
-    pub fn resolve(&mut self, document: Rc<Document>, parent: Option<&MultipartDocument>) {
+    pub fn resolve<D: Deref<Target = Document>>(
+        &mut self, document: &D, parent: Option<&'a MultipartDocument>
+    ) {
         for i in document.iter_refs() {
             let alias = i.name.clone();
             
@@ -138,9 +141,9 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
             }
             
             if let Some(e) = parent {
-                if let Some(doc) = e.query(&alias) {
-                    self.resolve(Rc::clone(&doc), parent);
-                    self.map.insert(alias, ResolutionResult::Subpart(Rc::clone(&doc)));
+                if let Some(doc) = e.subparts.get(&alias) {
+                    self.resolve(&doc, parent);
+                    self.map.insert(alias, ResolutionResult::Subpart(&doc));
                     continue;
                 }
             }
@@ -158,18 +161,18 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
         }
     }
 
-    pub fn update(&mut self, key: &NormalizedAlias, document: &Rc<Document>) {
-        self.resolve(Rc::clone(document), None);
-        self.map.insert(key.clone(), ResolutionResult::Associated(Rc::clone(document)));
+    pub fn update(&mut self, key: &NormalizedAlias, document: Rc<Document>) {
+        self.resolve(&Rc::clone(&document), None);
+        self.map.insert(key.clone(), ResolutionResult::Associated(Rc::clone(&document)));
     }
 
-    pub fn query(&self, elem: &PartReference) -> Option<Rc<Document>> {
+    pub fn query(&'a self, elem: &PartReference) -> Option<&'a Document> {
         match self.map.get(&elem.name) {
             Some(e) => match e {
                 ResolutionResult::Missing => None,
                 ResolutionResult::Pending(_) => None,
-                ResolutionResult::Subpart(e) => Some(Rc::clone(e)),
-                ResolutionResult::Associated(e) => Some(Rc::clone(e)),
+                ResolutionResult::Subpart(e) => Some(e),
+                ResolutionResult::Associated(e) => Some(&e),
             },
             None => None,
         }
