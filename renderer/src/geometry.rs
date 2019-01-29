@@ -18,34 +18,32 @@ use ldraw::library::{ResolutionMap, ResolutionResult};
 const NORMAL_BLEND_THRESHOLD: f32 = f32::consts::FRAC_PI_4;
 
 #[derive(Clone, Debug)]
-pub struct GroupKey<'a> {
-    pub color_ref: ColorReference<'a>,
+pub struct GroupKey {
+    pub color_ref: ColorReference,
     pub bfc: bool,
 }
 
-impl<'a> Hash for GroupKey<'a> {
+impl Hash for GroupKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.color_ref.code().hash(state);
         self.bfc.hash(state);
     }
 }
 
-impl<'a> PartialOrd for GroupKey<'a> {
+impl PartialOrd for GroupKey {
     fn partial_cmp(&self, other: &GroupKey) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'a> Ord for GroupKey<'a> {
+impl Ord for GroupKey {
     fn cmp(&self, other: &GroupKey) -> Ordering {
         let lhs_semitransparent = match &self.color_ref {
-            ColorReference::PredefinedMaterial(m) => m.is_semi_transparent(),
-            ColorReference::CustomMaterial(m) => m.is_semi_transparent(),
+            ColorReference::Material(m) => m.is_semi_transparent(),
             _ => false,
         };
         let rhs_semitransparent = match &other.color_ref {
-            ColorReference::PredefinedMaterial(m) => m.is_semi_transparent(),
-            ColorReference::CustomMaterial(m) => m.is_semi_transparent(),
+            ColorReference::Material(m) => m.is_semi_transparent(),
             _ => false,
         };
 
@@ -62,9 +60,9 @@ impl<'a> Ord for GroupKey<'a> {
     }
 }
 
-impl<'a> Eq for GroupKey<'a> {}
+impl Eq for GroupKey {}
 
-impl<'a> PartialEq for GroupKey<'a> {
+impl PartialEq for GroupKey {
     fn eq(&self, other: &GroupKey) -> bool {
         self.color_ref.code() == other.color_ref.code() && self.bfc == other.bfc
     }
@@ -144,7 +142,7 @@ impl<'a> Face {
         }
     }
 
-    pub fn triangles(&'a self, reverse: bool) -> FaceIterator<'a> {
+    pub fn triangles(&self, reverse: bool) -> FaceIterator {
         let order = match self {
             Face::Triangle(_) => TRIANGLE_INDEX_ORDER,
             Face::Quad(_) => QUAD_INDEX_ORDER,
@@ -318,19 +316,19 @@ impl MeshBuilder {
     }
 }
 
-struct ModelBuilder<'a, T> {
+struct ModelBuilder<'a, 'b, T> {
     materials: &'a MaterialRegistry,
-    resolutions: &'a ResolutionMap<'a, T>,
+    resolutions: &'b ResolutionMap<'b, T>,
 
-    merge_buffer: BakedModel<'a>,
-    meshes: HashMap<GroupKey<'a>, MeshBuilder>,
+    merge_buffer: BakedModel,
+    meshes: HashMap<GroupKey, MeshBuilder>,
     edges: EdgeBuffer,
-    color_stack: Vec<ColorReference<'a>>,
+    color_stack: Vec<ColorReference>,
     point_cloud: KdTree<f32, Adjacency, [f32; 3]>,
 }
 
-impl<'a, T: Clone> ModelBuilder<'a, T> {
-    fn merge(&mut self, model: &BakedModel<'a>, matrix: Matrix4, invert: bool, color: &ColorReference<'a>) {
+impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
+    fn merge(&mut self, model: &BakedModel, matrix: Matrix4, invert: bool, color: &ColorReference) {
         for (group, mesh) in model.meshes.iter() {
             let igroup = GroupKey {
                 color_ref: match &group.color_ref {
@@ -508,8 +506,8 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
     }
     
     fn traverse<S: BuildHasher>(
-        &mut self, baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel<'a>, S>,
-        document: Rc<Document<'a>>, matrix: Matrix4, cull: bool, invert: bool) {
+        &mut self, baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
+        document: Rc<Document>, matrix: Matrix4, cull: bool, invert: bool) {
         let mut local_cull = true;
         let mut ccw = true;
         let bfc_certified = document.bfc.is_certified();
@@ -682,7 +680,7 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
         }
     }
 
-    pub fn bake(&self) -> BakedModel<'a> {
+    pub fn bake(&self) -> BakedModel {
         let mut model = BakedModel {
             meshes: HashMap::new(),
             edges: self.edges.clone(),
@@ -713,7 +711,7 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
         model
     }
     
-    pub fn new(materials: &'a MaterialRegistry, resolutions: &'a ResolutionMap<'a, T>) -> ModelBuilder<'a, T> {
+    pub fn new(materials: &'a MaterialRegistry, resolutions: &'b ResolutionMap<T>) -> ModelBuilder<'a, 'b, T> {
         let mut mb = ModelBuilder {
             materials,
             resolutions,
@@ -735,15 +733,15 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
 }
 
 #[derive(Debug)]
-pub struct BakedModel<'a> {
-    pub meshes: HashMap<GroupKey<'a>, MeshBuffer>,
+pub struct BakedModel {
+    pub meshes: HashMap<GroupKey, MeshBuffer>,
     pub edges: EdgeBuffer,
 }
 
 pub fn bake_model<'a, T: Clone, S: BuildHasher>(
-    materials: &'a MaterialRegistry, resolution: &'a ResolutionMap<'a, T>,
-    baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel<'a>, S>,
-    document: Rc<Document<'a>>) -> BakedModel<'a> {
+    materials: &MaterialRegistry, resolution: &'a ResolutionMap<'a, T>,
+    baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
+    document: Rc<Document>) -> BakedModel {
     let mut builder = ModelBuilder::new(materials, resolution);
 
     builder.traverse(baked_subfiles, document, Matrix4::identity(), true, false);

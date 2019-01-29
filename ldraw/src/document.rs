@@ -38,18 +38,18 @@ impl BfcCertification {
 }
 
 #[derive(Clone, Debug)]
-pub struct Document<'a> {
+pub struct Document {
     pub name: String,
     pub description: String,
     pub author: String,
     pub bfc: BfcCertification,
     pub headers: Vec<Header>,
-    pub commands: Vec<Command<'a>>,
+    pub commands: Vec<Command>,
 }
 
 macro_rules! define_iterator(
     ($fn:ident, $fn_mut:ident, $cmdval:path, $type:ty) => (
-        impl<'a> Document<'a> {
+        impl<'a> Document {
             pub fn $fn(&'a self) -> impl Iterator<Item = &'a $type> {
                 self.commands.iter().filter_map(|value| match value {
                     $cmdval(m) => Some(m),
@@ -68,20 +68,20 @@ macro_rules! define_iterator(
 );
 
 define_iterator!(iter_meta, iter_meta_mut, Command::Meta, Meta);
-define_iterator!(iter_refs, iter_refs_mut, Command::PartReference, PartReference<'a>);
-define_iterator!(iter_lines, iter_lines_mut, Command::Line, Line<'a>);
-define_iterator!(iter_triangles, iter_triangles_mut, Command::Triangle, Triangle<'a>);
-define_iterator!(iter_quads, iter_quads_mut, Command::Quad, Quad<'a>);
-define_iterator!(iter_optional_lines, iter_optioanl_lines_mut, Command::OptionalLine, OptionalLine<'a>);
+define_iterator!(iter_refs, iter_refs_mut, Command::PartReference, PartReference);
+define_iterator!(iter_lines, iter_lines_mut, Command::Line, Line);
+define_iterator!(iter_triangles, iter_triangles_mut, Command::Triangle, Triangle);
+define_iterator!(iter_quads, iter_quads_mut, Command::Quad, Quad);
+define_iterator!(iter_optional_lines, iter_optioanl_lines_mut, Command::OptionalLine, OptionalLine);
 
 #[derive(Debug)]
-pub struct MultipartDocument<'a> {
-    pub body: Rc<Document<'a>>,
-    pub subparts: HashMap<NormalizedAlias, Rc<Document<'a>>>,
+pub struct MultipartDocument {
+    pub body: Rc<Document>,
+    pub subparts: HashMap<NormalizedAlias, Rc<Document>>,
 }
 
-impl<'a> MultipartDocument<'a> {
-    pub fn query(&'a self, alias: &NormalizedAlias) -> Option<Rc<Document<'a>>> {
+impl MultipartDocument {
+    pub fn query(&self, alias: &NormalizedAlias) -> Option<Rc<Document>> {
         match self.subparts.get(alias) {
             Some(e) => Some(Rc::clone(&e)),
             None => None,

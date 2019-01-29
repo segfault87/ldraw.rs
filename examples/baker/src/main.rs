@@ -6,9 +6,38 @@ use std::io::BufReader;
 use std::path::Path;
 use std::rc::Rc;
 
-use ldraw::library::{PartCache, ResolutionMap, load_files, scan_ldraw_directory};
+use ldraw::color::MaterialRegistry;
+use ldraw::library::{PartCache, PartDirectoryNative, ResolutionMap, load_files, scan_ldraw_directory};
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
-use ldraw_renderer::geometry::bake_model;
+use ldraw_renderer::geometry::{BakedModel, bake_model};
+
+fn bake<'a>(colors: &MaterialRegistry, directory: &'a PartDirectoryNative, path: &str) -> BakedModel {
+    println!("Parsing document...");
+    let document = parse_multipart_document(
+        &colors, &mut BufReader::new(File::open(path).unwrap())
+    ).unwrap();
+
+    println!("Resolving dependencies...");
+    let cache = RefCell::new(PartCache::default());
+    let mut resolution = ResolutionMap::new(&directory, &cache);
+    resolution.resolve(Rc::clone(&document.body), Some(&document));
+    loop {
+        let pending = resolution.get_pending();
+        if pending.is_empty() {
+            break;
+        }
+        
+        for key in load_files(&colors, &cache, pending.into_iter()) {
+            let doc = cache.borrow().query(&key).unwrap();
+            resolution.update(&key, &doc);
+        }
+    }
+
+    println!("Baking model...");
+    let model = bake_model(&colors, &resolution, &mut HashMap::new(), Rc::clone(&document.body));
+
+    model
+}
 
 fn main() {
     let ldrawdir = match env::var("LDRAWDIR") {
@@ -30,29 +59,7 @@ fn main() {
         None => panic!("usage: loader [filename]"),
     };
 
-    println!("Parsing document...");
-    let document = parse_multipart_document(
-        &colors, &mut BufReader::new(File::open(ldrpath).unwrap())
-    ).unwrap();
-
-    println!("Resolving dependencies...");
-    let cache = RefCell::new(PartCache::default());
-    let mut resolution = ResolutionMap::new(&directory, &cache);
-    resolution.resolve(Rc::clone(&document.body), Some(&document));
-    loop {
-        let pending = resolution.get_pending();
-        if pending.is_empty() {
-            break;
-        }
-        
-        for key in load_files(&colors, &cache, pending.into_iter()) {
-            let doc = cache.borrow().query(&key).unwrap();
-            resolution.update(&key, &doc);
-        }
-    }
-
-    println!("Baking model...");
-    let baked = bake_model(&colors, &resolution, &mut HashMap::new(), Rc::clone(&document.body));
+    let baked = bake(&colors, &directory, &ldrpath);
 
     println!("Result:");
     for (group, mesh) in baked.meshes.iter() {

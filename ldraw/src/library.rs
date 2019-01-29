@@ -69,24 +69,24 @@ impl<T> PartDirectory<T> {
 }
 
 #[derive(Debug)]
-pub struct PartCache<'a> {
-    items: HashMap<NormalizedAlias, Rc<Document<'a>>>,
+pub struct PartCache {
+    items: HashMap<NormalizedAlias, Rc<Document>>,
 }
 
-impl<'a> Default for PartCache<'a> {
-    fn default() -> PartCache<'a> {
+impl Default for PartCache {
+    fn default() -> PartCache {
         PartCache {
             items: HashMap::new(),
         }
     }
 }
 
-impl<'a> PartCache<'a> {
-    pub fn register(&mut self, alias: NormalizedAlias, document: Document<'a>) {
+impl PartCache {
+    pub fn register(&mut self, alias: NormalizedAlias, document: Document) {
         self.items.insert(alias, Rc::new(document));
     }
 
-    pub fn query(&self, alias: &NormalizedAlias) -> Option<Rc<Document<'a>>> {
+    pub fn query(&self, alias: &NormalizedAlias) -> Option<Rc<Document>> {
         match self.items.get(alias) {
             Some(e) => Some(Rc::clone(&e)),
             None => None,
@@ -99,22 +99,22 @@ impl<'a> PartCache<'a> {
 }
 
 #[derive(Clone)]
-pub enum ResolutionResult<'a, T> {
+pub enum ResolutionResult<T> {
     Missing,
     Pending(PartEntry<T>),
-    Subpart(Rc<Document<'a>>),
-    Associated(Rc<Document<'a>>),
+    Subpart(Rc<Document>),
+    Associated(Rc<Document>),
 }
 
 #[derive(Clone)]
 pub struct ResolutionMap<'a, T> {
     directory: &'a PartDirectory<T>,
-    cache: &'a RefCell<PartCache<'a>>,
-    pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>
+    cache: &'a RefCell<PartCache>,
+    pub map: HashMap<NormalizedAlias, ResolutionResult<T>>
 }
 
 impl<'a, T: Clone> ResolutionMap<'a, T> {
-    pub fn new(directory: &'a PartDirectory<T>, cache: &'a RefCell<PartCache<'a>>) -> ResolutionMap<'a, T> {
+    pub fn new(directory: &'a PartDirectory<T>, cache: &'a RefCell<PartCache>) -> ResolutionMap<'a, T> {
         ResolutionMap {
             directory,
             cache,
@@ -129,7 +129,7 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
         }).collect::<Vec<_>>()
     }
 
-    pub fn resolve(&mut self, document: Rc<Document<'a>>, parent: Option<&'a MultipartDocument<'a>>) {
+    pub fn resolve(&mut self, document: Rc<Document>, parent: Option<&MultipartDocument>) {
         for i in document.iter_refs() {
             let alias = i.name.clone();
             
@@ -158,12 +158,12 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
         }
     }
 
-    pub fn update(&mut self, key: &NormalizedAlias, document: &Rc<Document<'a>>) {
+    pub fn update(&mut self, key: &NormalizedAlias, document: &Rc<Document>) {
         self.resolve(Rc::clone(document), None);
         self.map.insert(key.clone(), ResolutionResult::Associated(Rc::clone(document)));
     }
 
-    pub fn query(&self, elem: &PartReference) -> Option<Rc<Document<'a>>> {
+    pub fn query(&self, elem: &PartReference) -> Option<Rc<Document>> {
         match self.map.get(&elem.name) {
             Some(e) => match e {
                 ResolutionResult::Missing => None,

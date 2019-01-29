@@ -31,47 +31,38 @@ pub enum Meta {
 }
 
 #[derive(Clone, Debug)]
-pub enum PartResolution<'a> {
+pub enum PartResolution {
     Unresolved,
     Missing,
-    External(Rc<Document<'a>>),
-    Subpart(Rc<Document<'a>>),
+    External(Rc<Document>),
+    Subpart(Rc<Document>),
 }
 
 #[derive(Clone, Debug)]
-pub struct PartReference<'a> {
-    pub color: ColorReference<'a>,
+pub struct PartReference {
+    pub color: ColorReference,
     pub matrix: Matrix4,
     pub name: NormalizedAlias,
 }
 
 #[derive(Clone, Debug)]
-pub struct Line<'a> {
-    pub color: ColorReference<'a>,
+pub struct Line {
+    pub color: ColorReference,
     pub a: Vector4,
     pub b: Vector4,
 }
 
 #[derive(Clone, Debug)]
-pub struct Triangle<'a> {
-    pub color: ColorReference<'a>,
-    pub a: Vector4,
-    pub b: Vector4,
-    pub c: Vector4,
-}
-
-#[derive(Clone, Debug)]
-pub struct Quad<'a> {
-    pub color: ColorReference<'a>,
+pub struct Triangle {
+    pub color: ColorReference,
     pub a: Vector4,
     pub b: Vector4,
     pub c: Vector4,
-    pub d: Vector4,
 }
 
 #[derive(Clone, Debug)]
-pub struct OptionalLine<'a> {
-    pub color: ColorReference<'a>,
+pub struct Quad {
+    pub color: ColorReference,
     pub a: Vector4,
     pub b: Vector4,
     pub c: Vector4,
@@ -79,11 +70,20 @@ pub struct OptionalLine<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub enum Command<'a> {
+pub struct OptionalLine {
+    pub color: ColorReference,
+    pub a: Vector4,
+    pub b: Vector4,
+    pub c: Vector4,
+    pub d: Vector4,
+}
+
+#[derive(Clone, Debug)]
+pub enum Command {
     Meta(Meta),
-    PartReference(PartReference<'a>),
-    Line(Line<'a>),
-    Triangle(Triangle<'a>),
-    Quad(Quad<'a>),
-    OptionalLine(OptionalLine<'a>),
+    PartReference(PartReference),
+    Line(Line),
+    Triangle(Triangle),
+    Quad(Quad),
+    OptionalLine(OptionalLine),
 }

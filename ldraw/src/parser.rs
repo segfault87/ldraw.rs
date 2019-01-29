@@ -171,10 +171,10 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
     }
 }
 
-fn parse_line_1<'a>(
-    materials: &'a MaterialRegistry,
+fn parse_line_1(
+    materials: &MaterialRegistry,
     iterator: &mut Chars,
-) -> Result<PartReference<'a>, ParseError> {
+) -> Result<PartReference, ParseError> {
     let color = next_token_u32(iterator)?;
     let x = next_token_f32(iterator)?;
     let y = next_token_f32(iterator)?;
@@ -205,10 +205,10 @@ fn parse_line_1<'a>(
     })
 }
 
-fn parse_line_2<'a>(
-    materials: &'a MaterialRegistry,
+fn parse_line_2(
+    materials: &MaterialRegistry,
     iterator: &mut Chars,
-) -> Result<Line<'a>, ParseError> {
+) -> Result<Line, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -227,10 +227,10 @@ fn parse_line_2<'a>(
     })
 }
 
-fn parse_line_3<'a>(
-    materials: &'a MaterialRegistry,
+fn parse_line_3(
+    materials: &MaterialRegistry,
     iterator: &mut Chars,
-) -> Result<Triangle<'a>, ParseError> {
+) -> Result<Triangle, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -255,10 +255,10 @@ fn parse_line_3<'a>(
     })
 }
 
-fn parse_line_4<'a>(
-    materials: &'a MaterialRegistry,
+fn parse_line_4(
+    materials: &MaterialRegistry,
     iterator: &mut Chars,
-) -> Result<Quad<'a>, ParseError> {
+) -> Result<Quad, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -289,10 +289,10 @@ fn parse_line_4<'a>(
     })
 }
 
-fn parse_line_5<'a>(
-    materials: &'a MaterialRegistry,
+fn parse_line_5(
+    materials: &MaterialRegistry,
     iterator: &mut Chars,
-) -> Result<OptionalLine<'a>, ParseError> {
+) -> Result<OptionalLine, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -323,11 +323,11 @@ fn parse_line_5<'a>(
     })
 }
 
-fn parse_inner<'a, T: BufRead>(
-    materials: &'a MaterialRegistry,
+fn parse_inner<T: BufRead>(
+    materials: &MaterialRegistry,
     iterator: &mut Enumerate<Lines<T>>,
     multipart: bool,
-) -> Result<(Document<'a>, Option<String>), DocumentParseError> {
+) -> Result<(Document, Option<String>), DocumentParseError> {
     let mut next: Option<String> = None;
     let mut name = String::new();
     let mut author = String::new();
@@ -480,20 +480,20 @@ fn parse_inner<'a, T: BufRead>(
     }
 }
 
-pub fn parse_single_document<'a, T: BufRead>(
-    materials: &'a MaterialRegistry,
+pub fn parse_single_document<T: BufRead>(
+    materials: &MaterialRegistry,
     reader: &mut T,
-) -> Result<Document<'a>, DocumentParseError> {
+) -> Result<Document, DocumentParseError> {
     let mut it = reader.lines().enumerate();
     let (document, _) = parse_inner(materials, &mut it, false)?;
 
     Ok(document)
 }
 
-pub fn parse_multipart_document<'a, T: BufRead>(
-    materials: &'a MaterialRegistry,
+pub fn parse_multipart_document<T: BufRead>(
+    materials: &MaterialRegistry,
     reader: &mut T,
-) -> Result<MultipartDocument<'a>, DocumentParseError> {
+) -> Result<MultipartDocument, DocumentParseError> {
     let mut it = reader.lines().enumerate();
     let (document, mut next) = parse_inner(materials, &mut it, true)?;
     let mut subparts = HashMap::new();

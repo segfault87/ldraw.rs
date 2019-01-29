@@ -14,14 +14,13 @@ fn serialize_vec3(vec: &Vector4<f32>) -> String {
     format!("{} {} {}", vec.x, vec.y, vec.z)
 }
 
-impl<'a> fmt::Display for ColorReference<'a> {
+impl fmt::Display for ColorReference {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let code = match self {
             ColorReference::Unknown(code) => code,
             ColorReference::Current => &16u32,
             ColorReference::Complement => &24u32,
-            ColorReference::PredefinedMaterial(material) => &material.code,
-            ColorReference::CustomMaterial(material) => &material.code,
+            ColorReference::Material(material) => &material.code,
         };
         write!(f, "{}", code)
     }
@@ -65,7 +64,7 @@ impl LDrawWriter for BfcStatement {
     }
 }
 
-impl<'a> LDrawWriter for Document<'a> {
+impl LDrawWriter for Document {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         writer.write_all(format!("0 {}\n", self.description).as_bytes())?;
         writer.write_all(format!("0 Name: {}\n", self.name).as_bytes())?;
@@ -90,7 +89,7 @@ impl<'a> LDrawWriter for Document<'a> {
     }
 }
 
-impl<'a> LDrawWriter for MultipartDocument<'a> {
+impl LDrawWriter for MultipartDocument {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         self.body.write(writer)?;
         for subpart in self.subparts.values() {
@@ -141,7 +140,7 @@ impl LDrawWriter for Meta {
     }
 }
 
-impl<'a> LDrawWriter for PartReference<'a> {
+impl LDrawWriter for PartReference {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         let m = &self.matrix;
         writer.write_all(
@@ -167,7 +166,7 @@ impl<'a> LDrawWriter for PartReference<'a> {
     }
 }
 
-impl<'a> LDrawWriter for Line<'a> {
+impl LDrawWriter for Line {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
@@ -182,7 +181,7 @@ impl<'a> LDrawWriter for Line<'a> {
     }
 }
 
-impl<'a> LDrawWriter for Triangle<'a> {
+impl LDrawWriter for Triangle {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
@@ -198,7 +197,7 @@ impl<'a> LDrawWriter for Triangle<'a> {
     }
 }
 
-impl<'a> LDrawWriter for Quad<'a> {
+impl LDrawWriter for Quad {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
@@ -215,7 +214,7 @@ impl<'a> LDrawWriter for Quad<'a> {
     }
 }
 
-impl<'a> LDrawWriter for OptionalLine<'a> {
+impl LDrawWriter for OptionalLine {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
@@ -232,7 +231,7 @@ impl<'a> LDrawWriter for OptionalLine<'a> {
     }
 }
 
-impl<'a> LDrawWriter for Command<'a> {
+impl LDrawWriter for Command {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         match self {
             Command::Meta(meta) => meta.write(writer),

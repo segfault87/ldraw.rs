@@ -70,7 +70,7 @@ pub fn scan_ldraw_directory(path_str: &str) -> Result<PartDirectoryNative, Libra
     Ok(dir)
 }
 
-pub fn load_files<'a, T>(materials: &'a MaterialRegistry, cache: &RefCell<PartCache<'a>>, files: T) -> Vec<NormalizedAlias>
+pub fn load_files<'a, T>(materials: &'a MaterialRegistry, cache: &RefCell<PartCache>, files: T) -> Vec<NormalizedAlias>
 where
     T: Iterator<Item = (NormalizedAlias, PartEntryNative)>
 {

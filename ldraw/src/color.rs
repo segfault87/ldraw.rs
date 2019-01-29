@@ -117,36 +117,34 @@ impl Material {
 pub type MaterialRegistry = HashMap<u32, Material>;
 
 #[derive(Clone, Debug)]
-pub enum ColorReference<'a> {
+pub enum ColorReference {
     Unknown(u32),
     Current,
     Complement,
-    PredefinedMaterial(&'a Material),
-    CustomMaterial(Material),
+    Material(Material),
 }
 
-impl<'a> Eq for ColorReference<'a> {}
+impl Eq for ColorReference {}
 
-impl<'a> PartialEq for ColorReference<'a> {
+impl PartialEq for ColorReference {
     fn eq(&self, other: &Self) -> bool {
         self.code() == other.code()
     }
 }
 
-impl<'a> Hash for ColorReference<'a> {
+impl Hash for ColorReference {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.code().hash(state)
     }
 }
 
-impl<'a> ColorReference<'a> {
+impl ColorReference {
     pub fn code(&self) -> u32 {
         match self {
             ColorReference::Unknown(c) => *c,
             ColorReference::Current => 16,
             ColorReference::Complement => 24,
-            ColorReference::PredefinedMaterial(m) => m.code,
-            ColorReference::CustomMaterial(m) => m.code,
+            ColorReference::Material(m) => m.code,
         }
     }
 
@@ -166,15 +164,14 @@ impl<'a> ColorReference<'a> {
 
     pub fn is_material(&self) -> bool {
         match self {
-            ColorReference::PredefinedMaterial(_) | ColorReference::CustomMaterial(_) => true,
+            ColorReference::Material(_) => true,
             _ => false,
         }
     }
 
-    pub fn get_material(&'a self) -> Option<&'a Material> {
+    pub fn get_material(&self) -> Option<&Material> {
         match self {
-            ColorReference::PredefinedMaterial(m) => Some(m),
-            ColorReference::CustomMaterial(m) => Some(&m),
+            ColorReference::Material(m) => Some(&m),
             _ => None,
         }
     }
@@ -247,18 +244,18 @@ impl<'a> ColorReference<'a> {
 
         if code >= 256 && code <= 512 {
             if let Some(c) = ColorReference::resolve_blended(code, materials) {
-                return ColorReference::CustomMaterial(c);
+                return ColorReference::Material(c);
             }
         }
 
         if (code & 0xff00_0000) == 0x0200_0000 {
-            return ColorReference::CustomMaterial(ColorReference::resolve_rgb_2(code));
+            return ColorReference::Material(ColorReference::resolve_rgb_2(code));
         } else if (code & 0xff00_0000) == 0x0400_0000 {
-            return ColorReference::CustomMaterial(ColorReference::resolve_rgb_4(code));
+            return ColorReference::Material(ColorReference::resolve_rgb_4(code));
         }
 
         if let Some(c) = materials.get(&code) {
-            return ColorReference::PredefinedMaterial(c);
+            return ColorReference::Material(c.clone());
         }
 
         ColorReference::Unknown(code)
