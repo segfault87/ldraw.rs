@@ -76,12 +76,12 @@ pub fn scan_ldraw_directory(path_str: &str) -> Result<PartDirectoryNative, Libra
 }
 
 pub fn load_files<'a, T>(
-    materials: &'a MaterialRegistry,
+    materials: &MaterialRegistry,
     cache: &RefCell<PartCache>,
     files: T,
-) -> Vec<NormalizedAlias>
+) -> Option<Vec<NormalizedAlias>>
 where
-    T: Iterator<Item = (NormalizedAlias, PartEntryNative)>,
+    T: Iterator<Item = (&'a NormalizedAlias, &'a PartEntryNative)>,
 {
     let mut loaded = Vec::new();
     let mut cache = cache.borrow_mut();
@@ -106,7 +106,11 @@ where
         loaded.push(alias.clone());
     }
 
-    loaded
+    if loaded.is_empty() {
+        None
+    } else {
+        Some(loaded)
+    }
 }
 
 #[cfg(test)]

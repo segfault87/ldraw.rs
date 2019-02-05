@@ -2,18 +2,16 @@ use std::rc::Rc;
 
 use crate::color::ColorReference;
 use crate::document::Document;
-use crate::{Matrix4, NormalizedAlias, Vector4};
+use crate::{Matrix4, NormalizedAlias, Vector4, Winding};
 
 #[derive(Clone, Debug)]
 pub struct Header(pub String, pub String);
 
 #[derive(Clone, Debug)]
 pub enum BfcStatement {
-    Cw,
-    Ccw,
+    Winding(Winding),
     Clip,
-    ClipCw,
-    ClipCcw,
+    ClipWinding(Winding),
     NoClip,
     InvertNext,
 }
@@ -28,14 +26,6 @@ pub enum Meta {
     Pause,
     Save,
     Bfc(BfcStatement),
-}
-
-#[derive(Clone, Debug)]
-pub enum PartResolution {
-    Unresolved,
-    Missing,
-    External(Rc<Document>),
-    Subpart(Rc<Document>),
 }
 
 #[derive(Clone, Debug)]

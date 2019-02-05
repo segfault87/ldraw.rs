@@ -3,35 +3,28 @@ use std::iter::Iterator;
 use std::vec::Vec;
 
 use crate::elements::{Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle};
-use crate::NormalizedAlias;
+use crate::{NormalizedAlias, Winding};
 
 #[derive(Clone, Debug)]
 pub enum BfcCertification {
     NotApplicable,
     NoCertify,
-    CertifyCcw,
-    CertifyCw,
+    Certify(Winding),
 }
 
 impl BfcCertification {
-    pub fn is_certified(&self) -> bool {
+    pub fn is_certified(&self) -> Option<bool> {
         match self {
-            BfcCertification::CertifyCw | BfcCertification::CertifyCcw => true,
-            _ => false,
+            BfcCertification::Certify(_) => Some(true),
+            BfcCertification::NoCertify => Some(false),
+            BfcCertification::NotApplicable => None,
         }
     }
 
-    pub fn is_ccw(&self) -> bool {
+    pub fn get_winding(&self) -> Option<Winding> {
         match self {
-            BfcCertification::CertifyCcw => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_cw(&self) -> bool {
-        match self {
-            BfcCertification::CertifyCw => true,
-            _ => false,
+            BfcCertification::Certify(w) => Some(*w),
+            _ => None,
         }
     }
 }

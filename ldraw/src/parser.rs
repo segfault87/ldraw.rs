@@ -3,6 +3,8 @@ use std::io::{BufRead, Lines};
 use std::iter::Enumerate;
 use std::str::Chars;
 
+use cgmath::Matrix;
+
 use crate::color::{
     ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter, MaterialRegistry,
     MaterialSpeckle, Rgba,
@@ -13,7 +15,7 @@ use crate::elements::{
 };
 use crate::error::{ColorDefinitionParseError, DocumentParseError, ParseError};
 use crate::NormalizedAlias;
-use crate::{Matrix4, Vector4};
+use crate::{Matrix4, Vector4, Winding};
 
 #[derive(Debug)]
 enum Line0 {
@@ -111,13 +113,13 @@ fn parse_bfc_statement(iterator: &mut Chars) -> Result<Line0, ParseError> {
     let stmt = next_token(iterator, true)?;
     match stmt.as_str() {
         "NOCERTIFY" => Ok(Line0::BfcCertification(BfcCertification::NoCertify)),
-        "CERTIFY" | "CERTIFY CCW" => Ok(Line0::BfcCertification(BfcCertification::CertifyCcw)),
-        "CERTIFY CW" => Ok(Line0::BfcCertification(BfcCertification::CertifyCw)),
-        "CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Cw))),
-        "CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Ccw))),
+        "CERTIFY" | "CERTIFY CCW" => Ok(Line0::BfcCertification(BfcCertification::Certify(Winding::Ccw))),
+        "CERTIFY CW" => Ok(Line0::BfcCertification(BfcCertification::Certify(Winding::Cw))),
+        "CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Winding(Winding::Cw)))),
+        "CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Winding(Winding::Ccw)))),
         "CLIP" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip))),
-        "CLIP CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::ClipCw))),
-        "CLIP CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::ClipCcw))),
+        "CLIP CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::ClipWinding(Winding::Cw)))),
+        "CLIP CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::ClipWinding(Winding::Ccw)))),
         "NOCLIP" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::NoClip))),
         "INVERTNEXT" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::InvertNext))),
         _ => Err(ParseError::InvalidBfcStatement(stmt)),
@@ -181,20 +183,20 @@ fn parse_line_1(
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
         next_token_f32(iterator)?,
-        0.0,
-        next_token_f32(iterator)?,
-        next_token_f32(iterator)?,
-        next_token_f32(iterator)?,
-        0.0,
-        next_token_f32(iterator)?,
-        next_token_f32(iterator)?,
-        next_token_f32(iterator)?,
-        0.0,
         x,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
         y,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
+        next_token_f32(iterator)?,
         z,
+        0.0,
+        0.0,
+        0.0,
         1.0,
-    );
+    ).transpose();
     let name = next_token(iterator, true)?;
     Ok(PartReference {
         color: ColorReference::resolve(color, materials),

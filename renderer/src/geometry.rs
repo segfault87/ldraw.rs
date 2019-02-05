@@ -14,7 +14,7 @@ use ldraw::color::{ColorReference, MaterialRegistry};
 use ldraw::document::Document;
 use ldraw::elements::{BfcStatement, Command, Meta};
 use ldraw::library::{ResolutionMap, ResolutionResult};
-use ldraw::{Matrix4, NormalizedAlias, Vector3, Vector4};
+use ldraw::{Matrix4, NormalizedAlias, Vector3, Vector4, Winding};
 
 const NORMAL_BLEND_THRESHOLD: f32 = f32::consts::FRAC_PI_4;
 
@@ -49,8 +49,8 @@ impl Ord for GroupKey {
         };
 
         match (lhs_semitransparent, rhs_semitransparent) {
-            (true, false) => return Ordering::Less,
-            (false, true) => return Ordering::Greater,
+            (true, false) => return Ordering::Greater,
+            (false, true) => return Ordering::Less,
             (_, _) => (),
         };
 
@@ -70,12 +70,18 @@ impl PartialEq for GroupKey {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-enum Face {
+enum FaceVertices {
     Triangle([Vector3; 3]),
     Quad([Vector3; 4]),
 }
 
-impl AbsDiffEq for Face {
+#[derive(Clone, Debug, PartialEq)]
+struct Face {
+    vertices: FaceVertices,
+    winding: Winding,
+}
+
+impl AbsDiffEq for FaceVertices {
     type Epsilon = f32;
 
     fn default_epsilon() -> Self::Epsilon {
@@ -84,12 +90,12 @@ impl AbsDiffEq for Face {
 
     fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
         match (self, other) {
-            (Face::Triangle(lhs), Face::Triangle(rhs)) => {
+            (FaceVertices::Triangle(lhs), FaceVertices::Triangle(rhs)) => {
                 (lhs[0].abs_diff_eq(&rhs[0], epsilon)
                     && lhs[1].abs_diff_eq(&rhs[1], epsilon)
                     && lhs[2].abs_diff_eq(&rhs[2], epsilon))
             }
-            (Face::Quad(lhs), Face::Quad(rhs)) => {
+            (FaceVertices::Quad(lhs), FaceVertices::Quad(rhs)) => {
                 (lhs[0].abs_diff_eq(&rhs[0], epsilon)
                     && lhs[1].abs_diff_eq(&rhs[1], epsilon)
                     && lhs[2].abs_diff_eq(&rhs[2], epsilon)
@@ -100,11 +106,11 @@ impl AbsDiffEq for Face {
     }
 }
 
-impl AsRef<[Vector3]> for Face {
+impl AsRef<[Vector3]> for FaceVertices {
     fn as_ref(&self) -> &[Vector3] {
         match self {
-            Face::Triangle(v) => v.as_ref(),
-            Face::Quad(v) => v.as_ref(),
+            FaceVertices::Triangle(v) => v.as_ref(),
+            FaceVertices::Quad(v) => v.as_ref(),
         }
     }
 }
@@ -128,25 +134,32 @@ impl<'a> Iterator for FaceIterator<'a> {
     }
 }
 
-impl<'a> Face {
+impl<'a> FaceVertices {
     pub fn count(&self) -> usize {
         match self {
-            Face::Triangle(_) => 3,
-            Face::Quad(_) => 4,
+            FaceVertices::Triangle(_) => 3,
+            FaceVertices::Quad(_) => 4,
         }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Vector3> {
         match self {
-            Face::Triangle(a) => a.iter(),
-            Face::Quad(a) => a.iter(),
+            FaceVertices::Triangle(a) => a.iter(),
+            FaceVertices::Quad(a) => a.iter(),
+        }
+    }
+
+    pub fn center(&self) -> Vector3 {
+        match self {
+            FaceVertices::Triangle(a) => (a[0] + a[1] + a[2]) / 3.0,
+            FaceVertices::Quad(a) => (a[0] + a[1] + a[2] + a[3]) / 4.0,
         }
     }
 
     pub fn triangles(&self, reverse: bool) -> FaceIterator {
         let order = match self {
-            Face::Triangle(_) => TRIANGLE_INDEX_ORDER,
-            Face::Quad(_) => QUAD_INDEX_ORDER,
+            FaceVertices::Triangle(_) => TRIANGLE_INDEX_ORDER,
+            FaceVertices::Quad(_) => QUAD_INDEX_ORDER,
         };
 
         let iterator: Box<dyn Iterator<Item = &'static usize>> = if reverse {
@@ -163,21 +176,21 @@ impl<'a> Face {
 
     pub fn edge(&'a self, index: usize) -> (&'a Vector3, &'a Vector3) {
         match self {
-            Face::Triangle(v) => (&v[index], &v[(index + 1) % 3]),
-            Face::Quad(v) => (&v[index], &v[(index + 1) % 4]),
+            FaceVertices::Triangle(v) => (&v[index], &v[(index + 1) % 3]),
+            FaceVertices::Quad(v) => (&v[index], &v[(index + 1) % 4]),
         }
     }
 
     pub fn contains(&self, vec: &Vector3) -> bool {
         match self {
-            Face::Triangle(v) => {
+            FaceVertices::Triangle(v) => {
                 for i in v {
                     if abs_diff_eq!(vec, i) {
                         return true;
                     }
                 }
             }
-            Face::Quad(v) => {
+            FaceVertices::Quad(v) => {
                 for i in v {
                     if abs_diff_eq!(vec, i) {
                         return true;
@@ -190,11 +203,11 @@ impl<'a> Face {
 
     pub fn normal(&self) -> Vector3 {
         let r = match self {
-            Face::Triangle(v) => v.as_ref(),
-            Face::Quad(v) => v.as_ref(),
+            FaceVertices::Triangle(v) => v.as_ref(),
+            FaceVertices::Quad(v) => v.as_ref(),
         };
 
-        ((r[1] - r[2]).cross(r[1] - r[0]) * -1.0).normalize()
+        (r[1] - r[2]).cross(r[1] - r[0]).normalize()
     }
 }
 
@@ -220,7 +233,7 @@ impl<'a> Adjacency {
     ) -> impl Iterator<Item = &'a Face> + 'a {
         self.faces
             .iter()
-            .filter(move |&i| i.contains(v) && i != exclude)
+            .filter(move |&i| i.vertices.contains(v) && i != exclude)
     }
 }
 
@@ -276,12 +289,22 @@ impl EdgeBuffer {
             self.colors.push(0.0);
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.vertices.len() / 3
+    }
 }
 
 #[derive(Debug)]
 pub struct MeshBuffer {
     pub vertices: Vec<f32>,
     pub normals: Vec<f32>,
+}
+
+impl MeshBuffer {
+    pub fn len(&self) -> usize {
+        self.vertices.len() / 3
+    }
 }
 
 #[derive(Debug)]
@@ -305,9 +328,9 @@ impl MeshBuilder {
         };
 
         for face in self.faces.iter() {
-            let normal = face.normal();
+            let normal = face.vertices.normal();
 
-            for vertex in face.triangles(false) {
+            for vertex in face.vertices.triangles(false) {
                 buffer.vertices.push(vertex.x);
                 buffer.vertices.push(vertex.y);
                 buffer.vertices.push(vertex.z);
@@ -321,7 +344,7 @@ impl MeshBuilder {
     }
 }
 
-struct ModelBuilder<'a, 'b, T> {
+pub struct ModelBuilder<'a, 'b, T> {
     materials: &'a MaterialRegistry,
     resolutions: &'b ResolutionMap<'b, T>,
 
@@ -365,97 +388,69 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
             target.vertices.reserve(len);
             target.normals.reserve(len);
 
+            let mut normal_matrix = matrix.clone();
+            normal_matrix[3] = Vector4::new(0.0, 0.0, 0.0, 1.0);
+
             for i in 0..(len / 9) {
-                let v1 = (matrix
+                let v1 = matrix
                     * Vector4::new(
                         mesh.vertices[i * 9],
                         mesh.vertices[i * 9 + 1],
                         mesh.vertices[i * 9 + 2],
                         1.0,
-                    ))
-                .truncate();
-                let v2 = (matrix
+                    );
+                let v2 = matrix
                     * Vector4::new(
                         mesh.vertices[i * 9 + 3],
                         mesh.vertices[i * 9 + 4],
                         mesh.vertices[i * 9 + 5],
                         1.0,
-                    ))
-                .truncate();
-                let v3 = (matrix
+                    );
+                let v3 = matrix
                     * Vector4::new(
                         mesh.vertices[i * 9 + 6],
                         mesh.vertices[i * 9 + 7],
                         mesh.vertices[i * 9 + 8],
                         1.0,
-                    ))
-                .truncate();
-                let n1 = (matrix
+                    );
+
+                let invert = invert ^ (normal_matrix.determinant() < -f32::default_epsilon());
+
+                let n1 = (normal_matrix
                     * Vector4::new(
                         mesh.normals[i * 9],
                         mesh.normals[i * 9 + 1],
                         mesh.normals[i * 9 + 2],
                         1.0,
-                    ))
-                .truncate()
-                .normalize();
-                let n2 = (matrix
+                    )).truncate().normalize();
+                let n2 = (normal_matrix
                     * Vector4::new(
                         mesh.normals[i * 9 + 3],
                         mesh.normals[i * 9 + 4],
                         mesh.normals[i * 9 + 5],
                         1.0,
-                    ))
-                .truncate()
-                .normalize();
-                let n3 = (matrix
+                    )).truncate().normalize();
+                let n3 = (normal_matrix
                     * Vector4::new(
                         mesh.normals[i * 9 + 6],
                         mesh.normals[i * 9 + 7],
                         mesh.normals[i * 9 + 8],
                         1.0,
-                    ))
-                .truncate()
-                .normalize();
+                    )).truncate().normalize();
 
-                if invert {
-                    target.vertices.push(v3.x);
-                    target.vertices.push(v3.y);
-                    target.vertices.push(v3.z);
-                    target.vertices.push(v2.x);
-                    target.vertices.push(v2.y);
-                    target.vertices.push(v2.z);
-                    target.vertices.push(v1.x);
-                    target.vertices.push(v1.y);
-                    target.vertices.push(v1.z);
-                    target.normals.push(n3.x);
-                    target.normals.push(n3.y);
-                    target.normals.push(n3.z);
-                    target.normals.push(n2.x);
-                    target.normals.push(n2.y);
-                    target.normals.push(n2.z);
-                    target.normals.push(n1.x);
-                    target.normals.push(n1.y);
-                    target.normals.push(n1.z);
+                let vertex_order = if invert {
+                    [(&v3, &n3), (&v2, &n2), (&v1, &n1)]
                 } else {
-                    target.vertices.push(v1.x);
-                    target.vertices.push(v1.y);
-                    target.vertices.push(v1.z);
-                    target.vertices.push(v2.x);
-                    target.vertices.push(v2.y);
-                    target.vertices.push(v2.z);
-                    target.vertices.push(v3.x);
-                    target.vertices.push(v3.y);
-                    target.vertices.push(v3.z);
-                    target.normals.push(-n1.x);
-                    target.normals.push(-n1.y);
-                    target.normals.push(-n1.z);
-                    target.normals.push(-n2.x);
-                    target.normals.push(-n2.y);
-                    target.normals.push(-n2.z);
-                    target.normals.push(-n1.x);
-                    target.normals.push(-n1.y);
-                    target.normals.push(-n1.z);
+                    [(&v1, &n1), (&v2, &n2), (&v3, &n3)]
+                };
+
+                for (v, n) in vertex_order.iter() {
+                    target.vertices.push(v.x);
+                    target.vertices.push(v.y);
+                    target.vertices.push(v.z);
+                    target.normals.push(n.x);
+                    target.normals.push(n.y);
+                    target.normals.push(n.z);
                 }
             }
         }
@@ -548,7 +543,7 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
         }
     }
 
-    fn traverse<S: BuildHasher, D: Deref<Target = Document>>(
+    pub fn traverse<S: BuildHasher, D: Deref<Target = Document>>(
         &mut self,
         baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
         document: &D,
@@ -557,23 +552,30 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
         invert: bool,
     ) {
         let mut local_cull = true;
-        let mut ccw = true;
-        let bfc_certified = document.bfc.is_certified();
+        let mut winding = Winding::Ccw;
+        let bfc_certified = match document.bfc.is_certified() {
+            Some(e) => e,
+            None => true,
+        };
         let mut invert_next = false;
 
         if bfc_certified {
-            ccw = document.bfc.is_ccw() ^ invert;
+            winding = match document.bfc.get_winding() {
+                Some(e) => e,
+                None => Winding::Ccw
+            } ^ invert;
         }
 
         for cmd in document.commands.iter() {
             match cmd {
                 Command::PartReference(cmd) => {
-                    let invert_child = if cmd.matrix.determinant() >= 0.0 {
-                        invert != invert_next
-                    } else {
+                    let matrix = matrix * cmd.matrix;
+                    let invert_child = if matrix.determinant() < -f32::default_epsilon() {
                         invert == invert_next
+                    } else {
+                        invert != invert_next
                     };
-                    invert_next = false;
+
                     let cull_next = if bfc_certified {
                         cull && local_cull
                     } else {
@@ -591,7 +593,7 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                             self.traverse(
                                 baked_subfiles,
                                 part,
-                                matrix * cmd.matrix,
+                                matrix,
                                 cull_next,
                                 invert_child,
                             );
@@ -616,10 +618,12 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                                 }
                             };
 
-                            self.merge(subfile, matrix * cmd.matrix, invert_child, &color);
+                            self.merge(subfile, matrix, invert, &color);
                         }
                         _ => (),
                     };
+
+                    invert_next = false;
                 }
                 Command::Line(cmd) => {
                     let top = self.color_stack.last().unwrap();
@@ -635,18 +639,23 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                         e => e,
                     };
 
-                    let face = if ccw {
-                        Face::Triangle([
-                            (matrix * cmd.a).truncate(),
-                            (matrix * cmd.b).truncate(),
-                            (matrix * cmd.c).truncate(),
-                        ])
-                    } else {
-                        Face::Triangle([
-                            (matrix * cmd.c).truncate(),
-                            (matrix * cmd.b).truncate(),
-                            (matrix * cmd.a).truncate(),
-                        ])
+                    let face = match winding {
+                        Winding::Ccw => Face {
+                            vertices: FaceVertices::Triangle([
+                                (matrix * cmd.a).truncate(),
+                                (matrix * cmd.b).truncate(),
+                                (matrix * cmd.c).truncate(),
+                            ]),
+                            winding: Winding::Ccw,
+                        },
+                        Winding::Cw => Face {
+                            vertices: FaceVertices::Triangle([
+                                (matrix * cmd.c).truncate(),
+                                (matrix * cmd.b).truncate(),
+                                (matrix * cmd.a).truncate(),
+                            ]),
+                            winding: Winding::Cw,
+                        }
                     };
 
                     let category = GroupKey {
@@ -673,20 +682,25 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                         e => e,
                     };
 
-                    let face = if ccw {
-                        Face::Quad([
-                            (matrix * cmd.a).truncate(),
-                            (matrix * cmd.b).truncate(),
-                            (matrix * cmd.c).truncate(),
-                            (matrix * cmd.d).truncate(),
-                        ])
-                    } else {
-                        Face::Quad([
-                            (matrix * cmd.d).truncate(),
-                            (matrix * cmd.c).truncate(),
-                            (matrix * cmd.b).truncate(),
-                            (matrix * cmd.a).truncate(),
-                        ])
+                    let face = match winding {
+                        Winding::Ccw => Face {
+                            vertices: FaceVertices::Quad([
+                                (matrix * cmd.a).truncate(),
+                                (matrix * cmd.b).truncate(),
+                                (matrix * cmd.c).truncate(),
+                                (matrix * cmd.d).truncate(),
+                            ]),
+                            winding: Winding::Ccw,
+                        },
+                        Winding::Cw => Face {
+                            vertices: FaceVertices::Quad([
+                                (matrix * cmd.d).truncate(),
+                                (matrix * cmd.c).truncate(),
+                                (matrix * cmd.b).truncate(),
+                                (matrix * cmd.a).truncate(),
+                            ]),
+                            winding: Winding::Cw,
+                        }
                     };
 
                     let category = GroupKey {
@@ -716,22 +730,15 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                             BfcStatement::NoClip => {
                                 local_cull = false;
                             }
-                            BfcStatement::ClipCw => {
+                            BfcStatement::ClipWinding(w) => {
                                 local_cull = true;
-                                ccw = invert;
-                            }
-                            BfcStatement::ClipCcw => {
-                                local_cull = true;
-                                ccw = !invert;
+                                winding = w ^ invert;
                             }
                             BfcStatement::Clip => {
                                 local_cull = true;
                             }
-                            BfcStatement::Cw => {
-                                ccw = invert;
-                            }
-                            BfcStatement::Ccw => {
-                                ccw = !invert;
+                            BfcStatement::Winding(w) => {
+                                winding = w ^ invert;
                             }
                         }
                     }
@@ -779,6 +786,76 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
         model
     }
 
+    pub fn visualize_normals(&self, scale: f32) -> EdgeBuffer {
+        let mut buffer = EdgeBuffer::default();
+
+        for (group, mesh) in self.meshes.iter() {
+            if !group.bfc {
+                continue;
+            }
+            for face in mesh.faces.iter() {
+                let normal = face.vertices.normal();
+                let c = face.vertices.center();
+                buffer.vertices.push(c.x);
+                buffer.vertices.push(c.y);
+                buffer.vertices.push(c.z);
+                let w = c + (normal * scale);
+                buffer.vertices.push(w.x);
+                buffer.vertices.push(w.y);
+                buffer.vertices.push(w.z);
+                buffer.colors.push(1.0);
+                buffer.colors.push(0.0);
+                buffer.colors.push(1.0);
+                buffer.colors.push(1.0);
+                buffer.colors.push(1.0);
+                buffer.colors.push(0.0);
+            }
+        }
+
+        for (group, mesh) in self.merge_buffer.meshes.iter() {
+            if !group.bfc {
+                continue;
+            }
+            for i in 0..mesh.len() / 3 {
+                let v1 = Vector3::new(mesh.vertices[i * 9],
+                                      mesh.vertices[i * 9 + 1],
+                                      mesh.vertices[i * 9 + 2]);
+                let v2 = Vector3::new(mesh.vertices[i * 9 + 3],
+                                      mesh.vertices[i * 9 + 4],
+                                      mesh.vertices[i * 9 + 5]);
+                let v3 = Vector3::new(mesh.vertices[i * 9 + 6],
+                                      mesh.vertices[i * 9 + 7],
+                                      mesh.vertices[i * 9 + 8]);
+                let n1 = Vector3::new(mesh.normals[i * 9],
+                                      mesh.normals[i * 9 + 1],
+                                      mesh.normals[i * 9 + 2]).normalize();
+                let n2 = Vector3::new(mesh.normals[i * 9 + 3],
+                                      mesh.normals[i * 9 + 4],
+                                      mesh.normals[i * 9 + 5]).normalize();
+                let n3 = Vector3::new(mesh.normals[i * 9 + 6],
+                                      mesh.normals[i * 9 + 7],
+                                      mesh.normals[i * 9 + 8]).normalize();
+                let vc = (v1 + v2 + v3) / 3.0;
+                let nc = vc + (n1 + n2 + n3) / 3.0 * scale;
+
+                buffer.vertices.push(vc.x);
+                buffer.vertices.push(vc.y);
+                buffer.vertices.push(vc.z);
+                buffer.vertices.push(nc.x);
+                buffer.vertices.push(nc.y);
+                buffer.vertices.push(nc.z);
+                buffer.colors.push(1.0);
+                buffer.colors.push(0.0);
+                buffer.colors.push(1.0);
+                buffer.colors.push(1.0);
+                buffer.colors.push(1.0);
+                buffer.colors.push(0.0);
+            }
+        }
+
+        buffer
+    }
+
     pub fn new(
         materials: &'a MaterialRegistry,
         resolutions: &'b ResolutionMap<T>,
@@ -811,7 +888,7 @@ pub struct BakedModel {
 
 pub fn bake_model<'a, T: Clone, S: BuildHasher>(
     materials: &MaterialRegistry,
-    resolution: &'a ResolutionMap<'a, T>,
+    resolution: &ResolutionMap<'a, T>,
     baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
     document: &Document,
 ) -> BakedModel {

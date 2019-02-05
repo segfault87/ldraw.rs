@@ -1,7 +1,8 @@
 use std::cmp;
 use std::hash::{Hash, Hasher};
+use std::ops::BitXor;
 
-use cgmath::{Matrix4 as Matrix4_, Vector3 as Vector3_, Vector4 as Vector4_};
+use cgmath::{Matrix3 as Matrix3_, Matrix4 as Matrix4_, Vector3 as Vector3_, Vector4 as Vector4_};
 
 pub mod color;
 pub mod document;
@@ -15,6 +16,7 @@ pub mod library_wasm;
 pub mod parser;
 pub mod writer;
 
+pub type Matrix3 = Matrix3_<f32>;
 pub type Matrix4 = Matrix4_<f32>;
 pub type Vector3 = Vector3_<f32>;
 pub type Vector4 = Vector4_<f32>;
@@ -65,5 +67,46 @@ impl cmp::PartialEq for NormalizedAlias {
 impl Hash for NormalizedAlias {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.normalized.hash(state)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Winding {
+    Ccw,
+    Cw,
+}
+
+impl Winding {
+    pub fn invert(&self) -> Self {
+        match self {
+            Winding::Ccw => Winding::Cw,
+            Winding::Cw => Winding::Ccw,
+        }
+    }
+}
+
+impl BitXor<bool> for Winding {
+    type Output = Self;
+
+    fn bitxor(self, rhs: bool) -> Self::Output {
+        match (self, rhs) {
+            (Winding::Ccw, false) => Winding::Ccw,
+            (Winding::Ccw, true) => Winding::Cw,
+            (Winding::Cw, false) => Winding::Cw,
+            (Winding::Cw, true) => Winding::Ccw,
+        }
+    }
+}
+
+impl BitXor<bool> for &Winding {
+    type Output = Winding;
+
+    fn bitxor(self, rhs: bool) -> Self::Output {
+        match (self, rhs) {
+            (Winding::Ccw, false) => Winding::Ccw,
+            (Winding::Ccw, true) => Winding::Cw,
+            (Winding::Cw, false) => Winding::Cw,
+            (Winding::Cw, true) => Winding::Ccw,
+        }
     }
 }

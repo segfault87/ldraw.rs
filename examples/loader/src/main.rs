@@ -3,7 +3,6 @@ use std::env;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use std::rc::Rc;
 
 use ldraw::library::{load_files, scan_ldraw_directory, PartCache, ResolutionMap};
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
@@ -30,18 +29,17 @@ fn main() {
         parse_multipart_document(&colors, &mut BufReader::new(File::open(ldrpath).unwrap()))
             .unwrap();
 
-    let cache = RefCell::new(PartCache::new());
+    let cache = RefCell::new(PartCache::default());
     let mut resolution = ResolutionMap::new(&directory, &cache);
-    resolution.resolve(Rc::clone(&document.body), Some(&document));
+    resolution.resolve(&&document.body, Some(&document));
     loop {
-        let pending = resolution.get_pending();
-        if pending.len() == 0 {
-            break;
-        }
-
-        for key in load_files(&colors, &cache, pending.into_iter()) {
+        let files = match load_files(&colors, &cache, resolution.get_pending()) {
+            Some(e) => e,
+            None => break,
+        };
+        for key in files {
             let doc = cache.borrow().query(&key).unwrap();
-            resolution.update(&key, &doc);
+            resolution.update(&key, doc);
         }
     }
 

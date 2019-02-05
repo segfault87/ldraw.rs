@@ -88,6 +88,12 @@ impl Default for PartCache {
     }
 }
 
+impl Drop for PartCache {
+    fn drop(&mut self) {
+        self.collect();
+    }
+}
+
 impl PartCache {
     pub fn register(&mut self, alias: NormalizedAlias, document: Document) {
         self.items.insert(alias, Rc::new(document));
@@ -100,9 +106,23 @@ impl PartCache {
         }
     }
 
-    pub fn collect(&mut self) {
+    fn collect_round(&mut self) -> usize {
+        let prev_size = self.items.len();
         self.items
-            .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 1);
+            .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+        prev_size - self.items.len()
+    }
+
+    pub fn collect(&mut self) -> usize {
+        let mut total_collected = 0;
+        loop {
+            let collected = self.collect_round();
+            if collected == 0 {
+                break;
+            }
+            total_collected += collected;
+        }
+        total_collected
     }
 }
 
@@ -121,7 +141,7 @@ pub struct ResolutionMap<'a, T> {
     pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>,
 }
 
-impl<'a, T: Clone> ResolutionMap<'a, T> {
+impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
     pub fn new(
         directory: &'a PartDirectory<T>,
         cache: &'a RefCell<PartCache>,
@@ -133,14 +153,13 @@ impl<'a, T: Clone> ResolutionMap<'a, T> {
         }
     }
 
-    pub fn get_pending(&self) -> Vec<(NormalizedAlias, PartEntry<T>)> {
+    pub fn get_pending(&'b self) -> impl Iterator<Item = (&'b NormalizedAlias, &'b PartEntry<T>)> {
         self.map
             .iter()
             .filter_map(|(key, value)| match value {
-                ResolutionResult::Pending(a) => Some((key.clone(), a.clone())),
+                ResolutionResult::Pending(a) => Some((key, a)),
                 _ => None,
             })
-            .collect::<Vec<_>>()
     }
 
     pub fn resolve<D: Deref<Target = Document>>(

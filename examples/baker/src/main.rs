@@ -22,19 +22,25 @@ fn bake(colors: &MaterialRegistry, directory: &PartDirectoryNative, path: &str) 
     let mut resolution = ResolutionMap::new(&directory, &cache);
     resolution.resolve(&&document.body, Some(&document));
     loop {
-        let pending = resolution.get_pending();
-        if pending.is_empty() {
-            break;
-        }
-
-        for key in load_files(&colors, &cache, pending.into_iter()) {
+        let files = match load_files(&colors, &cache, resolution.get_pending()) {
+            Some(e) => e,
+            None => break,
+        };
+        for key in files {
             let doc = cache.borrow().query(&key).unwrap();
             resolution.update(&key, doc);
         }
     }
 
     println!("Baking model...");
-    bake_model(&colors, &resolution, &mut HashMap::new(), &document.body)
+    let model = bake_model(&colors, &resolution, &mut HashMap::new(), &document.body);
+
+    drop(resolution);
+    drop(document);
+
+    println!("Collected {} entries", cache.borrow_mut().collect());
+
+    model
 }
 
 fn main() {

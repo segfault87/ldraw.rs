@@ -1,7 +1,7 @@
 use std::fmt;
 use std::io::Write;
 
-use cgmath::Vector4;
+use cgmath::{Matrix, Vector4};
 
 use crate::color::ColorReference;
 use crate::document::{BfcCertification, Document, MultipartDocument};
@@ -9,6 +9,7 @@ use crate::elements::{
     BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle,
 };
 use crate::error::SerializeError;
+use crate::Winding;
 
 fn serialize_vec3(vec: &Vector4<f32>) -> String {
     format!("{} {} {}", vec.x, vec.y, vec.z)
@@ -41,8 +42,8 @@ impl LDrawWriter for BfcCertification {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         match self {
             BfcCertification::NoCertify => writer.write_all("0 BFC NOCERTIFY\n".as_bytes())?,
-            BfcCertification::CertifyCcw => writer.write_all("0 BFC CERTIFY CCW\n".as_bytes())?,
-            BfcCertification::CertifyCw => writer.write_all("0 BFC CERTIFY CW\n".as_bytes())?,
+            BfcCertification::Certify(Winding::Ccw) => writer.write_all("0 BFC CERTIFY CCW\n".as_bytes())?,
+            BfcCertification::Certify(Winding::Cw) => writer.write_all("0 BFC CERTIFY CW\n".as_bytes())?,
             _ => return Err(SerializeError::NoSerializable),
         };
         Ok(())
@@ -52,11 +53,11 @@ impl LDrawWriter for BfcCertification {
 impl LDrawWriter for BfcStatement {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
         match self {
-            BfcStatement::Cw => writer.write_all("0 BFC CW\n".as_bytes())?,
-            BfcStatement::Ccw => writer.write_all("0 BFC CCW\n".as_bytes())?,
+            BfcStatement::Winding(Winding::Cw) => writer.write_all("0 BFC CW\n".as_bytes())?,
+            BfcStatement::Winding(Winding::Ccw) => writer.write_all("0 BFC CCW\n".as_bytes())?,
             BfcStatement::Clip => writer.write_all("0 BFC CLIP\n".as_bytes())?,
-            BfcStatement::ClipCw => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
-            BfcStatement::ClipCcw => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
+            BfcStatement::ClipWinding(Winding::Cw) => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
+            BfcStatement::ClipWinding(Winding::Ccw) => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
             BfcStatement::NoClip => writer.write_all("0 BFC NOCLIP\n".as_bytes())?,
             BfcStatement::InvertNext => writer.write_all("0 BFC INVERTNEXT\n".as_bytes())?,
         };
@@ -142,7 +143,7 @@ impl LDrawWriter for Meta {
 
 impl LDrawWriter for PartReference {
     fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
-        let m = &self.matrix;
+        let m = self.matrix.transpose();
         writer.write_all(
             format!(
                 "1 {} {} {} {} {} {} {} {} {} {} {} {} {}\n",

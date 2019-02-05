@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 approx = "~0.3.1"
-ldraw = { path = "../ldraw" }
 cgmath = "~0.17.0"
+gl = "~0.11.0"
 kdtree = "~0.5.1"
+ldraw = { path = "../ldraw" }
