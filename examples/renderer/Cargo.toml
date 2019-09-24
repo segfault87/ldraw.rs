@@ -6,7 +6,7 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 
 [dependencies]
 cgmath = "~0.17.0"
-gl = "~0.11.0"
+glow = { path = "/home/segfault/Projects/glow" }
 glutin = "~0.19.0"
 ldraw = { path = "../../ldraw" }
 ldraw_renderer = { path = "../../renderer" }

@@ -1,0 +1,31 @@
+Scanning LDraw directory...
+Loading color definition...
+Parsing document...
+Resolving dependencies...
+Baking model...
+NormalizedAlias { normalized: "4-4edge.dat", original: "4-4edge.dat" } Matrix4 [[6.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 6.0, 0.0], [0.0, -4.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "4-4edge.dat", original: "4-4edge.dat" } Matrix4 [[8.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 8.0, 0.0], [0.0, -4.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "4-4edge.dat", original: "4-4edge.dat" } Matrix4 [[6.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 6.0, 0.0], [0.0, 0.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "4-4edge.dat", original: "4-4edge.dat" } Matrix4 [[8.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 8.0, 0.0], [0.0, 0.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "4-4cyli.dat", original: "4-4cyli.dat" } Matrix4 [[6.0, 0.0, 0.0, 0.0], [0.0, 4.0, 0.0, 0.0], [0.0, 0.0, 6.0, 0.0], [0.0, -4.0, 0.0, 1.0]] true
+NormalizedAlias { normalized: "4-4cyli.dat", original: "4-4cyli.dat" } Matrix4 [[8.0, 0.0, 0.0, 0.0], [0.0, 4.0, 0.0, 0.0], [0.0, 0.0, 8.0, 0.0], [0.0, -4.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "4-4ring3.dat", original: "4-4ring3.dat" } Matrix4 [[2.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 2.0, 0.0], [0.0, -4.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "stud4.dat", original: "stud4.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, -5.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [20.0, 4.0, 0.0, 1.0]] true
+NormalizedAlias { normalized: "stud4.dat", original: "stud4.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, -5.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 4.0, 0.0, 1.0]] true
+NormalizedAlias { normalized: "stud4.dat", original: "stud4.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, -5.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [-20.0, 4.0, 0.0, 1.0]] true
+NormalizedAlias { normalized: "box5.dat", original: "box5.dat" } Matrix4 [[36.0, 0.0, 0.0, 0.0], [0.0, -20.0, 0.0, 0.0], [0.0, 0.0, 16.0, 0.0], [0.0, 24.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "box3u2p.dat", original: "box3u2p.dat" } Matrix4 [[0.0, 0.0, -20.0, 0.0], [0.0, -24.0, 0.0, 0.0], [40.0, 0.0, 0.0, 0.0], [0.0, 24.0, 0.0, 1.0]] true
+NormalizedAlias { normalized: "4-4edge.dat", original: "4-4edge.dat" } Matrix4 [[6.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 6.0, 0.0], [0.0, 0.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "4-4edge.dat", original: "4-4edge.dat" } Matrix4 [[6.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 6.0, 0.0], [0.0, -4.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "4-4cyli.dat", original: "4-4cyli.dat" } Matrix4 [[6.0, 0.0, 0.0, 0.0], [0.0, -4.0, 0.0, 0.0], [0.0, 0.0, 6.0, 0.0], [0.0, 0.0, 0.0, 1.0]] true
+NormalizedAlias { normalized: "4-4disc.dat", original: "4-4disc.dat" } Matrix4 [[6.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 6.0, 0.0], [0.0, -4.0, 0.0, 1.0]] false
+NormalizedAlias { normalized: "stud.dat", original: "stud.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [30.0, 0.0, 10.0, 1.0]] false
+NormalizedAlias { normalized: "stud.dat", original: "stud.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [10.0, 0.0, 10.0, 1.0]] false
+NormalizedAlias { normalized: "stud.dat", original: "stud.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [-10.0, 0.0, 10.0, 1.0]] false
+NormalizedAlias { normalized: "stud.dat", original: "stud.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [-30.0, 0.0, 10.0, 1.0]] false
+NormalizedAlias { normalized: "stud.dat", original: "stud.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [30.0, 0.0, -10.0, 1.0]] false
+NormalizedAlias { normalized: "stud.dat", original: "stud.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [10.0, 0.0, -10.0, 1.0]] false
+NormalizedAlias { normalized: "stud.dat", original: "stud.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [-10.0, 0.0, -10.0, 1.0]] false
+NormalizedAlias { normalized: "stud.dat", original: "stud.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [-30.0, 0.0, -10.0, 1.0]] false
+NormalizedAlias { normalized: "s/3001s01.dat", original: "s\\3001s01.dat" } Matrix4 [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]] false
+Collected 9 entries

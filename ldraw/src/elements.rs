@@ -10,8 +10,7 @@ pub struct Header(pub String, pub String);
 #[derive(Clone, Debug)]
 pub enum BfcStatement {
     Winding(Winding),
-    Clip,
-    ClipWinding(Winding),
+    Clip(Option<Winding>),
     NoClip,
     InvertNext,
 }

@@ -39,6 +39,22 @@ pub struct Document {
     pub commands: Vec<Command>,
 }
 
+impl Document {
+    pub fn has_geometry(&self) -> bool {
+        for item in self.commands.iter() {
+            match item {
+                Command::Line(_) | Command::Triangle(_) |
+                Command::Quad(_) | Command::OptionalLine(_) => {
+                    return true;
+                },
+                _ => (),
+            }
+        }
+        
+        false
+    }
+}
+
 macro_rules! define_iterator(
     ($fn:ident, $fn_mut:ident, $cmdval:path, $type:ty) => (
         impl<'a> Document {
@@ -81,7 +97,7 @@ define_iterator!(
     OptionalLine
 );
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MultipartDocument {
     pub body: Document,
     pub subparts: HashMap<NormalizedAlias, Document>,

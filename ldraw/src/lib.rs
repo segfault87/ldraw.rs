@@ -1,8 +1,11 @@
 use std::cmp;
+use std::fmt::{Formatter, Result as FmtResult};
 use std::hash::{Hash, Hasher};
 use std::ops::BitXor;
 
 use cgmath::{Matrix3 as Matrix3_, Matrix4 as Matrix4_, Vector3 as Vector3_, Vector4 as Vector4_};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::de::{Error as DeserializeError, Visitor};
 
 pub mod color;
 pub mod document;
@@ -53,6 +56,32 @@ impl From<&String> for NormalizedAlias {
             normalized: Self::normalize(alias),
             original: alias.clone(),
         }
+    }
+}
+
+struct StringVisitor;
+
+impl<'a> Visitor<'a> for StringVisitor {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut Formatter) -> FmtResult {
+        write!(formatter, "a string")
+    }
+
+    fn visit_str<E: DeserializeError>(self, v: &str) -> Result<Self::Value, E> {
+        Ok(String::from(v))
+    }
+}
+
+impl Serialize for NormalizedAlias {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.original.as_str())
+    }
+}
+
+impl<'a> Deserialize<'a> for NormalizedAlias {
+    fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(NormalizedAlias::from(&deserializer.deserialize_str(StringVisitor)?))
     }
 }
 

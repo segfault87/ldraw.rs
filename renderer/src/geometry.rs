@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f32;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::Deref;
@@ -67,6 +67,20 @@ impl PartialEq for GroupKey {
     fn eq(&self, other: &GroupKey) -> bool {
         self.color_ref.code() == other.color_ref.code() && self.bfc == other.bfc
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct IndexBound(pub usize, pub usize);
+
+#[derive(Clone, Debug)]
+pub struct BufferIndex(pub HashMap<GroupKey, IndexBound>);
+
+impl BufferIndex {
+
+    pub fn new() -> BufferIndex {
+        BufferIndex(HashMap::new())
+    }
+    
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -302,6 +316,13 @@ pub struct MeshBuffer {
 }
 
 impl MeshBuffer {
+    pub fn new() -> MeshBuffer {
+        MeshBuffer {
+            vertices: Vec::new(),
+            normals: Vec::new(),
+        }
+    }
+    
     pub fn len(&self) -> usize {
         self.vertices.len() / 3
     }
@@ -309,38 +330,42 @@ impl MeshBuffer {
 
 #[derive(Debug)]
 struct MeshBuilder {
-    faces: Vec<Face>,
+    pub faces: HashMap<GroupKey, Vec<Face>>,
 }
 
 impl MeshBuilder {
     pub fn new() -> MeshBuilder {
-        MeshBuilder { faces: Vec::new() }
+        MeshBuilder { faces: HashMap::new() }
     }
 
-    pub fn add(&mut self, face: Face) {
-        self.faces.push(face);
+    pub fn add(&mut self, group_key: &GroupKey, face: Face) {
+        let list = self.faces.entry(group_key.clone()).or_insert(Vec::new());
+        list.push(face);
     }
 
-    pub fn bake(&self) -> MeshBuffer {
-        let mut buffer = MeshBuffer {
-            vertices: Vec::new(),
-            normals: Vec::new(),
-        };
+    pub fn bake(&self) -> HashMap<GroupKey, MeshBuffer>  {
+        let mut mesh_group = HashMap::new();
 
-        for face in self.faces.iter() {
-            let normal = face.vertices.normal();
+        for (group_key, faces) in self.faces.iter() {
+            let mut vertices = Vec::new();
+            let mut normals = Vec::new();
+            for face in faces.iter() {
+                let normal = face.vertices.normal();
 
-            for vertex in face.vertices.triangles(false) {
-                buffer.vertices.push(vertex.x);
-                buffer.vertices.push(vertex.y);
-                buffer.vertices.push(vertex.z);
-                buffer.normals.push(normal.x);
-                buffer.normals.push(normal.y);
-                buffer.normals.push(normal.z);
+                for vertex in face.vertices.triangles(false) {
+                    vertices.push(vertex.x);
+                    vertices.push(vertex.y);
+                    vertices.push(vertex.z);
+                    normals.push(normal.x);
+                    normals.push(normal.y);
+                    normals.push(normal.z);
+                }
             }
+
+            mesh_group.insert(group_key.clone(), MeshBuffer { vertices, normals });
         }
 
-        buffer
+        mesh_group
     }
 }
 
@@ -349,203 +374,15 @@ pub struct ModelBuilder<'a, 'b, T> {
     resolutions: &'b ResolutionMap<'b, T>,
 
     merge_buffer: BakedModel,
-    meshes: HashMap<GroupKey, MeshBuilder>,
+    mesh_builder: MeshBuilder,
     edges: EdgeBuffer,
     color_stack: Vec<ColorReference>,
     point_cloud: KdTree<f32, Adjacency, [f32; 3]>,
 }
 
 impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
-    fn merge(&mut self, model: &BakedModel, matrix: Matrix4, invert: bool, color: &ColorReference) {
-        for (group, mesh) in model.meshes.iter() {
-            let igroup = GroupKey {
-                color_ref: match &group.color_ref {
-                    ColorReference::Current => color.clone(),
-                    e => e.clone(),
-                },
-                bfc: group.bfc,
-            };
-
-            let len = mesh.vertices.len();
-            if len % 9 != 0 && len != mesh.normals.len() {
-                panic!("Malformed mesh buffer");
-            }
-
-            let target = match self.merge_buffer.meshes.get_mut(&igroup) {
-                Some(e) => e,
-                None => {
-                    self.merge_buffer.meshes.insert(
-                        igroup.clone(),
-                        MeshBuffer {
-                            vertices: Vec::new(),
-                            normals: Vec::new(),
-                        },
-                    );
-                    self.merge_buffer.meshes.get_mut(&igroup).unwrap()
-                }
-            };
-
-            target.vertices.reserve(len);
-            target.normals.reserve(len);
-
-            let mut normal_matrix = matrix.clone();
-            normal_matrix[3] = Vector4::new(0.0, 0.0, 0.0, 1.0);
-
-            for i in 0..(len / 9) {
-                let v1 = matrix
-                    * Vector4::new(
-                        mesh.vertices[i * 9],
-                        mesh.vertices[i * 9 + 1],
-                        mesh.vertices[i * 9 + 2],
-                        1.0,
-                    );
-                let v2 = matrix
-                    * Vector4::new(
-                        mesh.vertices[i * 9 + 3],
-                        mesh.vertices[i * 9 + 4],
-                        mesh.vertices[i * 9 + 5],
-                        1.0,
-                    );
-                let v3 = matrix
-                    * Vector4::new(
-                        mesh.vertices[i * 9 + 6],
-                        mesh.vertices[i * 9 + 7],
-                        mesh.vertices[i * 9 + 8],
-                        1.0,
-                    );
-
-                let invert = invert ^ (normal_matrix.determinant() < -f32::default_epsilon());
-
-                let n1 = (normal_matrix
-                    * Vector4::new(
-                        mesh.normals[i * 9],
-                        mesh.normals[i * 9 + 1],
-                        mesh.normals[i * 9 + 2],
-                        1.0,
-                    )).truncate().normalize();
-                let n2 = (normal_matrix
-                    * Vector4::new(
-                        mesh.normals[i * 9 + 3],
-                        mesh.normals[i * 9 + 4],
-                        mesh.normals[i * 9 + 5],
-                        1.0,
-                    )).truncate().normalize();
-                let n3 = (normal_matrix
-                    * Vector4::new(
-                        mesh.normals[i * 9 + 6],
-                        mesh.normals[i * 9 + 7],
-                        mesh.normals[i * 9 + 8],
-                        1.0,
-                    )).truncate().normalize();
-
-                let vertex_order = if invert {
-                    [(&v3, &n3), (&v2, &n2), (&v1, &n1)]
-                } else {
-                    [(&v1, &n1), (&v2, &n2), (&v3, &n3)]
-                };
-
-                for (v, n) in vertex_order.iter() {
-                    target.vertices.push(v.x);
-                    target.vertices.push(v.y);
-                    target.vertices.push(v.z);
-                    target.normals.push(n.x);
-                    target.normals.push(n.y);
-                    target.normals.push(n.z);
-                }
-            }
-        }
-
-        let edge_len = model.edges.vertices.len();
-        if edge_len % 6 != 0 && edge_len != model.edges.colors.len() {
-            panic!("Malformed edge buffer");
-        }
-
-        let color_current;
-        let color_complement;
-        if color.is_current() || color.is_complement() {
-            let top = self.color_stack.last().unwrap();
-            if top.is_current() || top.is_complement() {
-                color_current = Vector4::new(-1.0, -1.0, -1.0, 1.0);
-                color_complement = Vector4::new(-2.0, -2.0, -2.0, 1.0);
-            } else if let Some(m) = top.get_material() {
-                color_current = Vector4::from(&m.color);
-                color_complement = Vector4::from(&m.edge);
-            } else {
-                color_current = Vector4::new(0.0, 0.0, 0.0, 1.0);
-                color_complement = Vector4::new(0.0, 0.0, 0.0, 1.0);
-            }
-        } else if let Some(m) = color.get_material() {
-            color_current = Vector4::from(&m.color);
-            color_complement = Vector4::from(&m.edge);
-        } else {
-            color_current = Vector4::new(0.0, 0.0, 0.0, 1.0);
-            color_complement = Vector4::new(0.0, 0.0, 0.0, 1.0);
-        }
-
-        let edge = &model.edges;
-        let target = &mut self.edges;
-        target.vertices.reserve(edge_len);
-        target.colors.reserve(edge_len);
-        for i in 0..(edge_len / 6) {
-            let v1 = (matrix
-                * Vector4::new(
-                    edge.vertices[i * 6],
-                    edge.vertices[i * 6 + 1],
-                    edge.vertices[i * 6 + 2],
-                    1.0,
-                ))
-            .truncate();
-            let v2 = (matrix
-                * Vector4::new(
-                    edge.vertices[i * 6 + 3],
-                    edge.vertices[i * 6 + 4],
-                    edge.vertices[i * 6 + 5],
-                    1.0,
-                ))
-            .truncate();
-            target.vertices.push(v1.x);
-            target.vertices.push(v1.y);
-            target.vertices.push(v1.z);
-            target.vertices.push(v2.x);
-            target.vertices.push(v2.y);
-            target.vertices.push(v2.z);
-
-            let c1 = edge.colors[i * 6];
-            let c2 = edge.colors[i * 6 + 3];
-
-            if c1 <= -2.0 {
-                target.colors.push(color_complement[0]);
-                target.colors.push(color_complement[1]);
-                target.colors.push(color_complement[2]);
-            } else if c1 <= -1.0 {
-                target.colors.push(color_current[0]);
-                target.colors.push(color_current[1]);
-                target.colors.push(color_current[2]);
-            } else {
-                target.colors.push(c1);
-                target.colors.push(edge.colors[i * 6 + 1]);
-                target.colors.push(edge.colors[i * 6 + 2]);
-            }
-
-            if c2 <= -2.0 {
-                target.colors.push(color_complement[0]);
-                target.colors.push(color_complement[1]);
-                target.colors.push(color_complement[2]);
-            } else if c2 <= -1.0 {
-                target.colors.push(color_current[0]);
-                target.colors.push(color_current[1]);
-                target.colors.push(color_current[2]);
-            } else {
-                target.colors.push(c2);
-                target.colors.push(edge.colors[i * 6 + 4]);
-                target.colors.push(edge.colors[i * 6 + 5]);
-            }
-        }
-    }
-
-    pub fn traverse<S: BuildHasher, D: Deref<Target = Document>>(
+    pub fn traverse<D: Deref<Target = Document>>(
         &mut self,
-        baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
         document: &D,
         matrix: Matrix4,
         cull: bool,
@@ -591,7 +428,6 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                         Some(ResolutionResult::Subpart(part)) => {
                             self.color_stack.push(color);
                             self.traverse(
-                                baked_subfiles,
                                 part,
                                 matrix,
                                 cull_next,
@@ -600,25 +436,14 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                             self.color_stack.pop();
                         }
                         Some(ResolutionResult::Associated(part)) => {
-                            let subfile = match baked_subfiles.get(&cmd.name) {
-                                Some(subfile) => subfile,
-                                None => {
-                                    let mut builder =
-                                        ModelBuilder::new(self.materials, self.resolutions);
-
-                                    builder.traverse(
-                                        baked_subfiles,
-                                        &Rc::clone(part),
-                                        Matrix4::identity(),
-                                        true,
-                                        false,
-                                    );
-                                    baked_subfiles.insert(cmd.name.clone(), builder.bake());
-                                    baked_subfiles.get(&cmd.name).unwrap()
-                                }
-                            };
-
-                            self.merge(subfile, matrix, invert, &color);
+                            self.color_stack.push(color);
+                            self.traverse(
+                                &Rc::clone(part),
+                                matrix,
+                                cull_next,
+                                invert_child,
+                            );
+                            self.color_stack.pop();
                         }
                         _ => (),
                     };
@@ -667,14 +492,7 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                         },
                     };
 
-                    match self.meshes.get_mut(&category) {
-                        Some(e) => e.add(face),
-                        None => {
-                            let mut mesh = MeshBuilder::new();
-                            mesh.add(face);
-                            self.meshes.insert(category, mesh);
-                        }
-                    };
+                    self.mesh_builder.add(&category, face);
                 }
                 Command::Quad(cmd) => {
                     let color = match &cmd.color {
@@ -712,14 +530,7 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                         },
                     };
 
-                    match self.meshes.get_mut(&category) {
-                        Some(e) => e.add(face),
-                        None => {
-                            let mut mesh = MeshBuilder::new();
-                            mesh.add(face);
-                            self.meshes.insert(category, mesh);
-                        }
-                    };
+                    self.mesh_builder.add(&category, face);
                 }
                 Command::Meta(cmd) => {
                     if let Meta::Bfc(statement) = cmd {
@@ -730,12 +541,11 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                             BfcStatement::NoClip => {
                                 local_cull = false;
                             }
-                            BfcStatement::ClipWinding(w) => {
+                            BfcStatement::Clip(w) => {
                                 local_cull = true;
-                                winding = w ^ invert;
-                            }
-                            BfcStatement::Clip => {
-                                local_cull = true;
+                                if let Some(w) = w {
+                                    winding = w ^ invert;
+                                }
                             }
                             BfcStatement::Winding(w) => {
                                 winding = w ^ invert;
@@ -750,31 +560,20 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
 
     pub fn bake(&self) -> BakedModel {
         let mut model = BakedModel {
-            meshes: HashMap::new(),
+            mesh: MeshBuffer::new(),
+            mesh_index: BufferIndex::new(),
             edges: self.edges.clone(),
         };
 
-        for (group, mesh) in self.meshes.iter() {
-            model.meshes.insert(group.clone(), mesh.bake());
-        }
+        let mut mesh_groups = self.mesh_builder.bake();
 
-        for (group, mesh) in self.merge_buffer.meshes.iter() {
-            let target = match model.meshes.get_mut(&group) {
-                Some(e) => e,
-                None => {
-                    model.meshes.insert(
-                        group.clone(),
-                        MeshBuffer {
-                            vertices: Vec::new(),
-                            normals: Vec::new(),
-                        },
-                    );
-                    model.meshes.get_mut(group).unwrap()
-                }
-            };
+        let mut index = 0;
+        for (group, mesh) in mesh_groups.iter() {
+            model.mesh.vertices.extend(&mesh.vertices);
+            model.mesh.normals.extend(&mesh.normals);
+            model.mesh_index.0.insert(group.clone(), IndexBound(index, index + mesh.vertices.len()));
 
-            target.vertices.extend(&mesh.vertices);
-            target.normals.extend(&mesh.normals);
+            index += mesh.vertices.len();
         }
 
         model
@@ -789,11 +588,11 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
     pub fn visualize_normals(&self, scale: f32) -> EdgeBuffer {
         let mut buffer = EdgeBuffer::default();
 
-        for (group, mesh) in self.meshes.iter() {
+        for (group, mesh) in self.mesh_builder.faces.iter() {
             if !group.bfc {
                 continue;
             }
-            for face in mesh.faces.iter() {
+            for face in mesh.iter() {
                 let normal = face.vertices.normal();
                 let c = face.vertices.center();
                 buffer.vertices.push(c.x);
@@ -803,47 +602,6 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
                 buffer.vertices.push(w.x);
                 buffer.vertices.push(w.y);
                 buffer.vertices.push(w.z);
-                buffer.colors.push(1.0);
-                buffer.colors.push(0.0);
-                buffer.colors.push(1.0);
-                buffer.colors.push(1.0);
-                buffer.colors.push(1.0);
-                buffer.colors.push(0.0);
-            }
-        }
-
-        for (group, mesh) in self.merge_buffer.meshes.iter() {
-            if !group.bfc {
-                continue;
-            }
-            for i in 0..mesh.len() / 3 {
-                let v1 = Vector3::new(mesh.vertices[i * 9],
-                                      mesh.vertices[i * 9 + 1],
-                                      mesh.vertices[i * 9 + 2]);
-                let v2 = Vector3::new(mesh.vertices[i * 9 + 3],
-                                      mesh.vertices[i * 9 + 4],
-                                      mesh.vertices[i * 9 + 5]);
-                let v3 = Vector3::new(mesh.vertices[i * 9 + 6],
-                                      mesh.vertices[i * 9 + 7],
-                                      mesh.vertices[i * 9 + 8]);
-                let n1 = Vector3::new(mesh.normals[i * 9],
-                                      mesh.normals[i * 9 + 1],
-                                      mesh.normals[i * 9 + 2]).normalize();
-                let n2 = Vector3::new(mesh.normals[i * 9 + 3],
-                                      mesh.normals[i * 9 + 4],
-                                      mesh.normals[i * 9 + 5]).normalize();
-                let n3 = Vector3::new(mesh.normals[i * 9 + 6],
-                                      mesh.normals[i * 9 + 7],
-                                      mesh.normals[i * 9 + 8]).normalize();
-                let vc = (v1 + v2 + v3) / 3.0;
-                let nc = vc + (n1 + n2 + n3) / 3.0 * scale;
-
-                buffer.vertices.push(vc.x);
-                buffer.vertices.push(vc.y);
-                buffer.vertices.push(vc.z);
-                buffer.vertices.push(nc.x);
-                buffer.vertices.push(nc.y);
-                buffer.vertices.push(nc.z);
                 buffer.colors.push(1.0);
                 buffer.colors.push(0.0);
                 buffer.colors.push(1.0);
@@ -865,10 +623,11 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
             resolutions,
 
             merge_buffer: BakedModel {
-                meshes: HashMap::new(),
+                mesh: MeshBuffer::new(),
+                mesh_index: BufferIndex::new(),
                 edges: EdgeBuffer::new(),
             },
-            meshes: HashMap::new(),
+            mesh_builder: MeshBuilder::new(),
             edges: EdgeBuffer::new(),
             color_stack: Vec::new(),
             point_cloud: KdTree::new(3),
@@ -882,18 +641,18 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
 
 #[derive(Debug)]
 pub struct BakedModel {
-    pub meshes: HashMap<GroupKey, MeshBuffer>,
+    pub mesh: MeshBuffer,
+    pub mesh_index: BufferIndex,
     pub edges: EdgeBuffer,
 }
 
 pub fn bake_model<'a, T: Clone, S: BuildHasher>(
     materials: &MaterialRegistry,
     resolution: &ResolutionMap<'a, T>,
-    baked_subfiles: &mut HashMap<NormalizedAlias, BakedModel, S>,
     document: &Document,
 ) -> BakedModel {
     let mut builder = ModelBuilder::new(materials, resolution);
 
-    builder.traverse(baked_subfiles, &document, Matrix4::identity(), true, false);
+    builder.traverse(&document, Matrix4::identity(), true, false);
     builder.bake()
 }

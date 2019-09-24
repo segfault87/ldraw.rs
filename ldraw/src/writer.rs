@@ -55,9 +55,9 @@ impl LDrawWriter for BfcStatement {
         match self {
             BfcStatement::Winding(Winding::Cw) => writer.write_all("0 BFC CW\n".as_bytes())?,
             BfcStatement::Winding(Winding::Ccw) => writer.write_all("0 BFC CCW\n".as_bytes())?,
-            BfcStatement::Clip => writer.write_all("0 BFC CLIP\n".as_bytes())?,
-            BfcStatement::ClipWinding(Winding::Cw) => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
-            BfcStatement::ClipWinding(Winding::Ccw) => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
+            BfcStatement::Clip(None) => writer.write_all("0 BFC CLIP\n".as_bytes())?,
+            BfcStatement::Clip(Some(Winding::Cw)) => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
+            BfcStatement::Clip(Some(Winding::Ccw)) => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
             BfcStatement::NoClip => writer.write_all("0 BFC NOCLIP\n".as_bytes())?,
             BfcStatement::InvertNext => writer.write_all("0 BFC INVERTNEXT\n".as_bytes())?,
         };

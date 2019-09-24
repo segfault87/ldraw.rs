@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::color::MaterialRegistry;
 use crate::error::LibraryError;
@@ -77,7 +78,7 @@ pub fn scan_ldraw_directory(path_str: &str) -> Result<PartDirectoryNative, Libra
 
 pub fn load_files<'a, T>(
     materials: &MaterialRegistry,
-    cache: &RefCell<PartCache>,
+    cache: Rc<RefCell<PartCache>>,
     files: T,
 ) -> Option<Vec<NormalizedAlias>>
 where

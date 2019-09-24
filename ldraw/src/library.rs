@@ -4,17 +4,19 @@ use std::hash;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use serde::{Deserialize, Serialize};
+
 use crate::document::{Document, MultipartDocument};
 use crate::elements::PartReference;
 use crate::NormalizedAlias;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum PartKind {
     Primitive,
     Part,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct PartEntry<T> {
     pub kind: PartKind,
     pub locator: T,
@@ -41,7 +43,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct PartDirectory<T> {
     pub primitives: HashMap<NormalizedAlias, PartEntry<T>>,
     pub parts: HashMap<NormalizedAlias, PartEntry<T>>,
@@ -126,7 +128,7 @@ impl PartCache {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ResolutionResult<'a, T> {
     Missing,
     Pending(PartEntry<T>),
@@ -134,17 +136,17 @@ pub enum ResolutionResult<'a, T> {
     Associated(Rc<Document>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ResolutionMap<'a, T> {
-    directory: &'a PartDirectory<T>,
-    cache: &'a RefCell<PartCache>,
+    directory: Rc<RefCell<PartDirectory<T>>>,
+    cache: Rc<RefCell<PartCache>>,
     pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>,
 }
 
 impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
     pub fn new(
-        directory: &'a PartDirectory<T>,
-        cache: &'a RefCell<PartCache>,
+        directory: Rc<RefCell<PartDirectory<T>>>,
+        cache: Rc<RefCell<PartCache>>,
     ) -> ResolutionMap<'a, T> {
         ResolutionMap {
             directory,
@@ -189,7 +191,7 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
                 continue;
             }
 
-            if let Some(e) = self.directory.query(name) {
+            if let Some(e) = self.directory.borrow().query(name) {
                 self.map
                     .insert(name.clone(), ResolutionResult::Pending(e.clone()));
             } else {
