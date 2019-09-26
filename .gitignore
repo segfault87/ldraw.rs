@@ -12,3 +12,6 @@ Cargo.lock
 
 /target
 **/*.rs.bk
+
+**/node_modules/
+**/dist/

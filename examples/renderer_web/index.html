@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>ldraw.rs demo</title>
+    <style type="text/css">
+      body {
+          font-family: sans-serif;
+          background-color: #eee;
+      }
+      html, body, canvas {
+          margin: 0;
+          padding: 0;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+      }
+      #console {
+          padding: 8px;
+          position: fixed;
+          top: 30px;
+          left: 30px;
+          width: 400px;
+          height: 400px;
+          background-color: rgba(0, 0, 0, 0.1);
+          overflow-y: auto;
+      }
+      #console p {
+          line-height: 0.8;
+          font-size: 12px;
+          font-family: monospace;
+      }
+      #footer {
+          position: fixed;
+          bottom: 0;
+          width: 100%;
+      }
+    </style>
+  </head>
+  <body id="body">
+    <canvas id="main_canvas"></canvas>
+    <div id="console"></div>
+    <div id="footer">This is an early work in progress. Built with <a href="https://www.rust-lang.org">Rust</a> + <a href="https://webassembly.org">WebAssembly</a></div>
+  </body>
+</html>

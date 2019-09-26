@@ -571,7 +571,9 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
         for (group, mesh) in mesh_groups.iter() {
             model.mesh.vertices.extend(&mesh.vertices);
             model.mesh.normals.extend(&mesh.normals);
-            model.mesh_index.0.insert(group.clone(), IndexBound(index, index + mesh.vertices.len()));
+            model.mesh_index.0.insert(
+                group.clone(), IndexBound(index / 3, (index + mesh.vertices.len()) / 3)
+            );
 
             index += mesh.vertices.len();
         }
