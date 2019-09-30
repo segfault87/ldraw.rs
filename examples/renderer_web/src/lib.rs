@@ -291,7 +291,7 @@ pub async fn run(path: JsValue) -> JsValue {
     let model = bake(&document, Rc::clone(&directory), &colors).await;
     console_log!("Reticulated splines.");
 
-    let mut app = TestRenderer::new(model, Rc::clone(&gl), default_program, edge_program);
+    let mut app = TestRenderer::new(&model, Rc::clone(&gl), default_program, edge_program);
     console_log!("Rendering context initialization done.");
 
     app.resize(canvas.width(), canvas.height());

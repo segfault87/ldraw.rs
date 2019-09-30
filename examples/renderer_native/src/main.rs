@@ -62,6 +62,7 @@ fn bake(
 fn set_up_context(gl: &Context) {
     unsafe {
         gl.clear_color(1.0, 1.0, 1.0, 1.0);
+        gl.line_width(1.0);
         gl.cull_face(glow::BACK);
         gl.enable(glow::CULL_FACE);
         gl.enable(glow::DEPTH_TEST);
@@ -108,6 +109,8 @@ fn main_loop(model: &BakedModel) {
     let mut closed = false;
     let started = Instant::now();
     while !closed {
+        set_up_context(&*gl.borrow());
+        
         app.animate(started.elapsed().as_millis() as f32 / 1000.0);
         app.render();
 

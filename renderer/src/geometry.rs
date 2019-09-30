@@ -407,7 +407,7 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
             match cmd {
                 Command::PartReference(cmd) => {
                     let matrix = matrix * cmd.matrix;
-                    let invert_child = if matrix.determinant() < -f32::default_epsilon() {
+                    let invert_child = if cmd.matrix.determinant() < -f32::default_epsilon() {
                         invert == invert_next
                     } else {
                         invert != invert_next
