@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::f32;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::Deref;
@@ -7,16 +7,16 @@ use std::rc::Rc;
 use std::vec::Vec;
 
 use approx::{abs_diff_eq, AbsDiffEq};
-use cgmath::{InnerSpace, SquareMatrix};
+use cgmath::{InnerSpace, Rad, SquareMatrix};
 use kdtree::distance::squared_euclidean;
 use kdtree::KdTree;
-use ldraw::color::{ColorReference, MaterialRegistry};
+use ldraw::color::{ColorReference};
 use ldraw::document::Document;
 use ldraw::elements::{BfcStatement, Command, Meta};
 use ldraw::library::{ResolutionMap, ResolutionResult};
-use ldraw::{Matrix4, NormalizedAlias, Vector3, Vector4, Winding};
+use ldraw::{Matrix4, Vector3, Vector4, Winding};
 
-const NORMAL_BLEND_THRESHOLD: f32 = f32::consts::FRAC_PI_4;
+const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
 #[derive(Clone, Debug)]
 pub struct GroupKey {
@@ -149,20 +149,6 @@ impl<'a> Iterator for FaceIterator<'a> {
 }
 
 impl<'a> FaceVertices {
-    pub fn count(&self) -> usize {
-        match self {
-            FaceVertices::Triangle(_) => 3,
-            FaceVertices::Quad(_) => 4,
-        }
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &Vector3> {
-        match self {
-            FaceVertices::Triangle(a) => a.iter(),
-            FaceVertices::Quad(a) => a.iter(),
-        }
-    }
-
     pub fn center(&self) -> Vector3 {
         match self {
             FaceVertices::Triangle(a) => (a[0] + a[1] + a[2]) / 3.0,
@@ -225,29 +211,22 @@ impl<'a> FaceVertices {
     }
 }
 
+#[derive(Debug)]
 struct Adjacency {
     pub position: Vector3,
     pub faces: Vec<Face>,
-    pub index: usize,
 }
 
 impl<'a> Adjacency {
-    pub fn new(position: &Vector3, index: usize) -> Adjacency {
+    pub fn new(position: &Vector3) -> Adjacency {
         Adjacency {
-            position: *position,
+            position: position.clone(),
             faces: Vec::new(),
-            index,
         }
     }
 
-    pub fn query(
-        &'a self,
-        v: &'a Vector3,
-        exclude: &'a Face,
-    ) -> impl Iterator<Item = &'a Face> + 'a {
-        self.faces
-            .iter()
-            .filter(move |&i| i.vertices.contains(v) && i != exclude)
+    pub fn add(&mut self, face: &Face) {
+        self.faces.push(face.clone());
     }
 }
 
@@ -331,16 +310,56 @@ impl MeshBuffer {
 #[derive(Debug)]
 struct MeshBuilder {
     pub faces: HashMap<GroupKey, Vec<Face>>,
+    point_cloud: KdTree<f32, u32, [f32; 3]>,
+    adjacency_map: HashMap<u32, Adjacency>,
+    face_index: u32,
 }
 
 impl MeshBuilder {
     pub fn new() -> MeshBuilder {
-        MeshBuilder { faces: HashMap::new() }
+        MeshBuilder {
+            faces: HashMap::new(),
+            point_cloud: KdTree::new(3),
+            adjacency_map: HashMap::new(),
+            face_index: 0,
+        }
     }
 
     pub fn add(&mut self, group_key: &GroupKey, face: Face) {
         let list = self.faces.entry(group_key.clone()).or_insert(Vec::new());
-        list.push(face);
+        list.push(face.clone());
+
+        for vertex in face.vertices.triangles(false) {
+            let r: &[f32; 3] = vertex.as_ref();
+            let nearest = match self.point_cloud.iter_nearest(r, &squared_euclidean) {
+                Ok(mut v) => {
+                    match v.next() {
+                        Some(vv) => {
+                            if vv.0 < f32::default_epsilon() {
+                                Some(vv.1)
+                            } else {
+                                None
+                            }
+                        },
+                        None => None,
+                    }
+                }
+                Err(_) => None,
+            };
+
+            match nearest {
+                Some(e) => {
+                    self.adjacency_map.get_mut(e).unwrap().add(&face);
+                },
+                None => {
+                    let mut adjacency = Adjacency::new(&vertex);
+                    adjacency.add(&face);
+                    self.point_cloud.add(*vertex.as_ref(), self.face_index).unwrap();
+                    self.adjacency_map.insert(self.face_index, adjacency);
+                    self.face_index += 1;
+                }
+            };
+        }
     }
 
     pub fn bake(&self) -> HashMap<GroupKey, MeshBuffer>  {
@@ -356,9 +375,43 @@ impl MeshBuilder {
                     vertices.push(vertex.x);
                     vertices.push(vertex.y);
                     vertices.push(vertex.z);
-                    normals.push(normal.x);
-                    normals.push(normal.y);
-                    normals.push(normal.z);
+
+                    let r: &[f32; 3] = vertex.as_ref();
+                    let adjacent_faces = match self.point_cloud.iter_nearest(r, &squared_euclidean) {
+                        Ok(mut v) => {
+                            match v.next() {
+                                Some(vv) => {
+                                    if vv.0 < f32::default_epsilon() {
+                                        self.adjacency_map.get(vv.1)
+                                    } else {
+                                        None
+                                    }
+                                },
+                                None => None,
+                            }
+                        }
+                        Err(_) => None,
+                    };
+
+                    match adjacent_faces {
+                        Some(v) => {
+                            let mut normal = normal.clone();
+                            for face in v.faces.iter() {
+                                let fnormal = face.vertices.normal();
+                                if normal.angle(fnormal) < NORMAL_BLEND_THRESHOLD {
+                                    normal = (normal + fnormal) * 0.5;
+                                }
+                            }
+                            normals.push(normal.x);
+                            normals.push(normal.y);
+                            normals.push(normal.z);
+                        },
+                        None => {
+                            normals.push(normal.x);
+                            normals.push(normal.y);
+                            normals.push(normal.z);
+                        },
+                    };
                 }
             }
 
@@ -369,18 +422,15 @@ impl MeshBuilder {
     }
 }
 
-pub struct ModelBuilder<'a, 'b, T> {
-    materials: &'a MaterialRegistry,
-    resolutions: &'b ResolutionMap<'b, T>,
+pub struct ModelBuilder<'a, T> {
+    resolutions: &'a ResolutionMap<'a, T>,
 
-    merge_buffer: BakedModel,
     mesh_builder: MeshBuilder,
     edges: EdgeBuffer,
     color_stack: Vec<ColorReference>,
-    point_cloud: KdTree<f32, Adjacency, [f32; 3]>,
 }
 
-impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
+impl<'a, T: Clone> ModelBuilder<'a, T> {
     pub fn traverse<D: Deref<Target = Document>>(
         &mut self,
         document: &D,
@@ -565,7 +615,7 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
             edges: self.edges.clone(),
         };
 
-        let mut mesh_groups = self.mesh_builder.bake();
+        let mesh_groups = self.mesh_builder.bake();
 
         let mut index = 0;
         for (group, mesh) in mesh_groups.iter() {
@@ -577,12 +627,6 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
 
             index += mesh.vertices.len();
         }
-
-        model
-            .edges
-            .vertices
-            .extend(&self.merge_buffer.edges.vertices);
-        model.edges.colors.extend(&self.merge_buffer.edges.colors);
 
         model
     }
@@ -617,22 +661,14 @@ impl<'a, 'b, T: Clone> ModelBuilder<'a, 'b, T> {
     }
 
     pub fn new(
-        materials: &'a MaterialRegistry,
-        resolutions: &'b ResolutionMap<T>,
-    ) -> ModelBuilder<'a, 'b, T> {
+        resolutions: &'a ResolutionMap<T>,
+    ) -> ModelBuilder<'a, T> {
         let mut mb = ModelBuilder {
-            materials,
             resolutions,
 
-            merge_buffer: BakedModel {
-                mesh: MeshBuffer::new(),
-                mesh_index: BufferIndex::new(),
-                edges: EdgeBuffer::new(),
-            },
             mesh_builder: MeshBuilder::new(),
             edges: EdgeBuffer::new(),
             color_stack: Vec::new(),
-            point_cloud: KdTree::new(3),
         };
 
         mb.color_stack.push(ColorReference::Current);
@@ -649,11 +685,10 @@ pub struct BakedModel {
 }
 
 pub fn bake_model<'a, T: Clone, S: BuildHasher>(
-    materials: &MaterialRegistry,
     resolution: &ResolutionMap<'a, T>,
     document: &Document,
 ) -> BakedModel {
-    let mut builder = ModelBuilder::new(materials, resolution);
+    let mut builder = ModelBuilder::new(resolution);
 
     builder.traverse(&document, Matrix4::identity(), true, false);
     builder.bake()

@@ -167,7 +167,7 @@ async fn bake(
 
     console_log!("Loading done.");
 
-    let mut builder = ModelBuilder::new(&colors, &resolution);
+    let mut builder = ModelBuilder::new(&resolution);
     builder.traverse(&&document.body, Matrix4::identity(), true, false);
 
     builder.bake()

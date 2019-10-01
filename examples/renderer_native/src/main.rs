@@ -46,7 +46,7 @@ fn bake(
 
     println!("Baking model...");
 
-    let mut builder = ModelBuilder::new(&colors, &resolution);
+    let mut builder = ModelBuilder::new(&resolution);
     builder.traverse(&&document.body, Matrix4::identity(), true, false);
     let model = builder.bake();
 
