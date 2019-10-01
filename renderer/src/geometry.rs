@@ -310,9 +310,7 @@ impl MeshBuffer {
 #[derive(Debug)]
 struct MeshBuilder {
     pub faces: HashMap<GroupKey, Vec<Face>>,
-    point_cloud: KdTree<f32, u32, [f32; 3]>,
-    adjacency_map: HashMap<u32, Adjacency>,
-    face_index: u32,
+    point_cloud: KdTree<f32, Adjacency, [f32; 3]>,
 }
 
 impl MeshBuilder {
@@ -320,8 +318,6 @@ impl MeshBuilder {
         MeshBuilder {
             faces: HashMap::new(),
             point_cloud: KdTree::new(3),
-            adjacency_map: HashMap::new(),
-            face_index: 0,
         }
     }
 
@@ -331,7 +327,7 @@ impl MeshBuilder {
 
         for vertex in face.vertices.triangles(false) {
             let r: &[f32; 3] = vertex.as_ref();
-            let nearest = match self.point_cloud.iter_nearest(r, &squared_euclidean) {
+            let nearest = match self.point_cloud.iter_nearest_mut(r, &squared_euclidean) {
                 Ok(mut v) => {
                     match v.next() {
                         Some(vv) => {
@@ -349,14 +345,12 @@ impl MeshBuilder {
 
             match nearest {
                 Some(e) => {
-                    self.adjacency_map.get_mut(e).unwrap().add(&face);
+                    e.add(&face);
                 },
                 None => {
                     let mut adjacency = Adjacency::new(&vertex);
                     adjacency.add(&face);
-                    self.point_cloud.add(*vertex.as_ref(), self.face_index).unwrap();
-                    self.adjacency_map.insert(self.face_index, adjacency);
-                    self.face_index += 1;
+                    self.point_cloud.add(*vertex.as_ref(), adjacency).unwrap();
                 }
             };
         }
@@ -382,7 +376,7 @@ impl MeshBuilder {
                             match v.next() {
                                 Some(vv) => {
                                     if vv.0 < f32::default_epsilon() {
-                                        self.adjacency_map.get(vv.1)
+                                        Some(vv.1)
                                     } else {
                                         None
                                     }

@@ -8,5 +8,5 @@ edition = "2018"
 approx = "~0.3.1"
 cgmath = "~0.17.0"
 gl = "~0.11.0"
-kdtree = "~0.5.1"
+kdtree = { git = "https://github.com/segfault87/kdtree-rs.git", branch = "nearest_iter_mut" }
 ldraw = { path = "../ldraw" }
