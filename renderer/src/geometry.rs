@@ -10,15 +10,16 @@ use approx::{abs_diff_eq, AbsDiffEq};
 use cgmath::{InnerSpace, Rad, SquareMatrix};
 use kdtree::distance::squared_euclidean;
 use kdtree::KdTree;
-use ldraw::color::{ColorReference};
+use ldraw::color::{ColorReference, MaterialRegistry};
 use ldraw::document::Document;
 use ldraw::elements::{BfcStatement, Command, Meta};
 use ldraw::library::{ResolutionMap, ResolutionResult};
 use ldraw::{Matrix4, Vector3, Vector4, Winding};
+use serde::{Deserialize, Serialize};
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GroupKey {
     pub color_ref: ColorReference,
     pub bfc: bool,
@@ -69,16 +70,30 @@ impl PartialEq for GroupKey {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct IndexBound(pub usize, pub usize);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BufferIndex(pub HashMap<GroupKey, IndexBound>);
 
 impl BufferIndex {
 
     pub fn new() -> BufferIndex {
         BufferIndex(HashMap::new())
+    }
+
+    pub fn resolve(&mut self, materials: &MaterialRegistry) {
+        let mut new = HashMap::new();
+        for (k, v) in self.0.iter() {
+            new.insert(
+                GroupKey {
+                    color_ref: ColorReference::resolve(k.color_ref.code(), materials),
+                    bfc: k.bfc,
+                }, v.clone());
+        }
+
+        self.0.clear();
+        self.0.extend(new);
     }
     
 }
@@ -230,7 +245,7 @@ impl<'a> Adjacency {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EdgeBuffer {
     pub vertices: Vec<f32>,
     pub colors: Vec<f32>,
@@ -288,7 +303,7 @@ impl EdgeBuffer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MeshBuffer {
     pub vertices: Vec<f32>,
     pub normals: Vec<f32>,
@@ -396,6 +411,7 @@ impl MeshBuilder {
                                     normal = (normal + fnormal) * 0.5;
                                 }
                             }
+                            normal = normal.normalize();
                             normals.push(normal.x);
                             normals.push(normal.y);
                             normals.push(normal.z);
@@ -671,7 +687,7 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BakedModel {
     pub mesh: MeshBuffer,
     pub mesh_index: BufferIndex,

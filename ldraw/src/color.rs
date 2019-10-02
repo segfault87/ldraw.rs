@@ -1,5 +1,10 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use serde::{Deserialize, Serialize};
+use serde::de::{Deserializer, Error as DeError, Visitor};
+use serde::ser::{Serializer};
 
 use crate::Vector4;
 
@@ -126,6 +131,37 @@ pub enum ColorReference {
     Current,
     Complement,
     Material(Material),
+}
+
+impl Serialize for ColorReference {
+
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u32(self.code())
+    }
+
+}
+
+struct U32Visitor;
+
+impl<'de> Visitor<'de> for U32Visitor {
+    type Value = u32;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("an unsigned 32-bit integer")
+    }
+
+    fn visit_u32<E: DeError>(self, value: u32) -> Result<Self::Value, E> {
+        Ok(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for ColorReference {
+
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Needs to be resolved later
+        Ok(ColorReference::Unknown(deserializer.deserialize_u32(U32Visitor)?))
+    }
+    
 }
 
 impl Eq for ColorReference {}
