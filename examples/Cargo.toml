@@ -1,2 +1,2 @@
 [workspace]
-members = ["loader", "baker", "renderer", "renderer_native","renderer_web"]
+members = ["loader", "baker", "renderer", "renderer_native", "renderer_web"]
