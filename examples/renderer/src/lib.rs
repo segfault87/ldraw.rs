@@ -8,7 +8,8 @@ use cgmath::{
 };
 use glow::HasContext;
 use ldraw::{Matrix3, Matrix4, Vector3, Vector4};
-use ldraw_renderer::geometry::{BakedModel, BufferIndex, GroupKey};
+use ldraw::color::{ColorReference, Material, MaterialRegistry};
+use ldraw_renderer::geometry::{BufferIndex, GroupKey, NativeBakedModel};
 
 fn cast_as_bytes<'a>(input: &'a [f32]) -> &'a [u8] {
     unsafe { from_raw_parts(input.as_ptr() as *const u8, input.len() * 4) }
@@ -118,6 +119,8 @@ pub struct TestRenderer<T: HasContext> {
     default_program: Program<T>,
     edge_program: Program<T>,
 
+    default_material: Material,
+
     vao_mesh: T::VertexArray,
     vbo_mesh_vertices: Option<T::Buffer>,
     vbo_mesh_normals: Option<T::Buffer>,
@@ -160,11 +163,14 @@ pub struct TestRenderer<T: HasContext> {
 
 impl<T: HasContext> TestRenderer<T> {
     pub fn new(
-        model: &BakedModel,
+        model: &NativeBakedModel,
+        colors: &MaterialRegistry,
         gl: Rc<RefCell<Box<T>>>,
         default_program: Program<T>,
         edge_program: Program<T>,
     ) -> TestRenderer<T> {
+        let default_material = ColorReference::resolve(7, &colors).get_material().unwrap().clone();
+
         let vao_mesh;
         let vbo_mesh_vertices;
         let vbo_mesh_normals;
@@ -207,13 +213,13 @@ impl<T: HasContext> TestRenderer<T> {
             gl_.bind_buffer(glow::ARRAY_BUFFER, vbo_mesh_vertices);
             gl_.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(model.mesh.vertices.as_ref()),
+                cast_as_bytes(model.buffer.mesh.vertices.as_ref()),
                 glow::STATIC_DRAW,
             );
             gl_.bind_buffer(glow::ARRAY_BUFFER, vbo_mesh_normals);
             gl_.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(model.mesh.normals.as_ref()),
+                cast_as_bytes(model.buffer.mesh.normals.as_ref()),
                 glow::STATIC_DRAW,
             );
 
@@ -223,13 +229,13 @@ impl<T: HasContext> TestRenderer<T> {
             gl_.bind_buffer(glow::ARRAY_BUFFER, vbo_edge_vertices);
             gl_.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(model.edges.vertices.as_ref()),
+                cast_as_bytes(model.buffer.edges.vertices.as_ref()),
                 glow::STATIC_DRAW,
             );
             gl_.bind_buffer(glow::ARRAY_BUFFER, vbo_edge_colors);
             gl_.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(model.edges.colors.as_ref()),
+                cast_as_bytes(model.buffer.edges.colors.as_ref()),
                 glow::STATIC_DRAW,
             );
 
@@ -282,6 +288,8 @@ impl<T: HasContext> TestRenderer<T> {
             default_program,
             edge_program,
 
+            default_material,
+
             vao_mesh,
             vbo_mesh_vertices,
             vbo_mesh_normals,
@@ -307,7 +315,7 @@ impl<T: HasContext> TestRenderer<T> {
             attribute_default_normal,
 
             mesh_index: model.mesh_index.clone(),
-            edge_length: model.edges.len() as i32,
+            edge_length: model.buffer.edges.len() as i32,
             drawing_order,
 
             center,
@@ -410,10 +418,12 @@ impl<T: HasContext> TestRenderer<T> {
             );
 
             for order in self.drawing_order.iter() {
-                if let Some(mat) = order.color_ref.get_material() {
-                    let color = Vector4::from(mat.color);
-                    gl.uniform_4_f32_slice(self.uniform_default_color, color.as_ref());
-                }
+                let color = if let Some(mat) = order.color_ref.get_material() {
+                    Vector4::from(mat.color)
+                } else {
+                    Vector4::from(self.default_material.color)
+                };
+                gl.uniform_4_f32_slice(self.uniform_default_color, color.as_ref());
                 if order.bfc {
                     gl.enable(glow::CULL_FACE);
                     gl.uniform_1_i32(self.uniform_default_is_bfc_certified, 1);

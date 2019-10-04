@@ -11,7 +11,7 @@ use ldraw::document::{Document, MultipartDocument};
 use ldraw::library::{PartCache, PartDirectory, ResolutionMap};
 use ldraw::parser::{parse_color_definition, parse_multipart_document, parse_single_document};
 use ldraw::Matrix4;
-use ldraw_renderer::geometry::{BakedModel, ModelBuilder};
+use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
 use test_renderer::{Program, TestRenderer};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -133,7 +133,7 @@ async fn bake(
     document: &MultipartDocument,
     directory: Rc<RefCell<WebPartDirectory>>,
     colors: &MaterialRegistry,
-) -> BakedModel {
+) -> NativeBakedModel {
     let cache = Rc::new(RefCell::new(PartCache::default()));
     let mut resolution = ResolutionMap::new(directory, Rc::clone(&cache));
     resolution.resolve(&&document.body, Some(&document));
@@ -291,7 +291,7 @@ pub async fn run(path: JsValue) -> JsValue {
     let model = bake(&document, Rc::clone(&directory), &colors).await;
     console_log!("Reticulated splines.");
 
-    let mut app = TestRenderer::new(&model, Rc::clone(&gl), default_program, edge_program);
+    let mut app = TestRenderer::new(&model, &colors, Rc::clone(&gl), default_program, edge_program);
     console_log!("Rendering context initialization done.");
 
     app.resize(canvas.width(), canvas.height());

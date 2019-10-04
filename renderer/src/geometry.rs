@@ -17,6 +17,8 @@ use ldraw::library::{ResolutionMap, ResolutionResult};
 use ldraw::{Matrix4, Vector3, Vector4, Winding};
 use serde::{Deserialize, Serialize};
 
+use crate::BoundingBox;
+
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -246,14 +248,14 @@ impl<'a> Adjacency {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct EdgeBuffer {
+pub struct NativeEdgeBuffer {
     pub vertices: Vec<f32>,
     pub colors: Vec<f32>,
 }
 
-impl EdgeBuffer {
-    pub fn new() -> EdgeBuffer {
-        EdgeBuffer {
+impl NativeEdgeBuffer {
+    pub fn new() -> NativeEdgeBuffer {
+        NativeEdgeBuffer {
             vertices: Vec::new(),
             colors: Vec::new(),
         }
@@ -304,14 +306,14 @@ impl EdgeBuffer {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct MeshBuffer {
+pub struct NativeMeshBuffer {
     pub vertices: Vec<f32>,
     pub normals: Vec<f32>,
 }
 
-impl MeshBuffer {
-    pub fn new() -> MeshBuffer {
-        MeshBuffer {
+impl NativeMeshBuffer {
+    pub fn new() -> NativeMeshBuffer {
+        NativeMeshBuffer {
             vertices: Vec::new(),
             normals: Vec::new(),
         }
@@ -321,6 +323,34 @@ impl MeshBuffer {
         self.vertices.len() / 3
     }
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NativeBuffer {
+    pub mesh: NativeMeshBuffer,
+    pub edges: NativeEdgeBuffer,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BakedModel<B> {
+    pub mesh_index: BufferIndex,
+    pub buffer: B,
+    pub bounding_box: BoundingBox,
+    pub rotation_center: Vector3,
+}
+
+impl<B> BakedModel<B> {
+    pub fn new(buffer: B, index: BufferIndex, bounding_box: BoundingBox,
+               rotation_center: &Vector3) -> BakedModel<B> {
+        BakedModel {
+            buffer,
+            mesh_index: index,
+            bounding_box,
+            rotation_center: rotation_center.clone(),
+        }
+    }
+}
+
+pub type NativeBakedModel = BakedModel<NativeBuffer>;
 
 #[derive(Debug)]
 struct MeshBuilder {
@@ -371,8 +401,11 @@ impl MeshBuilder {
         }
     }
 
-    pub fn bake(&self) -> HashMap<GroupKey, MeshBuffer>  {
+    pub fn bake(&self) -> HashMap<GroupKey, (NativeMeshBuffer, BoundingBox)>  {
         let mut mesh_group = HashMap::new();
+
+        let mut bounding_box_min = None;
+        let mut bounding_box_max = None;
 
         for (group_key, faces) in self.faces.iter() {
             let mut vertices = Vec::new();
@@ -381,6 +414,39 @@ impl MeshBuilder {
                 let normal = face.vertices.normal();
 
                 for vertex in face.vertices.triangles(false) {
+                    match bounding_box_min {
+                        None => {
+                            bounding_box_min = Some(vertex.clone());
+                        },
+                        Some(ref mut e) => {
+                            if e.x > vertex.x {
+                                e.x = vertex.x;
+                            }
+                            if e.y > vertex.y {
+                                e.y = vertex.y;
+                            }
+                            if e.z > vertex.z {
+                                e.z = vertex.z;
+                            }
+                        },
+                    }
+                    match bounding_box_max {
+                        None => {
+                            bounding_box_max = Some(vertex.clone());
+                        },
+                        Some(ref mut e) => {
+                            if e.x < vertex.x {
+                                e.x = vertex.x;
+                            }
+                            if e.y < vertex.y {
+                                e.y = vertex.y;
+                            }
+                            if e.z < vertex.z {
+                                e.z = vertex.z;
+                            }
+                        },
+                    }
+                    
                     vertices.push(vertex.x);
                     vertices.push(vertex.y);
                     vertices.push(vertex.z);
@@ -425,7 +491,12 @@ impl MeshBuilder {
                 }
             }
 
-            mesh_group.insert(group_key.clone(), MeshBuffer { vertices, normals });
+            mesh_group.insert(
+                group_key.clone(),
+                (NativeMeshBuffer { vertices, normals },
+                 BoundingBox::new(&bounding_box_min.unwrap_or(Vector3::new(0.0, 0.0, 0.0)),
+                                  &bounding_box_max.unwrap_or(Vector3::new(0.0, 0.0, 0.0))))
+            );
         }
 
         mesh_group
@@ -436,7 +507,7 @@ pub struct ModelBuilder<'a, T> {
     resolutions: &'a ResolutionMap<'a, T>,
 
     mesh_builder: MeshBuilder,
-    edges: EdgeBuffer,
+    edges: NativeEdgeBuffer,
     color_stack: Vec<ColorReference>,
 }
 
@@ -618,31 +689,44 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
         }
     }
 
-    pub fn bake(&self) -> BakedModel {
-        let mut model = BakedModel {
-            mesh: MeshBuffer::new(),
-            mesh_index: BufferIndex::new(),
-            edges: self.edges.clone(),
-        };
-
+    pub fn bake(&self) -> NativeBakedModel {
+        let mut built_mesh = NativeMeshBuffer::new();
+        let mut built_index = BufferIndex::new();
         let mesh_groups = self.mesh_builder.bake();
-
+        let mut bounding_box = None;
         let mut index = 0;
-        for (group, mesh) in mesh_groups.iter() {
-            model.mesh.vertices.extend(&mesh.vertices);
-            model.mesh.normals.extend(&mesh.normals);
-            model.mesh_index.0.insert(
+        for (group, (mesh, sub_bounding_box)) in mesh_groups.iter() {
+            match bounding_box {
+                None => {
+                    bounding_box = Some(sub_bounding_box.clone());
+                },
+                Some(ref mut e) => {
+                    e.update(&sub_bounding_box);
+                },
+            };
+
+            built_mesh.vertices.extend(&mesh.vertices);
+            built_mesh.normals.extend(&mesh.normals);
+            built_index.0.insert(
                 group.clone(), IndexBound(index / 3, (index + mesh.vertices.len()) / 3)
             );
 
             index += mesh.vertices.len();
         }
 
-        model
+        NativeBakedModel::new(
+            NativeBuffer {
+                mesh: built_mesh,
+                edges: self.edges.clone(),
+            },
+            built_index,
+            bounding_box.unwrap_or(BoundingBox::zero()),
+            &Vector3::new(0.0, 0.0, 0.0),
+        )
     }
 
-    pub fn visualize_normals(&self, scale: f32) -> EdgeBuffer {
-        let mut buffer = EdgeBuffer::default();
+    pub fn visualize_normals(&self, scale: f32) -> NativeEdgeBuffer {
+        let mut buffer = NativeEdgeBuffer::default();
 
         for (group, mesh) in self.mesh_builder.faces.iter() {
             if !group.bfc {
@@ -677,7 +761,7 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
             resolutions,
 
             mesh_builder: MeshBuilder::new(),
-            edges: EdgeBuffer::new(),
+            edges: NativeEdgeBuffer::new(),
             color_stack: Vec::new(),
         };
 
@@ -687,17 +771,10 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BakedModel {
-    pub mesh: MeshBuffer,
-    pub mesh_index: BufferIndex,
-    pub edges: EdgeBuffer,
-}
-
 pub fn bake_model<'a, T: Clone, S: BuildHasher>(
     resolution: &ResolutionMap<'a, T>,
     document: &Document,
-) -> BakedModel {
+) -> NativeBakedModel {
     let mut builder = ModelBuilder::new(resolution);
 
     builder.traverse(&document, Matrix4::identity(), true, false);

@@ -5,5 +5,5 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-cgmath = "~0.17.0"
+cgmath = { version = "~0.17.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }

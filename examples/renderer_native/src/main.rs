@@ -17,14 +17,14 @@ use ldraw::library::{
 };
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
 use ldraw::Matrix4;
-use ldraw_renderer::geometry::{BakedModel, ModelBuilder};
+use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
 use test_renderer::{Program, TestRenderer};
 
 fn bake(
     colors: &MaterialRegistry,
     directory: Rc<RefCell<PartDirectoryNative>>,
     path: &str,
-) -> BakedModel {
+) -> NativeBakedModel {
     println!("Parsing document...");
     let document =
         parse_multipart_document(&colors, &mut BufReader::new(File::open(path).unwrap())).unwrap();
@@ -72,7 +72,7 @@ fn set_up_context(gl: &Context) {
     }
 }
 
-fn main_loop(model: &BakedModel) {
+fn main_loop(model: &NativeBakedModel, colors: &MaterialRegistry) {
     let mut evloop = EventsLoop::new();
     let window_builder = WindowBuilder::new()
         .with_title("ldraw.rs demo")
@@ -100,11 +100,13 @@ fn main_loop(model: &BakedModel) {
     )
     .unwrap();
 
-    let mut app = TestRenderer::new(model, Rc::clone(&gl), default_program, edge_program);
+    let mut app = TestRenderer::new(model, &colors, Rc::clone(&gl), default_program, edge_program);
     let window = windowed_context.window();
     let size = window.get_inner_size().unwrap();
     let (w, h) = size.to_physical(window.get_hidpi_factor()).into();
     app.resize(w, h);
+
+    println!("Bounding box: {:?}", model.bounding_box);
 
     let mut closed = false;
     let started = Instant::now();
@@ -162,5 +164,5 @@ fn main() {
 
     let baked = bake(&colors, directory, &ldrpath);
 
-    main_loop(&baked);
+    main_loop(&baked, &colors);
 }
