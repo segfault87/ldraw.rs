@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use std::f32;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::Deref;
@@ -10,11 +10,11 @@ use approx::{abs_diff_eq, AbsDiffEq};
 use cgmath::{InnerSpace, Rad, SquareMatrix};
 use kdtree::distance::squared_euclidean;
 use kdtree::KdTree;
+use ldraw::{Matrix4, NormalizedAlias, Vector3, Vector4, Winding};
 use ldraw::color::{ColorReference, MaterialRegistry};
 use ldraw::document::Document;
 use ldraw::elements::{BfcStatement, Command, Meta};
 use ldraw::library::{ResolutionMap, ResolutionResult};
-use ldraw::{Matrix4, Vector3, Vector4, Winding};
 use serde::{Deserialize, Serialize};
 
 use crate::BoundingBox;
@@ -330,20 +330,24 @@ pub struct NativeBuffer {
     pub edges: NativeEdgeBuffer,
 }
 
+pub type FeatureMap = HashMap<NormalizedAlias, Vec<(ColorReference, Matrix4)>>;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BakedModel<B> {
-    pub mesh_index: BufferIndex,
     pub buffer: B,
+    pub mesh_index: BufferIndex,
+    pub features: FeatureMap,
     pub bounding_box: BoundingBox,
     pub rotation_center: Vector3,
 }
 
 impl<B> BakedModel<B> {
-    pub fn new(buffer: B, index: BufferIndex, bounding_box: BoundingBox,
-               rotation_center: &Vector3) -> BakedModel<B> {
+    pub fn new(buffer: B, index: BufferIndex, features: FeatureMap,
+               bounding_box: BoundingBox, rotation_center: &Vector3) -> BakedModel<B> {
         BakedModel {
             buffer,
             mesh_index: index,
+            features,
             bounding_box,
             rotation_center: rotation_center.clone(),
         }
@@ -509,6 +513,9 @@ pub struct ModelBuilder<'a, T> {
     mesh_builder: MeshBuilder,
     edges: NativeEdgeBuffer,
     color_stack: Vec<ColorReference>,
+    features: FeatureMap,
+
+    enabled_features: HashSet<NormalizedAlias>,
 }
 
 impl<'a, T: Clone> ModelBuilder<'a, T> {
@@ -554,6 +561,12 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
                         ColorReference::Current => self.color_stack.last().unwrap().clone(),
                         e => e.clone(),
                     };
+
+                    if self.enabled_features.contains(&cmd.name) {
+                        (*self.features.entry(cmd.name.clone()).or_insert(Vec::new())).push((color.clone(), matrix.clone()));
+                        invert_next = false;
+                        continue;
+                    }
 
                     match self.resolutions.get(cmd) {
                         Some(ResolutionResult::Subpart(part)) => {
@@ -720,6 +733,7 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
                 edges: self.edges.clone(),
             },
             built_index,
+            self.features.clone(),
             bounding_box.unwrap_or(BoundingBox::zero()),
             &Vector3::new(0.0, 0.0, 0.0),
         )
@@ -763,11 +777,20 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
             mesh_builder: MeshBuilder::new(),
             edges: NativeEdgeBuffer::new(),
             color_stack: Vec::new(),
+            features: HashMap::new(),
+
+            enabled_features: HashSet::new(),
         };
 
         mb.color_stack.push(ColorReference::Current);
 
         mb
+    }
+
+    pub fn with_feature(mut self, alias: NormalizedAlias) -> Self {
+        self.enabled_features.insert(alias);
+
+        self
     }
 }
 

@@ -11,12 +11,12 @@ use cgmath::SquareMatrix;
 use glow::{self, Context, HasContext};
 use glutin::dpi::LogicalSize;
 use glutin::{ContextBuilder, Event, EventsLoop, WindowBuilder, WindowEvent};
+use ldraw::{Matrix4, NormalizedAlias};
 use ldraw::color::MaterialRegistry;
 use ldraw::library::{
     load_files, scan_ldraw_directory, PartCache, PartDirectoryNative, ResolutionMap,
 };
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
-use ldraw::Matrix4;
 use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
 use test_renderer::{Program, TestRenderer};
 
@@ -46,7 +46,8 @@ fn bake(
 
     println!("Baking model...");
 
-    let mut builder = ModelBuilder::new(&resolution);
+    let mut builder = ModelBuilder::new(&resolution)
+        .with_feature(NormalizedAlias::from("stud.dat"));
     builder.traverse(&&document.body, Matrix4::identity(), true, false);
     let model = builder.bake();
 

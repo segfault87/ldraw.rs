@@ -59,6 +59,17 @@ impl From<&String> for NormalizedAlias {
     }
 }
 
+impl From<&str> for NormalizedAlias {
+    fn from(alias: &str) -> NormalizedAlias {
+        let string = alias.to_string();
+        
+        NormalizedAlias {
+            normalized: Self::normalize(&string),
+            original: string,
+        }
+    }
+}
+
 struct StringVisitor;
 
 impl<'a> Visitor<'a> for StringVisitor {
