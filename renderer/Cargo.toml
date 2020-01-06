@@ -7,7 +7,8 @@ edition = "2018"
 [dependencies]
 approx = "~0.3.1"
 cgmath = "~0.17.0"
-gl = "~0.11.0"
-kdtree = { git = "https://github.com/segfault87/kdtree-rs.git", branch = "nearest_iter_mut" }
+# glow = "~0.4.0"
+glow = { git = "https://github.com/grovesNL/glow" }
+kdtree = "~0.6"
 ldraw = { path = "../ldraw" }
 serde = { version = "1.0", features = ["derive"] }

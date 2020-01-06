@@ -6,7 +6,8 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 
 [dependencies]
 cgmath = "~0.17.0"
-glow = { git = "https://github.com/segfault87/glow", branch = "use-bleeding-edge" }
+# glow = "~0.4.0" 
+glow = { git = "https://github.com/grovesNL/glow" }
 glutin = "~0.21.1"
 ldraw = { path = "../../ldraw" }
 ldraw_renderer = { path = "../../renderer" }

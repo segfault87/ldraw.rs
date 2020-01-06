@@ -12,7 +12,7 @@ use ldraw::library::{PartCache, PartDirectory, ResolutionMap};
 use ldraw::parser::{parse_color_definition, parse_multipart_document, parse_single_document};
 use ldraw::Matrix4;
 use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
-use test_renderer::{Program, TestRenderer};
+use test_renderer::TestRenderer;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
@@ -173,31 +173,6 @@ async fn bake(
     builder.bake()
 }
 
-async fn build_program<T: HasContext>(
-    gl: Rc<RefCell<Box<T>>>,
-    vspath: &str,
-    fspath: &str,
-) -> Result<Program<T>, String> {
-    let vsdata = fetch_raw_data(vspath);
-    let fsdata = fetch_raw_data(fspath);
-
-    let (vsdata, fsdata) = futures::join!(vsdata, fsdata);
-    let vsdata = match vsdata {
-        Ok(v) => v,
-        Err(_) => {
-            return Err(String::from("Could not load vertex program."));
-        }
-    };
-    let fsdata = match fsdata {
-        Ok(v) => v,
-        Err(_) => {
-            return Err(String::from("Could not load fragment program."));
-        }
-    };
-
-    Program::new(Rc::clone(&gl), &vsdata, &fsdata)
-}
-
 fn request_animation_frame(f: &Closure<dyn FnMut()>) {
     let window = web_sys::window().expect("No window exists.");
 
@@ -232,26 +207,7 @@ pub async fn run(path: JsValue) -> JsValue {
             return JsValue::undefined();
         }
     };
-    let gl = Rc::new(RefCell::new(Box::new(Context::from_webgl2_context(gl))));
-
-    let default_program = build_program(Rc::clone(&gl), "shaders/default.vs", "shaders/default.fs");
-    let edge_program = build_program(Rc::clone(&gl), "shaders/edge.vs", "shaders/edge.fs");
-    let (default_program, edge_program) = futures::join!(default_program, edge_program);
-    let default_program = match default_program {
-        Ok(v) => v,
-        Err(_) => {
-            console_error!("Couldn't load default shader.");
-            return JsValue::undefined();
-        }
-    };
-    let edge_program = match edge_program {
-        Ok(v) => v,
-        Err(_) => {
-            console_error!("Couldn't load edge shader.");
-            return JsValue::undefined();
-        }
-    };
-    console_log!("Loaded shader.");
+    let gl = Rc::new(RefCell::new(Context::from_webgl2_context(gl)));
 
     let directory = fetch_directory();
     let colors = fetch_color_definition();
@@ -291,7 +247,13 @@ pub async fn run(path: JsValue) -> JsValue {
     let model = bake(&document, Rc::clone(&directory), &colors).await;
     console_log!("Reticulated splines.");
 
-    let mut app = TestRenderer::new(&model, &colors, Rc::clone(&gl), default_program, edge_program);
+    let mut app = match TestRenderer::new(&model, &colors, Rc::clone(&gl)) {
+        Ok(v) => v,
+        Err(e) => {
+            console_log!("{}", e);
+            return JsValue::undefined();
+        }
+    };
     console_log!("Rendering context initialization done.");
 
     app.resize(canvas.width(), canvas.height());

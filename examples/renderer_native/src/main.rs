@@ -18,7 +18,7 @@ use ldraw::library::{
 };
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
 use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
-use test_renderer::{Program, TestRenderer};
+use test_renderer::TestRenderer;
 
 fn bake(
     colors: &MaterialRegistry,
@@ -86,22 +86,12 @@ fn main_loop(model: &NativeBakedModel, colors: &MaterialRegistry) {
     let gl = Context::from_loader_function(|s| windowed_context.get_proc_address(s) as *const _);
     set_up_context(&gl);
 
-    let gl = Rc::new(RefCell::new(Box::new(gl)));
+    let gl = Rc::new(RefCell::new(gl));
 
-    let edge_program = Program::new(
-        Rc::clone(&gl),
-        &String::from(str::from_utf8(include_bytes!("../../renderer/shaders/edge.vs")).unwrap()),
-        &String::from(str::from_utf8(include_bytes!("../../renderer/shaders/edge.fs")).unwrap()),
-    )
-    .unwrap();
-    let default_program = Program::new(
-        Rc::clone(&gl),
-        &String::from(str::from_utf8(include_bytes!("../../renderer/shaders/default.vs")).unwrap()),
-        &String::from(str::from_utf8(include_bytes!("../../renderer/shaders/default.fs")).unwrap()),
-    )
-    .unwrap();
-
-    let mut app = TestRenderer::new(model, &colors, Rc::clone(&gl), default_program, edge_program);
+    let mut app = match TestRenderer::new(model, &colors, Rc::clone(&gl)) {
+        Ok(v) => v,
+        Err(e) => panic!("{}", e),
+    };
     let window = windowed_context.window();
     let size = window.get_inner_size().unwrap();
     let (w, h) = size.to_physical(window.get_hidpi_factor()).into();

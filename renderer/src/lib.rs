@@ -1,7 +1,17 @@
+#![feature(trait_alias)]
+
+use glow::HasContext;
 use ldraw::Vector3;
 use serde::{Deserialize, Serialize};
 
+pub mod buffer;
+pub mod error;
 pub mod geometry;
+pub mod scene;
+pub mod shader;
+pub mod state;
+
+pub trait GL = HasContext;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BoundingBox {

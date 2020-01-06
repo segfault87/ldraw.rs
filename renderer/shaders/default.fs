@@ -5,7 +5,6 @@ precision highp float;
 uniform mat4 viewMatrix;
 
 uniform vec4 color;
-uniform bool isBfcCertified;
 
 uniform vec4 lightColor;
 uniform vec4 lightDirection;
@@ -17,6 +16,8 @@ const vec3 specular = vec3(1.0, 1.0, 1.0);
 const float shininess = 75.0;
 const vec3 ambientLightColor = vec3(0.3, 0.3, 0.3);
 const float specularStrength = 1.0;
+
+const bool isBfcCertified = ##IS_BFC_CERTIFIED##;
 
 varying vec3 vViewPosition;
 varying vec3 vNormal;

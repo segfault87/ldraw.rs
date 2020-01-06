@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 cgmath = "~0.17.0"
 futures-preview = { version = "0.3.0-alpha.18", features = ["async-await", "nightly"] }
-glow = { git = "https://github.com/segfault87/glow", branch = "use-bleeding-edge" }
+glow = { git = "https://github.com/grovesNL/glow", features = ["web-sys"] } 
 ldraw = { path = "../../ldraw" }
 ldraw_renderer = { path = "../../renderer" }
 wasm-bindgen = { version = "~0.2.51", features = ["serde-serialize"] }
