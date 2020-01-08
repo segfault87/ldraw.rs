@@ -26,23 +26,11 @@ impl BoundingBox {
             max: Vector3::new(0.0, 0.0, 0.0),
         }
     }
-    
+
     pub fn new(a: &Vector3, b: &Vector3) -> BoundingBox {
-        let (min_x, max_x) = if a.x > b.x {
-            (b.x, a.x)
-        } else {
-            (a.x, b.x)
-        };
-        let (min_y, max_y) = if a.y > b.y {
-            (b.y, a.y)
-        } else {
-            (a.y, b.y)
-        };
-        let (min_z, max_z) = if a.z > b.z {
-            (b.z, a.z)
-        } else {
-            (a.z, b.z)
-        };
+        let (min_x, max_x) = if a.x > b.x { (b.x, a.x) } else { (a.x, b.x) };
+        let (min_y, max_y) = if a.y > b.y { (b.y, a.y) } else { (a.y, b.y) };
+        let (min_z, max_z) = if a.z > b.z { (b.z, a.z) } else { (a.z, b.z) };
 
         BoundingBox {
             min: Vector3::new(min_x, min_y, min_z),

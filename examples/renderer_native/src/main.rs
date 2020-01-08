@@ -11,12 +11,13 @@ use cgmath::SquareMatrix;
 use glow::{self, Context, HasContext};
 use glutin::dpi::LogicalSize;
 use glutin::{ContextBuilder, Event, EventsLoop, WindowBuilder, WindowEvent};
-use ldraw::{Matrix4, NormalizedAlias};
 use ldraw::color::MaterialRegistry;
 use ldraw::library::{
-    load_files, scan_ldraw_directory, CacheCollectionStrategy, PartCache, PartDirectoryNative, ResolutionMap,
+    load_files, scan_ldraw_directory, CacheCollectionStrategy, PartCache, PartDirectoryNative,
+    ResolutionMap,
 };
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
+use ldraw::{Matrix4, NormalizedAlias};
 use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
 use test_renderer::TestRenderer;
 
@@ -46,8 +47,8 @@ fn bake(
 
     println!("Baking model...");
 
-    let mut builder = ModelBuilder::new(&resolution)
-        .with_feature(NormalizedAlias::from("stud.dat"));
+    let mut builder =
+        ModelBuilder::new(&resolution).with_feature(NormalizedAlias::from("stud.dat"));
     builder.traverse(&&document.body, Matrix4::identity(), true, false);
     let model = builder.bake();
 
@@ -55,7 +56,12 @@ fn bake(
     drop(resolution);
     drop(document);
 
-    println!("Collected {} entries", cache.borrow_mut().collect(CacheCollectionStrategy::PartsAndPrimitives));
+    println!(
+        "Collected {} entries",
+        cache
+            .borrow_mut()
+            .collect(CacheCollectionStrategy::PartsAndPrimitives)
+    );
 
     model
 }
@@ -103,7 +109,7 @@ fn main_loop(model: &NativeBakedModel, colors: &MaterialRegistry) {
     let started = Instant::now();
     while !closed {
         set_up_context(&*gl.borrow());
-        
+
         app.animate(started.elapsed().as_millis() as f32 / 1000.0);
         app.render();
 

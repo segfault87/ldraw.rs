@@ -11,12 +11,11 @@ pub enum ShaderError {
 impl fmt::Display for ShaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ShaderError::CreationError(e) =>
-                write!(f, "Error creating program/shader object: {}", e),
-            ShaderError::CompileError(e) =>
-                write!(f, "Error compiling shader: {}", e),
-            ShaderError::LinkError(e) =>
-                write!(f, "Error linking program: {}", e),
+            ShaderError::CreationError(e) => {
+                write!(f, "Error creating program/shader object: {}", e)
+            }
+            ShaderError::CompileError(e) => write!(f, "Error compiling shader: {}", e),
+            ShaderError::LinkError(e) => write!(f, "Error linking program: {}", e),
         }
     }
 }
@@ -35,7 +34,7 @@ pub enum RendererError {
 impl fmt::Display for RendererError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RendererError::ShaderError(e) => e.fmt(f)
+            RendererError::ShaderError(e) => e.fmt(f),
         }
     }
 }

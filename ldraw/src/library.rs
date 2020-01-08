@@ -6,9 +6,9 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::AliasType;
 use crate::document::{Document, MultipartDocument};
 use crate::elements::PartReference;
+use crate::AliasType;
 use crate::NormalizedAlias;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -117,11 +117,9 @@ impl PartCache {
     pub fn query(&self, alias: &NormalizedAlias) -> Option<Rc<Document>> {
         match self.parts.get(alias) {
             Some(part) => Some(Rc::clone(&part)),
-            None => {
-                match self.primitives.get(alias) {
-                    Some(prim) => Some(Rc::clone(&prim)),
-                    None => None
-                }
+            None => match self.primitives.get(alias) {
+                Some(prim) => Some(Rc::clone(&prim)),
+                None => None,
             },
         }
     }
@@ -132,17 +130,17 @@ impl PartCache {
             CacheCollectionStrategy::Parts => {
                 self.parts
                     .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
-            },
+            }
             CacheCollectionStrategy::Primitives => {
                 self.primitives
                     .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
-            },
+            }
             CacheCollectionStrategy::PartsAndPrimitives => {
                 self.parts
                     .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
                 self.primitives
                     .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
-            },
+            }
         };
         prev_size - self.parts.len() - self.primitives.len()
     }
@@ -188,12 +186,10 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
     }
 
     pub fn get_pending(&'b self) -> impl Iterator<Item = (&'b NormalizedAlias, &'b PartEntry<T>)> {
-        self.map
-            .iter()
-            .filter_map(|(key, value)| match value {
-                ResolutionResult::Pending(a) => Some((key, a)),
-                _ => None,
-            })
+        self.map.iter().filter_map(|(key, value)| match value {
+            ResolutionResult::Pending(a) => Some((key, a)),
+            _ => None,
+        })
     }
 
     pub fn resolve<D: Deref<Target = Document>>(

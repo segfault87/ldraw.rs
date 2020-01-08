@@ -10,7 +10,6 @@ pub struct ProjectionParams {
 }
 
 impl ProjectionParams {
-
     pub fn new() -> ProjectionParams {
         ProjectionParams {
             projection: Matrix4::identity(),
@@ -31,17 +30,17 @@ impl ProjectionParams {
         let a20 = src[2][0];
         let a21 = src[2][1];
         let a22 = src[2][2];
-        
+
         let b01 = a22 * a11 - a12 * a21;
         let b11 = -a22 * a10 + a12 * a20;
         let b21 = a21 * a10 - a11 * a20;
-        
+
         let det = a00 * b01 + a01 * b11 + a02 * b21;
         if det == 0.0 {
             panic!("Could not invert this matrix.");
         }
         let id = 1.0 / det;
-        
+
         Matrix3::new(
             b01 * id,
             (-a22 * a01 + a02 * a21) * id,
@@ -67,7 +66,6 @@ impl ProjectionParams {
     pub fn get_normal_matrix(&self) -> &Matrix3 {
         &self.normal_matrix
     }
-    
 }
 
 pub struct ShadingParams {
@@ -76,13 +74,10 @@ pub struct ShadingParams {
 }
 
 impl ShadingParams {
-
     pub fn new() -> ShadingParams {
         ShadingParams {
             light_color: Vector4::new(1.0, 1.0, 1.0, 1.0),
             light_direction: Vector4::new(0.0, -0.5, 0.7, 1.0).normalize(),
         }
     }
-    
 }
-

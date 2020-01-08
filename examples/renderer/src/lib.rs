@@ -3,12 +3,10 @@ use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::vec::Vec;
 
-use cgmath::{
-    Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3,
-};
+use cgmath::{Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3};
 use glow::HasContext;
-use ldraw::{Matrix4, Vector3, Vector4};
 use ldraw::color::{ColorReference, Material, MaterialRegistry};
+use ldraw::{Matrix4, Vector3, Vector4};
 use ldraw_renderer::error::RendererError;
 use ldraw_renderer::geometry::{BufferIndex, GroupKey, NativeBakedModel};
 use ldraw_renderer::scene::{ProjectionParams, ShadingParams};
@@ -53,8 +51,11 @@ impl<T: HasContext> TestRenderer<T> {
         gl: Rc<RefCell<T>>,
     ) -> Result<TestRenderer<T>, RendererError> {
         let program_manager = ProgramManager::new(Rc::clone(&gl))?;
-        
-        let default_material = ColorReference::resolve(7, &colors).get_material().unwrap().clone();
+
+        let default_material = ColorReference::resolve(7, &colors)
+            .get_material()
+            .unwrap()
+            .clone();
 
         let vao_mesh;
         let vbo_mesh_vertices;
@@ -178,7 +179,8 @@ impl<T: HasContext> TestRenderer<T> {
 
         self.degrees += Deg(delta * 60.0);
         let rotation = Quaternion::from_angle_y(self.degrees);
-        self.projection_params.model_view = self.projection_params.view_matrix * Matrix4::from(rotation);
+        self.projection_params.model_view =
+            self.projection_params.view_matrix * Matrix4::from(rotation);
 
         self.time = time;
 
@@ -208,27 +210,13 @@ impl<T: HasContext> TestRenderer<T> {
 
                 if let Some(e) = program.attrib_position {
                     gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo_mesh_vertices);
-                    gl.vertex_attrib_pointer_f32(
-                        e,
-                        3,
-                        glow::FLOAT,
-                        false,
-                        0,
-                        0,
-                    );
+                    gl.vertex_attrib_pointer_f32(e, 3, glow::FLOAT, false, 0, 0);
                 }
                 if let Some(e) = program.attrib_normal {
                     gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo_mesh_normals);
-                    gl.vertex_attrib_pointer_f32(
-                        e,
-                        3,
-                        glow::FLOAT,
-                        false,
-                        0,
-                        0,
-                    );
+                    gl.vertex_attrib_pointer_f32(e, 3, glow::FLOAT, false, 0, 0);
                 }
-                
+
                 if order.color_ref.is_material()
                     && order
                         .color_ref
@@ -254,7 +242,7 @@ impl<T: HasContext> TestRenderer<T> {
             let program = &self.program_manager.edge;
             program.bind();
             program.bind_uniforms(&self.projection_params);
-            
+
             gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo_edge_vertices);
             gl.vertex_attrib_pointer_f32(
                 program.attrib_position as u32,
@@ -265,14 +253,7 @@ impl<T: HasContext> TestRenderer<T> {
                 0,
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo_edge_colors);
-            gl.vertex_attrib_pointer_f32(
-                program.attrib_color as u32,
-                3,
-                glow::FLOAT,
-                false,
-                0,
-                0,
-                );
+            gl.vertex_attrib_pointer_f32(program.attrib_color as u32, 3, glow::FLOAT, false, 0, 0);
 
             gl.draw_arrays(glow::LINES, 0, self.edge_length);
 

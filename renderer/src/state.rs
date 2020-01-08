@@ -1,5 +1,5 @@
-use crate::GL;
 use crate::shader::{Bindable, EdgeProgram, ProgramKind, ProgramManager, ShadedProgram};
+use crate::GL;
 
 pub struct State<'a, T: GL> {
     program_manager: ProgramManager<T>,
@@ -21,7 +21,7 @@ impl<'a, T: GL> State<'a, T> {
                 (ProgramKind::SolidFlat(p), false) => return p,
                 (_, _) => {
                     e.unbind();
-                },
+                }
             }
         }
 
@@ -42,10 +42,8 @@ impl<'a, T: GL> State<'a, T> {
                 e.unbind();
             }
         }
-        
+
         self.bound = Some(ProgramKind::Edge(&self.program_manager.edge));
         &self.program_manager.edge.bind()
     }
-    
 }
-

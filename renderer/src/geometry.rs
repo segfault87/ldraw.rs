@@ -10,11 +10,11 @@ use approx::{abs_diff_eq, AbsDiffEq};
 use cgmath::{InnerSpace, Rad, SquareMatrix};
 use kdtree::distance::squared_euclidean;
 use kdtree::KdTree;
-use ldraw::{AliasType, Matrix4, NormalizedAlias, Vector3, Vector4, Winding};
 use ldraw::color::{ColorReference, MaterialRegistry};
 use ldraw::document::Document;
 use ldraw::elements::{BfcStatement, Command, Meta};
 use ldraw::library::{ResolutionMap, ResolutionResult};
+use ldraw::{AliasType, Matrix4, NormalizedAlias, Vector3, Vector4, Winding};
 use serde::{Deserialize, Serialize};
 
 use crate::BoundingBox;
@@ -79,7 +79,6 @@ pub struct IndexBound(pub usize, pub usize);
 pub struct BufferIndex(pub HashMap<GroupKey, IndexBound>);
 
 impl BufferIndex {
-
     pub fn new() -> BufferIndex {
         BufferIndex(HashMap::new())
     }
@@ -91,13 +90,14 @@ impl BufferIndex {
                 GroupKey {
                     color_ref: ColorReference::resolve(k.color_ref.code(), materials),
                     bfc: k.bfc,
-                }, v.clone());
+                },
+                v.clone(),
+            );
         }
 
         self.0.clear();
         self.0.extend(new);
     }
-    
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -318,7 +318,7 @@ impl NativeMeshBuffer {
             normals: Vec::new(),
         }
     }
-    
+
     pub fn len(&self) -> usize {
         self.vertices.len() / 3
     }
@@ -342,8 +342,13 @@ pub struct BakedModel<B> {
 }
 
 impl<B> BakedModel<B> {
-    pub fn new(buffer: B, index: BufferIndex, features: FeatureMap,
-               bounding_box: BoundingBox, rotation_center: &Vector3) -> BakedModel<B> {
+    pub fn new(
+        buffer: B,
+        index: BufferIndex,
+        features: FeatureMap,
+        bounding_box: BoundingBox,
+        rotation_center: &Vector3,
+    ) -> BakedModel<B> {
         BakedModel {
             buffer,
             mesh_index: index,
@@ -377,25 +382,23 @@ impl MeshBuilder {
         for vertex in face.vertices.triangles(false) {
             let r: &[f32; 3] = vertex.as_ref();
             let nearest = match self.point_cloud.iter_nearest_mut(r, &squared_euclidean) {
-                Ok(mut v) => {
-                    match v.next() {
-                        Some(vv) => {
-                            if vv.0 < f32::default_epsilon() {
-                                Some(vv.1)
-                            } else {
-                                None
-                            }
-                        },
-                        None => None,
+                Ok(mut v) => match v.next() {
+                    Some(vv) => {
+                        if vv.0 < f32::default_epsilon() {
+                            Some(vv.1)
+                        } else {
+                            None
+                        }
                     }
-                }
+                    None => None,
+                },
                 Err(_) => None,
             };
 
             match nearest {
                 Some(e) => {
                     e.add(&face);
-                },
+                }
                 None => {
                     let mut adjacency = Adjacency::new(&vertex);
                     adjacency.add(&face);
@@ -405,7 +408,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn bake(&self) -> HashMap<GroupKey, (NativeMeshBuffer, BoundingBox)>  {
+    pub fn bake(&self) -> HashMap<GroupKey, (NativeMeshBuffer, BoundingBox)> {
         let mut mesh_group = HashMap::new();
 
         let mut bounding_box_min = None;
@@ -421,7 +424,7 @@ impl MeshBuilder {
                     match bounding_box_min {
                         None => {
                             bounding_box_min = Some(vertex.clone());
-                        },
+                        }
                         Some(ref mut e) => {
                             if e.x > vertex.x {
                                 e.x = vertex.x;
@@ -432,12 +435,12 @@ impl MeshBuilder {
                             if e.z > vertex.z {
                                 e.z = vertex.z;
                             }
-                        },
+                        }
                     }
                     match bounding_box_max {
                         None => {
                             bounding_box_max = Some(vertex.clone());
-                        },
+                        }
                         Some(ref mut e) => {
                             if e.x < vertex.x {
                                 e.x = vertex.x;
@@ -448,27 +451,26 @@ impl MeshBuilder {
                             if e.z < vertex.z {
                                 e.z = vertex.z;
                             }
-                        },
+                        }
                     }
-                    
+
                     vertices.push(vertex.x);
                     vertices.push(vertex.y);
                     vertices.push(vertex.z);
 
                     let r: &[f32; 3] = vertex.as_ref();
-                    let adjacent_faces = match self.point_cloud.iter_nearest(r, &squared_euclidean) {
-                        Ok(mut v) => {
-                            match v.next() {
-                                Some(vv) => {
-                                    if vv.0 < f32::default_epsilon() {
-                                        Some(vv.1)
-                                    } else {
-                                        None
-                                    }
-                                },
-                                None => None,
+                    let adjacent_faces = match self.point_cloud.iter_nearest(r, &squared_euclidean)
+                    {
+                        Ok(mut v) => match v.next() {
+                            Some(vv) => {
+                                if vv.0 < f32::default_epsilon() {
+                                    Some(vv.1)
+                                } else {
+                                    None
+                                }
                             }
-                        }
+                            None => None,
+                        },
                         Err(_) => None,
                     };
 
@@ -485,21 +487,25 @@ impl MeshBuilder {
                             normals.push(normal.x);
                             normals.push(normal.y);
                             normals.push(normal.z);
-                        },
+                        }
                         None => {
                             normals.push(normal.x);
                             normals.push(normal.y);
                             normals.push(normal.z);
-                        },
+                        }
                     };
                 }
             }
 
             mesh_group.insert(
                 group_key.clone(),
-                (NativeMeshBuffer { vertices, normals },
-                 BoundingBox::new(&bounding_box_min.unwrap_or(Vector3::new(0.0, 0.0, 0.0)),
-                                  &bounding_box_max.unwrap_or(Vector3::new(0.0, 0.0, 0.0))))
+                (
+                    NativeMeshBuffer { vertices, normals },
+                    BoundingBox::new(
+                        &bounding_box_min.unwrap_or(Vector3::new(0.0, 0.0, 0.0)),
+                        &bounding_box_max.unwrap_or(Vector3::new(0.0, 0.0, 0.0)),
+                    ),
+                ),
             );
         }
 
@@ -537,7 +543,7 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
         if bfc_certified {
             winding = match document.bfc.get_winding() {
                 Some(e) => e,
-                None => Winding::Ccw
+                None => Winding::Ccw,
             } ^ invert;
         }
 
@@ -563,7 +569,8 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
                     };
 
                     if self.enabled_features.contains(&cmd.name) {
-                        (*self.features.entry(cmd.name.clone()).or_insert(Vec::new())).push((color.clone(), matrix.clone()));
+                        (*self.features.entry(cmd.name.clone()).or_insert(Vec::new()))
+                            .push((color.clone(), matrix.clone()));
                         invert_next = false;
                         continue;
                     }
@@ -571,22 +578,12 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
                     match self.resolutions.get(cmd) {
                         Some(ResolutionResult::Subpart(part)) => {
                             self.color_stack.push(color);
-                            self.traverse(
-                                part,
-                                matrix,
-                                cull_next,
-                                invert_child,
-                            );
+                            self.traverse(part, matrix, cull_next, invert_child);
                             self.color_stack.pop();
                         }
                         Some(ResolutionResult::Associated(part)) => {
                             self.color_stack.push(color);
-                            self.traverse(
-                                &Rc::clone(part),
-                                matrix,
-                                cull_next,
-                                invert_child,
-                            );
+                            self.traverse(&Rc::clone(part), matrix, cull_next, invert_child);
                             self.color_stack.pop();
                         }
                         _ => (),
@@ -624,7 +621,7 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
                                 (matrix * cmd.a).truncate(),
                             ]),
                             winding: Winding::Cw,
-                        }
+                        },
                     };
 
                     let category = GroupKey {
@@ -662,7 +659,7 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
                                 (matrix * cmd.a).truncate(),
                             ]),
                             winding: Winding::Cw,
-                        }
+                        },
                     };
 
                     let category = GroupKey {
@@ -712,16 +709,17 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
             match bounding_box {
                 None => {
                     bounding_box = Some(sub_bounding_box.clone());
-                },
+                }
                 Some(ref mut e) => {
                     e.update(&sub_bounding_box);
-                },
+                }
             };
 
             built_mesh.vertices.extend(&mesh.vertices);
             built_mesh.normals.extend(&mesh.normals);
             built_index.0.insert(
-                group.clone(), IndexBound(index / 3, (index + mesh.vertices.len()) / 3)
+                group.clone(),
+                IndexBound(index / 3, (index + mesh.vertices.len()) / 3),
             );
 
             index += mesh.vertices.len();
@@ -768,9 +766,7 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
         buffer
     }
 
-    pub fn new(
-        resolutions: &'a ResolutionMap<T>,
-    ) -> ModelBuilder<'a, T> {
+    pub fn new(resolutions: &'a ResolutionMap<T>) -> ModelBuilder<'a, T> {
         let mut mb = ModelBuilder {
             resolutions,
 

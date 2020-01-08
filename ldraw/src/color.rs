@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use serde::{Deserialize, Serialize};
 use serde::de::{Deserializer, Error as DeError, Visitor};
-use serde::ser::{Serializer};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
 
 use crate::Vector4;
 
@@ -134,11 +134,9 @@ pub enum ColorReference {
 }
 
 impl Serialize for ColorReference {
-
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u32(self.code())
     }
-
 }
 
 struct U32Visitor;
@@ -156,12 +154,12 @@ impl<'de> Visitor<'de> for U32Visitor {
 }
 
 impl<'de> Deserialize<'de> for ColorReference {
-
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         // Needs to be resolved later
-        Ok(ColorReference::Unknown(deserializer.deserialize_u32(U32Visitor)?))
+        Ok(ColorReference::Unknown(
+            deserializer.deserialize_u32(U32Visitor)?,
+        ))
     }
-    
 }
 
 impl Eq for ColorReference {}

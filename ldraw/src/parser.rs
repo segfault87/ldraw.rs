@@ -113,13 +113,21 @@ fn parse_bfc_statement(iterator: &mut Chars) -> Result<Line0, ParseError> {
     let stmt = next_token(iterator, true)?;
     match stmt.as_str() {
         "NOCERTIFY" => Ok(Line0::BfcCertification(BfcCertification::NoCertify)),
-        "CERTIFY" | "CERTIFY CCW" => Ok(Line0::BfcCertification(BfcCertification::Certify(Winding::Ccw))),
-        "CERTIFY CW" => Ok(Line0::BfcCertification(BfcCertification::Certify(Winding::Cw))),
+        "CERTIFY" | "CERTIFY CCW" => Ok(Line0::BfcCertification(BfcCertification::Certify(
+            Winding::Ccw,
+        ))),
+        "CERTIFY CW" => Ok(Line0::BfcCertification(BfcCertification::Certify(
+            Winding::Cw,
+        ))),
         "CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Winding(Winding::Cw)))),
         "CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Winding(Winding::Ccw)))),
         "CLIP" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(None)))),
-        "CLIP CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(Some(Winding::Cw))))),
-        "CLIP CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(Some(Winding::Ccw))))),
+        "CLIP CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(Some(
+            Winding::Cw,
+        ))))),
+        "CLIP CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(Some(
+            Winding::Ccw,
+        ))))),
         "NOCLIP" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::NoClip))),
         "INVERTNEXT" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::InvertNext))),
         _ => Err(ParseError::InvalidBfcStatement(stmt)),
@@ -196,7 +204,8 @@ fn parse_line_1(
         0.0,
         0.0,
         1.0,
-    ).transpose();
+    )
+    .transpose();
     let name = next_token(iterator, true)?;
     Ok(PartReference {
         color: ColorReference::resolve(color, materials),

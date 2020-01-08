@@ -6,8 +6,8 @@ use std::hash::{Hash, Hasher};
 use std::ops::BitXor;
 
 use cgmath::{Matrix3 as Matrix3_, Matrix4 as Matrix4_, Vector3 as Vector3_, Vector4 as Vector4_};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde::de::{Error as DeserializeError, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub mod color;
 pub mod document;
@@ -66,7 +66,7 @@ impl From<&String> for NormalizedAlias {
 impl From<&str> for NormalizedAlias {
     fn from(alias: &str) -> NormalizedAlias {
         let string = alias.to_string();
-        
+
         NormalizedAlias {
             normalized: Self::normalize(&string),
             original: string,
@@ -96,7 +96,9 @@ impl Serialize for NormalizedAlias {
 
 impl<'a> Deserialize<'a> for NormalizedAlias {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(NormalizedAlias::from(&deserializer.deserialize_str(StringVisitor)?))
+        Ok(NormalizedAlias::from(
+            &deserializer.deserialize_str(StringVisitor)?,
+        ))
     }
 }
 

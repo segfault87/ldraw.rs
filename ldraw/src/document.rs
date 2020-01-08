@@ -43,14 +43,16 @@ impl Document {
     pub fn has_geometry(&self) -> bool {
         for item in self.commands.iter() {
             match item {
-                Command::Line(_) | Command::Triangle(_) |
-                Command::Quad(_) | Command::OptionalLine(_) => {
+                Command::Line(_)
+                | Command::Triangle(_)
+                | Command::Quad(_)
+                | Command::OptionalLine(_) => {
                     return true;
-                },
+                }
                 _ => (),
             }
         }
-        
+
         false
     }
 }

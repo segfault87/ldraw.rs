@@ -42,8 +42,12 @@ impl LDrawWriter for BfcCertification {
     fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         match self {
             BfcCertification::NoCertify => writer.write_all("0 BFC NOCERTIFY\n".as_bytes())?,
-            BfcCertification::Certify(Winding::Ccw) => writer.write_all("0 BFC CERTIFY CCW\n".as_bytes())?,
-            BfcCertification::Certify(Winding::Cw) => writer.write_all("0 BFC CERTIFY CW\n".as_bytes())?,
+            BfcCertification::Certify(Winding::Ccw) => {
+                writer.write_all("0 BFC CERTIFY CCW\n".as_bytes())?
+            }
+            BfcCertification::Certify(Winding::Cw) => {
+                writer.write_all("0 BFC CERTIFY CW\n".as_bytes())?
+            }
             _ => return Err(SerializeError::NoSerializable),
         };
         Ok(())
@@ -56,8 +60,12 @@ impl LDrawWriter for BfcStatement {
             BfcStatement::Winding(Winding::Cw) => writer.write_all("0 BFC CW\n".as_bytes())?,
             BfcStatement::Winding(Winding::Ccw) => writer.write_all("0 BFC CCW\n".as_bytes())?,
             BfcStatement::Clip(None) => writer.write_all("0 BFC CLIP\n".as_bytes())?,
-            BfcStatement::Clip(Some(Winding::Cw)) => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
-            BfcStatement::Clip(Some(Winding::Ccw)) => writer.write_all("0 BFC CLIP CW\n".as_bytes())?,
+            BfcStatement::Clip(Some(Winding::Cw)) => {
+                writer.write_all("0 BFC CLIP CW\n".as_bytes())?
+            }
+            BfcStatement::Clip(Some(Winding::Ccw)) => {
+                writer.write_all("0 BFC CLIP CW\n".as_bytes())?
+            }
             BfcStatement::NoClip => writer.write_all("0 BFC NOCLIP\n".as_bytes())?,
             BfcStatement::InvertNext => writer.write_all("0 BFC INVERTNEXT\n".as_bytes())?,
         };
