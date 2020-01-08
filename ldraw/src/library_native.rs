@@ -103,7 +103,7 @@ where
             }
         };
 
-        cache.register(alias.clone(), result);
+        cache.register(entry.kind, alias.clone(), result);
         loaded.push(alias.clone());
     }
 

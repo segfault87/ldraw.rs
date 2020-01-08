@@ -10,7 +10,7 @@ use approx::{abs_diff_eq, AbsDiffEq};
 use cgmath::{InnerSpace, Rad, SquareMatrix};
 use kdtree::distance::squared_euclidean;
 use kdtree::KdTree;
-use ldraw::{Matrix4, NormalizedAlias, Vector3, Vector4, Winding};
+use ldraw::{AliasType, Matrix4, NormalizedAlias, Vector3, Vector4, Winding};
 use ldraw::color::{ColorReference, MaterialRegistry};
 use ldraw::document::Document;
 use ldraw::elements::{BfcStatement, Command, Meta};
@@ -518,7 +518,7 @@ pub struct ModelBuilder<'a, T> {
     enabled_features: HashSet<NormalizedAlias>,
 }
 
-impl<'a, T: Clone> ModelBuilder<'a, T> {
+impl<'a, T: AliasType> ModelBuilder<'a, T> {
     pub fn traverse<D: Deref<Target = Document>>(
         &mut self,
         document: &D,
@@ -794,7 +794,7 @@ impl<'a, T: Clone> ModelBuilder<'a, T> {
     }
 }
 
-pub fn bake_model<'a, T: Clone, S: BuildHasher>(
+pub fn bake_model<'a, T: AliasType, S: BuildHasher>(
     resolution: &ResolutionMap<'a, T>,
     document: &Document,
 ) -> NativeBakedModel {

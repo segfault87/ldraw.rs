@@ -1,5 +1,7 @@
+#![feature(trait_alias)]
+
 use std::cmp;
-use std::fmt::{Formatter, Result as FmtResult};
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::hash::{Hash, Hasher};
 use std::ops::BitXor;
 
@@ -23,6 +25,8 @@ pub type Matrix3 = Matrix3_<f32>;
 pub type Matrix4 = Matrix4_<f32>;
 pub type Vector3 = Vector3_<f32>;
 pub type Vector4 = Vector4_<f32>;
+
+pub trait AliasType = Clone + Debug;
 
 #[derive(Clone, Debug)]
 pub struct NormalizedAlias {

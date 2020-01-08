@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::AliasType;
 use crate::document::{Document, MultipartDocument};
 use crate::elements::PartReference;
 use crate::NormalizedAlias;
@@ -79,46 +80,77 @@ impl<T> PartDirectory<T> {
 
 #[derive(Debug)]
 pub struct PartCache {
-    items: HashMap<NormalizedAlias, Rc<Document>>,
+    primitives: HashMap<NormalizedAlias, Rc<Document>>,
+    parts: HashMap<NormalizedAlias, Rc<Document>>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum CacheCollectionStrategy {
+    Parts,
+    Primitives,
+    PartsAndPrimitives,
 }
 
 impl Default for PartCache {
     fn default() -> PartCache {
         PartCache {
-            items: HashMap::new(),
+            parts: HashMap::new(),
+            primitives: HashMap::new(),
         }
     }
 }
 
 impl Drop for PartCache {
     fn drop(&mut self) {
-        self.collect();
+        self.collect(CacheCollectionStrategy::PartsAndPrimitives);
     }
 }
 
 impl PartCache {
-    pub fn register(&mut self, alias: NormalizedAlias, document: Document) {
-        self.items.insert(alias, Rc::new(document));
+    pub fn register(&mut self, kind: PartKind, alias: NormalizedAlias, document: Document) {
+        match kind {
+            PartKind::Part => self.parts.insert(alias, Rc::new(document)),
+            PartKind::Primitive => self.primitives.insert(alias, Rc::new(document)),
+        };
     }
 
     pub fn query(&self, alias: &NormalizedAlias) -> Option<Rc<Document>> {
-        match self.items.get(alias) {
-            Some(e) => Some(Rc::clone(&e)),
-            None => None,
+        match self.parts.get(alias) {
+            Some(part) => Some(Rc::clone(&part)),
+            None => {
+                match self.primitives.get(alias) {
+                    Some(prim) => Some(Rc::clone(&prim)),
+                    None => None
+                }
+            },
         }
     }
 
-    fn collect_round(&mut self) -> usize {
-        let prev_size = self.items.len();
-        self.items
-            .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
-        prev_size - self.items.len()
+    fn collect_round(&mut self, collection_strategy: CacheCollectionStrategy) -> usize {
+        let prev_size = self.parts.len() + self.primitives.len();
+        match collection_strategy {
+            CacheCollectionStrategy::Parts => {
+                self.parts
+                    .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+            },
+            CacheCollectionStrategy::Primitives => {
+                self.primitives
+                    .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+            },
+            CacheCollectionStrategy::PartsAndPrimitives => {
+                self.parts
+                    .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+                self.primitives
+                    .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+            },
+        };
+        prev_size - self.parts.len() - self.primitives.len()
     }
 
-    pub fn collect(&mut self) -> usize {
+    pub fn collect(&mut self, collection_strategy: CacheCollectionStrategy) -> usize {
         let mut total_collected = 0;
         loop {
-            let collected = self.collect_round();
+            let collected = self.collect_round(collection_strategy);
             if collected == 0 {
                 break;
             }
@@ -178,16 +210,18 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
 
             if let Some(e) = parent {
                 if let Some(doc) = e.subparts.get(name) {
-                    self.resolve(&doc, parent);
                     self.map
                         .insert(name.clone(), ResolutionResult::Subpart(&doc));
+                    self.resolve(&doc, parent);
                     continue;
                 }
             }
 
-            if let Some(e) = self.cache.borrow().query(name) {
+            let cached = self.cache.borrow().query(name);
+            if let Some(e) = cached {
                 self.map
                     .insert(name.clone(), ResolutionResult::Associated(Rc::clone(&e)));
+                self.resolve(&e, None);
                 continue;
             }
 
