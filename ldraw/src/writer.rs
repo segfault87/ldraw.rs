@@ -28,18 +28,18 @@ impl fmt::Display for ColorReference {
 }
 
 trait LDrawWriter {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError>;
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError>;
 }
 
 impl LDrawWriter for Header {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         writer.write_all(format!("0 !{} {}\n", self.0, self.1).as_bytes())?;
         Ok(())
     }
 }
 
 impl LDrawWriter for BfcCertification {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         match self {
             BfcCertification::NoCertify => writer.write_all("0 BFC NOCERTIFY\n".as_bytes())?,
             BfcCertification::Certify(Winding::Ccw) => writer.write_all("0 BFC CERTIFY CCW\n".as_bytes())?,
@@ -51,7 +51,7 @@ impl LDrawWriter for BfcCertification {
 }
 
 impl LDrawWriter for BfcStatement {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         match self {
             BfcStatement::Winding(Winding::Cw) => writer.write_all("0 BFC CW\n".as_bytes())?,
             BfcStatement::Winding(Winding::Ccw) => writer.write_all("0 BFC CCW\n".as_bytes())?,
@@ -66,7 +66,7 @@ impl LDrawWriter for BfcStatement {
 }
 
 impl LDrawWriter for Document {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         writer.write_all(format!("0 {}\n", self.description).as_bytes())?;
         writer.write_all(format!("0 Name: {}\n", self.name).as_bytes())?;
         writer.write_all(format!("0 Author: {}\n", self.author).as_bytes())?;
@@ -91,7 +91,7 @@ impl LDrawWriter for Document {
 }
 
 impl LDrawWriter for MultipartDocument {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         self.body.write(writer)?;
         for subpart in self.subparts.values() {
             writer.write_all(format!("0 FILE {}\n", subpart.name).as_bytes())?;
@@ -103,7 +103,7 @@ impl LDrawWriter for MultipartDocument {
 }
 
 impl LDrawWriter for Meta {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         match self {
             Meta::Comment(message) => {
                 for line in message.lines() {
@@ -142,7 +142,7 @@ impl LDrawWriter for Meta {
 }
 
 impl LDrawWriter for PartReference {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         let m = self.matrix.transpose();
         writer.write_all(
             format!(
@@ -168,7 +168,7 @@ impl LDrawWriter for PartReference {
 }
 
 impl LDrawWriter for Line {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
                 "2 {} {} {}\n",
@@ -183,7 +183,7 @@ impl LDrawWriter for Line {
 }
 
 impl LDrawWriter for Triangle {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
                 "2 {} {} {} {}\n",
@@ -199,7 +199,7 @@ impl LDrawWriter for Triangle {
 }
 
 impl LDrawWriter for Quad {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
                 "2 {} {} {} {} {}\n",
@@ -216,7 +216,7 @@ impl LDrawWriter for Quad {
 }
 
 impl LDrawWriter for OptionalLine {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
                 "2 {} {} {} {} {}\n",
@@ -233,7 +233,7 @@ impl LDrawWriter for OptionalLine {
 }
 
 impl LDrawWriter for Command {
-    fn write(&self, writer: &mut Write) -> Result<(), SerializeError> {
+    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         match self {
             Command::Meta(meta) => meta.write(writer),
             Command::PartReference(ref_) => ref_.write(writer),
