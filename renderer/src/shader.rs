@@ -2,8 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::str;
 
-use ldraw::{Matrix3, Matrix4, Vector4};
-use ldraw::color::Material;
+use ldraw::Vector4;
 
 use crate::GL;
 use crate::error::ShaderError;

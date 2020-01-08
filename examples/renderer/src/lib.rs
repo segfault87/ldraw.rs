@@ -4,10 +4,10 @@ use std::slice::from_raw_parts;
 use std::vec::Vec;
 
 use cgmath::{
-    Deg, InnerSpace, Matrix, PerspectiveFov, Point3, Quaternion, Rad, Rotation3, SquareMatrix,
+    Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3,
 };
 use glow::HasContext;
-use ldraw::{Matrix3, Matrix4, Vector3, Vector4};
+use ldraw::{Matrix4, Vector3, Vector4};
 use ldraw::color::{ColorReference, Material, MaterialRegistry};
 use ldraw_renderer::error::RendererError;
 use ldraw_renderer::geometry::{BufferIndex, GroupKey, NativeBakedModel};

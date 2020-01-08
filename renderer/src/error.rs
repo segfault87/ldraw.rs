@@ -44,7 +44,6 @@ impl Error for RendererError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             RendererError::ShaderError(e) => Some(e),
-            _ => None
         }
     }
 }

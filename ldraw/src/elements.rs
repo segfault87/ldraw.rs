@@ -1,7 +1,4 @@
-use std::rc::Rc;
-
 use crate::color::ColorReference;
-use crate::document::Document;
 use crate::{Matrix4, NormalizedAlias, Vector4, Winding};
 
 #[derive(Clone, Debug)]

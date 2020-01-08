@@ -14,7 +14,7 @@ use glutin::{ContextBuilder, Event, EventsLoop, WindowBuilder, WindowEvent};
 use ldraw::{Matrix4, NormalizedAlias};
 use ldraw::color::MaterialRegistry;
 use ldraw::library::{
-    load_files, scan_ldraw_directory, PartCache, PartDirectoryNative, ResolutionMap,
+    load_files, scan_ldraw_directory, CacheCollectionStrategy, PartCache, PartDirectoryNative, ResolutionMap,
 };
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
 use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
@@ -55,7 +55,7 @@ fn bake(
     drop(resolution);
     drop(document);
 
-    println!("Collected {} entries", cache.borrow_mut().collect());
+    println!("Collected {} entries", cache.borrow_mut().collect(CacheCollectionStrategy::PartsAndPrimitives));
 
     model
 }
