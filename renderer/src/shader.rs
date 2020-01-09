@@ -70,14 +70,15 @@ impl<T: GL> Program<T> {
             gl_.attach_shader(program, fs);
             gl_.link_program(program);
 
-            match gl_.get_program_link_status(program) {
-                true => Ok(Program {
+            if gl_.get_program_link_status(program) {
+                Ok(Program {
                     gl: Rc::clone(&gl),
                     vertex_shader: vs,
                     fragment_shader: fs,
-                    program: program,
-                }),
-                false => Err(ShaderError::LinkError(gl_.get_program_info_log(program))),
+                    program,
+                })
+            } else {
+                Err(ShaderError::LinkError(gl_.get_program_info_log(program)))
             }
         }
     }

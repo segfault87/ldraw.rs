@@ -68,6 +68,12 @@ impl ProjectionParams {
     }
 }
 
+impl Default for ProjectionParams {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct ShadingParams {
     pub light_color: Vector4,
     pub light_direction: Vector4,
@@ -79,5 +85,11 @@ impl ShadingParams {
             light_color: Vector4::new(1.0, 1.0, 1.0, 1.0),
             light_direction: Vector4::new(0.0, -0.5, 0.7, 1.0).normalize(),
         }
+    }
+}
+
+impl Default for ShadingParams {
+    fn default() -> Self {
+        Self::new()
     }
 }

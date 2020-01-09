@@ -100,6 +100,12 @@ impl BufferIndex {
     }
 }
 
+impl Default for BufferIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum FaceVertices {
     Triangle([Vector3; 3]),
@@ -237,7 +243,7 @@ struct Adjacency {
 impl<'a> Adjacency {
     pub fn new(position: &Vector3) -> Adjacency {
         Adjacency {
-            position: position.clone(),
+            position: *position,
             faces: Vec::new(),
         }
     }
@@ -303,6 +309,10 @@ impl NativeEdgeBuffer {
     pub fn len(&self) -> usize {
         self.vertices.len() / 3
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -321,6 +331,16 @@ impl NativeMeshBuffer {
 
     pub fn len(&self) -> usize {
         self.vertices.len() / 3
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
+    }
+}
+
+impl Default for NativeMeshBuffer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -354,7 +374,7 @@ impl<B> BakedModel<B> {
             mesh_index: index,
             features,
             bounding_box,
-            rotation_center: rotation_center.clone(),
+            rotation_center: *rotation_center,
         }
     }
 }
@@ -376,7 +396,7 @@ impl MeshBuilder {
     }
 
     pub fn add(&mut self, group_key: &GroupKey, face: Face) {
-        let list = self.faces.entry(group_key.clone()).or_insert(Vec::new());
+        let list = self.faces.entry(group_key.clone()).or_insert_with(Vec::new);
         list.push(face.clone());
 
         for vertex in face.vertices.triangles(false) {
@@ -423,7 +443,7 @@ impl MeshBuilder {
                 for vertex in face.vertices.triangles(false) {
                     match bounding_box_min {
                         None => {
-                            bounding_box_min = Some(vertex.clone());
+                            bounding_box_min = Some(*vertex);
                         }
                         Some(ref mut e) => {
                             if e.x > vertex.x {
@@ -439,7 +459,7 @@ impl MeshBuilder {
                     }
                     match bounding_box_max {
                         None => {
-                            bounding_box_max = Some(vertex.clone());
+                            bounding_box_max = Some(*vertex);
                         }
                         Some(ref mut e) => {
                             if e.x < vertex.x {
@@ -476,7 +496,7 @@ impl MeshBuilder {
 
                     match adjacent_faces {
                         Some(v) => {
-                            let mut normal = normal.clone();
+                            let mut normal = normal;
                             for face in v.faces.iter() {
                                 let fnormal = face.vertices.normal();
                                 if normal.angle(fnormal) < NORMAL_BLEND_THRESHOLD {
@@ -502,8 +522,8 @@ impl MeshBuilder {
                 (
                     NativeMeshBuffer { vertices, normals },
                     BoundingBox::new(
-                        &bounding_box_min.unwrap_or(Vector3::new(0.0, 0.0, 0.0)),
-                        &bounding_box_max.unwrap_or(Vector3::new(0.0, 0.0, 0.0)),
+                        &bounding_box_min.unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0)),
+                        &bounding_box_max.unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0)),
                     ),
                 ),
             );
@@ -569,8 +589,8 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
                     };
 
                     if self.enabled_features.contains(&cmd.name) {
-                        (*self.features.entry(cmd.name.clone()).or_insert(Vec::new()))
-                            .push((color.clone(), matrix.clone()));
+                        (*self.features.entry(cmd.name.clone()).or_insert_with(Vec::new))
+                            .push((color.clone(), matrix));
                         invert_next = false;
                         continue;
                     }
@@ -732,7 +752,7 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
             },
             built_index,
             self.features.clone(),
-            bounding_box.unwrap_or(BoundingBox::zero()),
+            bounding_box.unwrap_or_else(BoundingBox::zero),
             &Vector3::new(0.0, 0.0, 0.0),
         )
     }
