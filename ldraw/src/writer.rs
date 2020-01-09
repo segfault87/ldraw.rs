@@ -41,13 +41,9 @@ impl LDrawWriter for Header {
 impl LDrawWriter for BfcCertification {
     fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         match self {
-            BfcCertification::NoCertify => writer.write_all("0 BFC NOCERTIFY\n".as_bytes())?,
-            BfcCertification::Certify(Winding::Ccw) => {
-                writer.write_all("0 BFC CERTIFY CCW\n".as_bytes())?
-            }
-            BfcCertification::Certify(Winding::Cw) => {
-                writer.write_all("0 BFC CERTIFY CW\n".as_bytes())?
-            }
+            BfcCertification::NoCertify => writer.write_all(b"0 BFC NOCERTIFY\n")?,
+            BfcCertification::Certify(Winding::Ccw) => writer.write_all(b"0 BFC CERTIFY CCW\n")?,
+            BfcCertification::Certify(Winding::Cw) => writer.write_all(b"0 BFC CERTIFY CW\n")?,
             _ => return Err(SerializeError::NoSerializable),
         };
         Ok(())
@@ -57,17 +53,13 @@ impl LDrawWriter for BfcCertification {
 impl LDrawWriter for BfcStatement {
     fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
         match self {
-            BfcStatement::Winding(Winding::Cw) => writer.write_all("0 BFC CW\n".as_bytes())?,
-            BfcStatement::Winding(Winding::Ccw) => writer.write_all("0 BFC CCW\n".as_bytes())?,
-            BfcStatement::Clip(None) => writer.write_all("0 BFC CLIP\n".as_bytes())?,
-            BfcStatement::Clip(Some(Winding::Cw)) => {
-                writer.write_all("0 BFC CLIP CW\n".as_bytes())?
-            }
-            BfcStatement::Clip(Some(Winding::Ccw)) => {
-                writer.write_all("0 BFC CLIP CW\n".as_bytes())?
-            }
-            BfcStatement::NoClip => writer.write_all("0 BFC NOCLIP\n".as_bytes())?,
-            BfcStatement::InvertNext => writer.write_all("0 BFC INVERTNEXT\n".as_bytes())?,
+            BfcStatement::Winding(Winding::Cw) => writer.write_all(b"0 BFC CW\n")?,
+            BfcStatement::Winding(Winding::Ccw) => writer.write_all(b"0 BFC CCW\n")?,
+            BfcStatement::Clip(None) => writer.write_all(b"0 BFC CLIP\n")?,
+            BfcStatement::Clip(Some(Winding::Cw)) => writer.write_all(b"0 BFC CLIP CW\n")?,
+            BfcStatement::Clip(Some(Winding::Ccw)) => writer.write_all(b"0 BFC CLIP CW\n")?,
+            BfcStatement::NoClip => writer.write_all(b"0 BFC NOCLIP\n")?,
+            BfcStatement::InvertNext => writer.write_all(b"0 BFC INVERTNEXT\n")?,
         };
         Ok(())
     }
@@ -81,10 +73,10 @@ impl LDrawWriter for Document {
         for header in &self.headers {
             header.write(writer)?;
         }
-        writer.write_all("\n".as_bytes())?;
+        writer.write_all(b"\n")?;
         match self.bfc.write(writer) {
             Ok(()) => {
-                writer.write_all("\n".as_bytes())?;
+                writer.write_all(b"\n")?;
             }
             Err(SerializeError::NoSerializable) => {}
             Err(e) => return Err(e),
@@ -92,7 +84,7 @@ impl LDrawWriter for Document {
         for command in &self.commands {
             command.write(writer)?;
         }
-        writer.write_all("0\n\n".as_bytes())?;
+        writer.write_all(b"0\n\n")?;
 
         Ok(())
     }
@@ -119,7 +111,7 @@ impl LDrawWriter for Meta {
                 }
             }
             Meta::Step => {
-                writer.write_all("0 STEP\n".as_bytes())?;
+                writer.write_all(b"0 STEP\n")?;
             }
             Meta::Write(message) => {
                 for line in message.lines() {
@@ -132,13 +124,13 @@ impl LDrawWriter for Meta {
                 }
             }
             Meta::Clear => {
-                writer.write_all("0 CLEAR\n".as_bytes())?;
+                writer.write_all(b"0 CLEAR\n")?;
             }
             Meta::Pause => {
-                writer.write_all("0 PAUSE\n".as_bytes())?;
+                writer.write_all(b"0 PAUSE\n")?;
             }
             Meta::Save => {
-                writer.write_all("0 SAVE\n".as_bytes())?;
+                writer.write_all(b"0 SAVE\n")?;
             }
             Meta::Bfc(bfc) => {
                 bfc.write(writer)?;

@@ -123,7 +123,7 @@ pub enum Winding {
 }
 
 impl Winding {
-    pub fn invert(&self) -> Self {
+    pub fn invert(self) -> Self {
         match self {
             Winding::Ccw => Winding::Cw,
             Winding::Cw => Winding::Ccw,
