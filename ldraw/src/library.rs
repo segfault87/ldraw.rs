@@ -255,8 +255,5 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub use crate::library_wasm::*;
-
 #[cfg(not(target_arch = "wasm32"))]
 pub use crate::library_native::*;

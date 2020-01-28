@@ -1,23 +1,38 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::f32;
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::ops::Deref;
-use std::rc::Rc;
-use std::vec::Vec;
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    f32,
+    hash::{BuildHasher, Hash, Hasher},
+    ops::Deref,
+    rc::Rc,
+    vec::Vec,
+};
 
 use approx::{abs_diff_eq, AbsDiffEq};
 use cgmath::{InnerSpace, Rad, SquareMatrix};
-use kdtree::distance::squared_euclidean;
-use kdtree::KdTree;
-use ldraw::color::{ColorReference, MaterialRegistry};
-use ldraw::document::Document;
-use ldraw::elements::{BfcStatement, Command, Meta};
-use ldraw::library::{ResolutionMap, ResolutionResult};
-use ldraw::{AliasType, Matrix4, NormalizedAlias, Vector3, Vector4, Winding};
+use kdtree::{
+    distance::squared_euclidean,
+    KdTree
+};
+use ldraw::{
+    color::{ColorReference, MaterialRegistry},
+    document::Document,
+    elements::{BfcStatement, Command, Meta},
+    library::{ResolutionMap, ResolutionResult},
+    {AliasType, Matrix4, NormalizedAlias, Vector3, Winding}
+};
 use serde::{Deserialize, Serialize};
 
-use crate::BoundingBox;
+use crate::{
+    buffer::{
+        Buffer,
+        NativeBuffer,
+        NativeEdgeBuffer,
+        NativeMeshBuffer,
+        OpenGlBuffer,
+    },
+    BoundingBox, GL
+};
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
@@ -128,15 +143,15 @@ impl AbsDiffEq for FaceVertices {
     fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
         match (self, other) {
             (FaceVertices::Triangle(lhs), FaceVertices::Triangle(rhs)) => {
-                (lhs[0].abs_diff_eq(&rhs[0], epsilon)
-                    && lhs[1].abs_diff_eq(&rhs[1], epsilon)
-                    && lhs[2].abs_diff_eq(&rhs[2], epsilon))
-            }
-            (FaceVertices::Quad(lhs), FaceVertices::Quad(rhs)) => {
-                (lhs[0].abs_diff_eq(&rhs[0], epsilon)
+                lhs[0].abs_diff_eq(&rhs[0], epsilon)
                     && lhs[1].abs_diff_eq(&rhs[1], epsilon)
                     && lhs[2].abs_diff_eq(&rhs[2], epsilon)
-                    && lhs[3].abs_diff_eq(&rhs[3], epsilon))
+            }
+            (FaceVertices::Quad(lhs), FaceVertices::Quad(rhs)) => {
+                lhs[0].abs_diff_eq(&rhs[0], epsilon)
+                    && lhs[1].abs_diff_eq(&rhs[1], epsilon)
+                    && lhs[2].abs_diff_eq(&rhs[2], epsilon)
+                    && lhs[3].abs_diff_eq(&rhs[3], epsilon)
             }
             (_, _) => false,
         }
@@ -253,115 +268,18 @@ impl<'a> Adjacency {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct NativeEdgeBuffer {
-    pub vertices: Vec<f32>,
-    pub colors: Vec<f32>,
-}
-
-impl NativeEdgeBuffer {
-    pub fn new() -> NativeEdgeBuffer {
-        NativeEdgeBuffer {
-            vertices: Vec::new(),
-            colors: Vec::new(),
-        }
-    }
-
-    pub fn add(&mut self, vec: &Vector3, color: &ColorReference, top: &ColorReference) {
-        self.vertices.push(vec.x);
-        self.vertices.push(vec.y);
-        self.vertices.push(vec.z);
-
-        if color.is_current() {
-            if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.color.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
-            } else {
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
-            }
-        } else if color.is_complement() {
-            if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.edge.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
-            } else {
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
-            }
-        } else if let Some(c) = color.get_material() {
-            let mv: Vector4 = c.color.into();
-            self.colors.push(mv.x);
-            self.colors.push(mv.y);
-            self.colors.push(mv.z);
-        } else {
-            self.colors.push(0.0);
-            self.colors.push(0.0);
-            self.colors.push(0.0);
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.vertices.len() / 3
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.vertices.is_empty()
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NativeMeshBuffer {
-    pub vertices: Vec<f32>,
-    pub normals: Vec<f32>,
-}
-
-impl NativeMeshBuffer {
-    pub fn new() -> NativeMeshBuffer {
-        NativeMeshBuffer {
-            vertices: Vec::new(),
-            normals: Vec::new(),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.vertices.len() / 3
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.vertices.is_empty()
-    }
-}
-
-impl Default for NativeMeshBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NativeBuffer {
-    pub mesh: NativeMeshBuffer,
-    pub edges: NativeEdgeBuffer,
-}
-
 pub type FeatureMap = HashMap<NormalizedAlias, Vec<(ColorReference, Matrix4)>>;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BakedModel<B> {
+pub struct BakedModel<B> where B: Buffer {
     pub buffer: B,
-    pub mesh_index: BufferIndex,
+    pub index: BufferIndex,
     pub features: FeatureMap,
     pub bounding_box: BoundingBox,
     pub rotation_center: Vector3,
 }
 
-impl<B> BakedModel<B> {
+impl<B> BakedModel<B> where B: Buffer {
     pub fn new(
         buffer: B,
         index: BufferIndex,
@@ -371,7 +289,7 @@ impl<B> BakedModel<B> {
     ) -> BakedModel<B> {
         BakedModel {
             buffer,
-            mesh_index: index,
+            index,
             features,
             bounding_box,
             rotation_center: *rotation_center,
@@ -380,6 +298,21 @@ impl<B> BakedModel<B> {
 }
 
 pub type NativeBakedModel = BakedModel<NativeBuffer>;
+pub type OpenGlBakedModel<T> = BakedModel<OpenGlBuffer<T>>;
+
+impl<T> OpenGlBakedModel<T> where T: GL {
+
+    pub fn create(gl: Rc<T>, native_model: &NativeBakedModel) -> Self {
+        OpenGlBakedModel {
+            buffer: OpenGlBuffer::create(Rc::clone(&gl), &native_model.buffer),
+            index: native_model.index.clone(),
+            features: native_model.features.clone(),
+            bounding_box: native_model.bounding_box.clone(),
+            rotation_center: native_model.rotation_center.clone(),
+        }
+    }
+    
+}
 
 #[derive(Debug)]
 struct MeshBuilder {

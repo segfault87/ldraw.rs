@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::str;
 
@@ -10,7 +9,7 @@ use crate::GL;
 
 #[derive(Debug)]
 struct Program<T: GL> {
-    gl: Rc<RefCell<T>>, // This is used only when unallocating
+    gl: Rc<T>, // This is used only when unallocating
 
     vertex_shader: T::Shader,
     fragment_shader: T::Shader,
@@ -51,11 +50,11 @@ impl<T: GL> Program<T> {
     }
 
     pub fn compile(
-        gl: Rc<RefCell<T>>,
+        gl: Rc<T>,
         vertex_shader: &str,
         fragment_shader: &str,
     ) -> Result<Program<T>, ShaderError> {
-        let gl_ = &gl.borrow();
+        let gl_ = &gl;
 
         let vs = Self::compile_shader(gl_, &vertex_shader, glow::VERTEX_SHADER)?;
         let fs = Self::compile_shader(gl_, &fragment_shader, glow::FRAGMENT_SHADER)?;
@@ -86,7 +85,7 @@ impl<T: GL> Program<T> {
 
 impl<T: GL> Drop for Program<T> {
     fn drop(&mut self) {
-        let gl = &self.gl.borrow();
+        let gl = &self.gl;
 
         unsafe {
             gl.delete_shader(self.vertex_shader);
@@ -149,13 +148,13 @@ pub struct ShadedProgram<T: GL> {
 
 impl<T: GL> ShadedProgram<T> {
     pub fn new(
-        gl: Rc<RefCell<T>>,
+        gl: Rc<T>,
         vertex_shader: &str,
         fragment_shader: &str,
     ) -> Result<ShadedProgram<T>, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), &vertex_shader, &fragment_shader)?;
 
-        let gl = &gl.borrow();
+        let gl = &gl;
         let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl, &program);
         unsafe {
             let uniform_normal_matrix = gl.get_uniform_location(program.program, "normalMatrix");
@@ -185,7 +184,7 @@ impl<T: GL> ShadedProgram<T> {
         shading_params: &ShadingParams,
         color: &Vector4,
     ) {
-        let gl = &self.program.gl.borrow();
+        let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params);
         unsafe {
             gl.uniform_matrix_3_f32_slice(
@@ -211,7 +210,7 @@ impl<T: GL> ShadedProgram<T> {
 
 impl<T: GL> Bindable for ShadedProgram<T> {
     fn bind(&self) -> &Self {
-        let gl = &self.program.gl.borrow();
+        let gl = &self.program.gl;
         unsafe {
             gl.use_program(Some(self.program.program));
             if let Some(e) = self.attrib_position {
@@ -225,7 +224,7 @@ impl<T: GL> Bindable for ShadedProgram<T> {
     }
 
     fn unbind(&self) {
-        let gl = &self.program.gl.borrow();
+        let gl = &self.program.gl;
         unsafe {
             if let Some(e) = self.attrib_position {
                 gl.disable_vertex_attrib_array(e);
@@ -242,54 +241,59 @@ pub struct EdgeProgram<T: GL> {
 
     projection_uniforms: ProjectionUniforms<T>,
 
-    pub attrib_position: u32,
-    pub attrib_color: u32,
+    pub attrib_position: Option<u32>,
+    pub attrib_colors: Option<u32>,
 }
 
 impl<T: GL> EdgeProgram<T> {
     pub fn new(
-        gl: Rc<RefCell<T>>,
+        gl: Rc<T>,
         vertex_shader: &str,
         fragment_shader: &str,
     ) -> Result<EdgeProgram<T>, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), &vertex_shader, &fragment_shader)?;
-        let gl_ = &gl.borrow();
+        let gl_ = &gl;
         let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl_, &program);
-        let attrib_position = unsafe {
-            gl_.get_attrib_location(program.program, "position")
-                .unwrap()
-        };
-        let attrib_color = unsafe { gl_.get_attrib_location(program.program, "color").unwrap() };
+        let attrib_position = unsafe { gl_.get_attrib_location(program.program, "position") };
+        let attrib_colors = unsafe { gl_.get_attrib_location(program.program, "color") };
         Ok(EdgeProgram {
             program,
             projection_uniforms,
             attrib_position,
-            attrib_color,
+            attrib_colors,
         })
     }
 
     pub fn bind_uniforms(&self, projection_params: &ProjectionParams) {
-        let gl = &self.program.gl.borrow();
+        let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params);
     }
 }
 
 impl<T: GL> Bindable for EdgeProgram<T> {
     fn bind(&self) -> &Self {
-        let gl = &self.program.gl.borrow();
+        let gl = &self.program.gl;
         unsafe {
             gl.use_program(Some(self.program.program));
-            gl.enable_vertex_attrib_array(self.attrib_position as u32);
-            gl.enable_vertex_attrib_array(self.attrib_color as u32);
+            if let Some(e) = self.attrib_position {
+                gl.enable_vertex_attrib_array(e);
+            }
+            if let Some(e) = self.attrib_colors {
+                gl.enable_vertex_attrib_array(e);
+            }
         }
         self
     }
 
     fn unbind(&self) {
-        let gl = &self.program.gl.borrow();
+        let gl = &self.program.gl;
         unsafe {
-            gl.disable_vertex_attrib_array(self.attrib_position as u32);
-            gl.disable_vertex_attrib_array(self.attrib_color as u32);
+            if let Some(e) = self.attrib_position {
+                gl.disable_vertex_attrib_array(e);
+            }
+            if let Some(e) = self.attrib_colors {
+                gl.disable_vertex_attrib_array(e);
+            }
         }
     }
 }
@@ -301,7 +305,7 @@ pub struct ProgramManager<T: GL> {
 }
 
 impl<T: GL> ProgramManager<T> {
-    pub fn new(gl: Rc<RefCell<T>>) -> Result<ProgramManager<T>, ShaderError> {
+    pub fn new(gl: Rc<T>) -> Result<ProgramManager<T>, ShaderError> {
         let solid_fs = str::from_utf8(include_bytes!("../shaders/default.fs")).unwrap();
         let solid_vs = str::from_utf8(include_bytes!("../shaders/default.vs")).unwrap();
         let solid_fs_with_bfc = solid_fs.replace("##IS_BFC_CERTIFIED##", "true");

@@ -16,8 +16,6 @@ pub mod error;
 pub mod library;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod library_native;
-#[cfg(target_arch = "wasm32")]
-pub mod library_wasm;
 pub mod parser;
 pub mod writer;
 

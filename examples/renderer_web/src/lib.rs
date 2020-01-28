@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::vec::Vec;
 
 use cgmath::SquareMatrix;
-use glow::{Context, HasContext};
+use glow::Context;
 use ldraw::color::MaterialRegistry;
 use ldraw::document::{Document, MultipartDocument};
 use ldraw::library::{PartCache, PartDirectory, ResolutionMap};
@@ -142,7 +142,7 @@ async fn bake(
         let mut futs = Vec::new();
         let mut aliases = Vec::new();
         for (alias, entry) in resolution.get_pending() {
-            aliases.push(alias.clone());
+            aliases.push((alias.clone(), entry.kind.clone()));
             futs.push(fetch_document(&entry.locator, &colors));
         }
 
@@ -154,12 +154,12 @@ async fn bake(
         for (alias, result) in aliases.iter().zip(results) {
             match result {
                 Ok(v) => {
-                    console_log!("Loaded subpart {}", &alias.original);
-                    cache.borrow_mut().register(alias.clone(), v);
-                    resolution.update(&alias, cache.borrow().query(&alias).unwrap());
+                    console_log!("Loaded subpart {}", &alias.0.original);
+                    cache.borrow_mut().register(alias.1.clone(), alias.0.clone(), v);
+                    resolution.update(&alias.0, cache.borrow().query(&alias.0).unwrap());
                 }
                 Err(_) => {
-                    console_error!("Could not load subpart {}", &alias.original);
+                    console_error!("Could not load subpart {}", &alias.0.original);
                 }
             };
         }
@@ -207,7 +207,7 @@ pub async fn run(path: JsValue) -> JsValue {
             return JsValue::undefined();
         }
     };
-    let gl = Rc::new(RefCell::new(Context::from_webgl2_context(gl)));
+    let gl = Rc::new(Context::from_webgl2_context(gl));
 
     let directory = fetch_directory();
     let colors = fetch_color_definition();

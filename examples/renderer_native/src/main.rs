@@ -92,7 +92,7 @@ fn main_loop(model: &NativeBakedModel, colors: &MaterialRegistry) {
     let gl = Context::from_loader_function(|s| windowed_context.get_proc_address(s) as *const _);
     set_up_context(&gl);
 
-    let gl = Rc::new(RefCell::new(gl));
+    let gl = Rc::new(gl);
 
     let mut app = match TestRenderer::new(model, &colors, Rc::clone(&gl)) {
         Ok(v) => v,
@@ -108,13 +108,13 @@ fn main_loop(model: &NativeBakedModel, colors: &MaterialRegistry) {
     let mut closed = false;
     let started = Instant::now();
     while !closed {
-        set_up_context(&*gl.borrow());
+        set_up_context(&*gl);
 
         app.animate(started.elapsed().as_millis() as f32 / 1000.0);
         app.render();
 
         unsafe {
-            (*gl.borrow()).flush();
+            (*gl).flush();
         }
 
         windowed_context.swap_buffers().unwrap();

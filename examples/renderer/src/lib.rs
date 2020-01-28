@@ -1,37 +1,31 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::slice::from_raw_parts;
-use std::vec::Vec;
+use std::{
+    rc::Rc,
+    vec::Vec,
+};
 
 use cgmath::{Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3};
 use glow::HasContext;
-use ldraw::color::{ColorReference, Material, MaterialRegistry};
-use ldraw::{Matrix4, Vector3, Vector4};
-use ldraw_renderer::error::RendererError;
-use ldraw_renderer::geometry::{BufferIndex, GroupKey, NativeBakedModel};
-use ldraw_renderer::scene::{ProjectionParams, ShadingParams};
-use ldraw_renderer::shader::{Bindable, ProgramManager};
-
-fn cast_as_bytes<'a>(input: &'a [f32]) -> &'a [u8] {
-    unsafe { from_raw_parts(input.as_ptr() as *const u8, input.len() * 4) }
-}
+use ldraw::{
+    color::{ColorReference, Material, MaterialRegistry},
+    {Matrix4, Vector3, Vector4},
+};
+use ldraw_renderer::{
+    error::RendererError,
+    geometry::{GroupKey, NativeBakedModel, OpenGlBakedModel},
+    scene::{ProjectionParams, ShadingParams},
+    shader::{Bindable, ProgramManager},
+};
 
 pub struct TestRenderer<T: HasContext> {
-    gl: Rc<RefCell<T>>,
+    gl: Rc<T>,
 
     program_manager: ProgramManager<T>,
 
     default_material: Material,
 
-    vao_mesh: T::VertexArray,
-    vbo_mesh_vertices: Option<T::Buffer>,
-    vbo_mesh_normals: Option<T::Buffer>,
-    vao_edge: T::VertexArray,
-    vbo_edge_vertices: Option<T::Buffer>,
-    vbo_edge_colors: Option<T::Buffer>,
+    model: OpenGlBakedModel<T>,
 
     edge_length: i32,
-    mesh_index: BufferIndex,
     drawing_order: Vec<GroupKey>,
 
     center: Point3<f32>,
@@ -48,7 +42,7 @@ impl<T: HasContext> TestRenderer<T> {
     pub fn new(
         model: &NativeBakedModel,
         colors: &MaterialRegistry,
-        gl: Rc<RefCell<T>>,
+        gl: Rc<T>,
     ) -> Result<TestRenderer<T>, RendererError> {
         let program_manager = ProgramManager::new(Rc::clone(&gl))?;
 
@@ -57,14 +51,7 @@ impl<T: HasContext> TestRenderer<T> {
             .unwrap()
             .clone();
 
-        let vao_mesh;
-        let vbo_mesh_vertices;
-        let vbo_mesh_normals;
-        let vao_edge;
-        let vbo_edge_vertices;
-        let vbo_edge_colors;
-
-        let gl_ = &gl.borrow();
+        let gl_ = &gl;
 
         unsafe {
             gl_.clear_color(1.0, 1.0, 1.0, 1.0);
@@ -74,43 +61,12 @@ impl<T: HasContext> TestRenderer<T> {
             gl_.enable(glow::BLEND);
             gl_.depth_func(glow::LEQUAL);
             gl_.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
-
-            vao_mesh = gl_.create_vertex_array().unwrap();
-            vbo_mesh_vertices = Some(gl_.create_buffer().unwrap());
-            vbo_mesh_normals = Some(gl_.create_buffer().unwrap());
-            gl_.bind_vertex_array(Some(vao_mesh));
-            gl_.bind_buffer(glow::ARRAY_BUFFER, vbo_mesh_vertices);
-            gl_.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(model.buffer.mesh.vertices.as_ref()),
-                glow::STATIC_DRAW,
-            );
-            gl_.bind_buffer(glow::ARRAY_BUFFER, vbo_mesh_normals);
-            gl_.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(model.buffer.mesh.normals.as_ref()),
-                glow::STATIC_DRAW,
-            );
-
-            vao_edge = gl_.create_vertex_array().unwrap();
-            vbo_edge_vertices = Some(gl_.create_buffer().unwrap());
-            vbo_edge_colors = Some(gl_.create_buffer().unwrap());
-            gl_.bind_buffer(glow::ARRAY_BUFFER, vbo_edge_vertices);
-            gl_.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(model.buffer.edges.vertices.as_ref()),
-                glow::STATIC_DRAW,
-            );
-            gl_.bind_buffer(glow::ARRAY_BUFFER, vbo_edge_colors);
-            gl_.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(model.buffer.edges.colors.as_ref()),
-                glow::STATIC_DRAW,
-            );
         }
 
+        let opengl_model = OpenGlBakedModel::create(Rc::clone(&gl), &model);
+
         let mut drawing_order = model
-            .mesh_index
+            .index
             .0
             .keys()
             .map(|v| v.clone())
@@ -128,14 +84,8 @@ impl<T: HasContext> TestRenderer<T> {
 
             default_material,
 
-            vao_mesh,
-            vbo_mesh_vertices,
-            vbo_mesh_normals,
-            vao_edge,
-            vbo_edge_vertices,
-            vbo_edge_colors,
+            model: opengl_model,
 
-            mesh_index: model.mesh_index.clone(),
             edge_length: model.buffer.edges.len() as i32,
             drawing_order,
 
@@ -158,7 +108,7 @@ impl<T: HasContext> TestRenderer<T> {
             far: 100000.0,
         });
 
-        let gl = &self.gl.borrow();
+        let gl = &self.gl;
         unsafe {
             gl.viewport(0, 0, width as i32, height as i32);
         }
@@ -188,7 +138,7 @@ impl<T: HasContext> TestRenderer<T> {
     }
 
     pub fn render(&mut self) {
-        let gl = &self.gl.borrow();
+        let gl = &self.gl;
 
         unsafe {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
@@ -208,14 +158,7 @@ impl<T: HasContext> TestRenderer<T> {
                 program.bind();
                 program.bind_uniforms(&self.projection_params, &self.shading_params, &color);
 
-                if let Some(e) = program.attrib_position {
-                    gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo_mesh_vertices);
-                    gl.vertex_attrib_pointer_f32(e, 3, glow::FLOAT, false, 0, 0);
-                }
-                if let Some(e) = program.attrib_normal {
-                    gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo_mesh_normals);
-                    gl.vertex_attrib_pointer_f32(e, 3, glow::FLOAT, false, 0, 0);
-                }
+                self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
 
                 if order.color_ref.is_material()
                     && order
@@ -229,7 +172,7 @@ impl<T: HasContext> TestRenderer<T> {
                     gl.disable(glow::BLEND);
                 }
 
-                let index = self.mesh_index.0[order];
+                let index = self.model.index.0[order];
 
                 gl.draw_arrays(glow::TRIANGLES, index.0 as i32, (index.1 - index.0) as i32);
 
@@ -243,39 +186,13 @@ impl<T: HasContext> TestRenderer<T> {
             program.bind();
             program.bind_uniforms(&self.projection_params);
 
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo_edge_vertices);
-            gl.vertex_attrib_pointer_f32(
-                program.attrib_position as u32,
-                3,
-                glow::FLOAT,
-                false,
-                0,
-                0,
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo_edge_colors);
-            gl.vertex_attrib_pointer_f32(program.attrib_color as u32, 3, glow::FLOAT, false, 0, 0);
+            self.model.buffer.edges.bind(&program.attrib_position, &program.attrib_colors);
 
             gl.draw_arrays(glow::LINES, 0, self.edge_length);
 
             program.unbind();
 
             gl.flush();
-        }
-    }
-}
-
-impl<T: HasContext> Drop for TestRenderer<T> {
-    fn drop(&mut self) {
-        let gl = &self.gl.borrow();
-
-        unsafe {
-            gl.delete_vertex_array(self.vao_mesh);
-            gl.delete_vertex_array(self.vao_edge);
-
-            gl.delete_buffer(self.vbo_mesh_vertices.unwrap());
-            gl.delete_buffer(self.vbo_mesh_normals.unwrap());
-            gl.delete_buffer(self.vbo_edge_vertices.unwrap());
-            gl.delete_buffer(self.vbo_edge_colors.unwrap());
         }
     }
 }

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub mod buffer;
 pub mod error;
 pub mod geometry;
+pub mod model;
 pub mod scene;
 pub mod shader;
 pub mod state;
