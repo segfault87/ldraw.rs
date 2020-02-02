@@ -61,6 +61,7 @@ impl<T: HasContext> TestRenderer<T> {
             gl_.enable(glow::BLEND);
             gl_.depth_func(glow::LEQUAL);
             gl_.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+            gl_.line_width(1.0);
         }
 
         let opengl_model = OpenGlBakedModel::create(Rc::clone(&gl), &model);
@@ -133,8 +134,6 @@ impl<T: HasContext> TestRenderer<T> {
             self.projection_params.view_matrix * Matrix4::from(rotation);
 
         self.time = time;
-
-        self.projection_params.update();
     }
 
     pub fn render(&mut self) {
@@ -185,7 +184,6 @@ impl<T: HasContext> TestRenderer<T> {
             let program = &self.program_manager.edge;
             program.bind();
             program.bind_uniforms(&self.projection_params);
-
             self.model.buffer.edges.bind(&program.attrib_position, &program.attrib_colors);
 
             gl.draw_arrays(glow::LINES, 0, self.edge_length);

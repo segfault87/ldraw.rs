@@ -127,7 +127,7 @@ impl<T: GL> ProjectionUniforms<T> {
             gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.view_matrix),
                 false,
-                projection_params.get_inverted_view_matrix().as_ref(),
+                projection_params.view_matrix.as_ref(),
             );
         }
     }
@@ -137,7 +137,6 @@ pub struct ShadedProgram<T: GL> {
     program: Program<T>,
 
     projection_uniforms: ProjectionUniforms<T>,
-    uniform_normal_matrix: Option<T::UniformLocation>,
     uniform_color: Option<T::UniformLocation>,
     uniform_light_color: Option<T::UniformLocation>,
     uniform_light_direction: Option<T::UniformLocation>,
@@ -157,7 +156,6 @@ impl<T: GL> ShadedProgram<T> {
         let gl = &gl;
         let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl, &program);
         unsafe {
-            let uniform_normal_matrix = gl.get_uniform_location(program.program, "normalMatrix");
             let uniform_color = gl.get_uniform_location(program.program, "color");
             let uniform_light_color = gl.get_uniform_location(program.program, "lightColor");
             let uniform_light_direction =
@@ -168,7 +166,6 @@ impl<T: GL> ShadedProgram<T> {
             Ok(ShadedProgram {
                 program,
                 projection_uniforms,
-                uniform_normal_matrix,
                 uniform_color,
                 uniform_light_color,
                 uniform_light_direction,
@@ -187,11 +184,6 @@ impl<T: GL> ShadedProgram<T> {
         let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params);
         unsafe {
-            gl.uniform_matrix_3_f32_slice(
-                borrow_uniform_location::<T>(&self.uniform_normal_matrix),
-                false,
-                projection_params.get_normal_matrix().as_ref(),
-            );
             gl.uniform_4_f32_slice(
                 borrow_uniform_location::<T>(&self.uniform_color),
                 color.as_ref(),
@@ -252,10 +244,10 @@ impl<T: GL> EdgeProgram<T> {
         fragment_shader: &str,
     ) -> Result<EdgeProgram<T>, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), &vertex_shader, &fragment_shader)?;
-        let gl_ = &gl;
-        let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl_, &program);
-        let attrib_position = unsafe { gl_.get_attrib_location(program.program, "position") };
-        let attrib_colors = unsafe { gl_.get_attrib_location(program.program, "color") };
+        let gl = &gl;
+        let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl, &program);
+        let attrib_position = unsafe { gl.get_attrib_location(program.program, "position") };
+        let attrib_colors = unsafe { gl.get_attrib_location(program.program, "color") };
         Ok(EdgeProgram {
             program,
             projection_uniforms,

@@ -7,7 +7,6 @@ attribute vec3 color;
 
 uniform mat4 projection;
 uniform mat4 modelView;
-uniform mat4 viewMatrix;
 
 /* not used */
 uniform vec4 lightColor;

@@ -1,4 +1,4 @@
-#version 100
+#version 140
 
 precision highp float;
 
@@ -21,6 +21,7 @@ const bool isBfcCertified = ##IS_BFC_CERTIFIED##;
 
 varying vec3 vViewPosition;
 varying vec3 vNormal;
+varying mat4 vInvertedView;
 
 void main() {
     if (!isBfcCertified) {
@@ -37,7 +38,7 @@ void main() {
 
     vec3 dirDiffuse  = vec3( 0.0 );
     vec3 dirSpecular = vec3( 0.0 );
-    vec4 lDirection = viewMatrix * vec4( lightDirection.xyz, 0.0 );
+    vec4 lDirection = vInvertedView * vec4( lightDirection.xyz, 0.0 );
     vec3 dirVector = normalize( lDirection.xyz );
     float dotProduct = dot( normal, dirVector );
     float dirDiffuseWeight = max( dotProduct, 0.0 );
