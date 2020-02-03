@@ -119,24 +119,24 @@ pub struct OpenGlMeshBuffer<T> where T: GL {
 impl<T> OpenGlMeshBuffer<T> where T: GL {
 
     pub fn create(gl: Rc<T>, buffer: &NativeMeshBuffer) -> Self {
-        let gl_ = &gl;
-
         let array: Option<T::VertexArray>;
         let buffer_vertices: Option<T::Buffer>;
         let buffer_normals: Option<T::Buffer>;
         unsafe {
-            array = gl_.create_vertex_array().ok();
-            buffer_vertices = gl_.create_buffer().ok();
-            buffer_normals = gl_.create_buffer().ok();
-            gl_.bind_vertex_array(array);
-            gl_.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
-            gl_.buffer_data_u8_slice(
+            let gl = &gl;
+            
+            array = gl.create_vertex_array().ok();
+            buffer_vertices = gl.create_buffer().ok();
+            buffer_normals = gl.create_buffer().ok();
+            gl.bind_vertex_array(array);
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
+            gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(buffer.vertices.as_ref()),
                 glow::STATIC_DRAW
             );
-            gl_.bind_buffer(glow::ARRAY_BUFFER, buffer_normals);
-            gl_.buffer_data_u8_slice(
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_normals);
+            gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(buffer.normals.as_ref()),
                 glow::STATIC_DRAW
@@ -152,22 +152,22 @@ impl<T> OpenGlMeshBuffer<T> where T: GL {
     }
 
     pub fn bind(&self, location_position: &Option<u32>, location_normals: &Option<u32>) {
-        let gl_ = &self.gl;
+        let gl = &self.gl;
 
         unsafe {
-            gl_.bind_vertex_array(self.array);
+            gl.bind_vertex_array(self.array);
         }
 
         if let Some(e) = location_position {
             unsafe {
-                gl_.bind_buffer(glow::ARRAY_BUFFER, self.buffer_vertices);
-                gl_.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_vertices);
+                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
             }
         }
         if let Some(e) = location_normals {
             unsafe {
-                gl_.bind_buffer(glow::ARRAY_BUFFER, self.buffer_normals);
-                gl_.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_normals);
+                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
             }
         }
     }
@@ -205,24 +205,23 @@ pub struct OpenGlEdgeBuffer<T: GL> {
 impl<T> OpenGlEdgeBuffer<T> where T: GL {
 
     pub fn create(gl: Rc<T>, buffer: &NativeEdgeBuffer) -> Self {
-        let gl_ = &gl;
-
         let array: Option<T::VertexArray>;
         let buffer_vertices: Option<T::Buffer>;
         let buffer_colors: Option<T::Buffer>;
         unsafe {
-            array = gl_.create_vertex_array().ok();
-            buffer_vertices = gl_.create_buffer().ok();
-            buffer_colors = gl_.create_buffer().ok();
-            gl_.bind_vertex_array(array);
-            gl_.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
-            gl_.buffer_data_u8_slice(
+            let gl = &gl;
+            array = gl.create_vertex_array().ok();
+            buffer_vertices = gl.create_buffer().ok();
+            buffer_colors = gl.create_buffer().ok();
+            gl.bind_vertex_array(array);
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
+            gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(buffer.vertices.as_ref()),
                 glow::STATIC_DRAW
             );
-            gl_.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
-            gl_.buffer_data_u8_slice(
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
+            gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(buffer.colors.as_ref()),
                 glow::STATIC_DRAW
@@ -238,22 +237,22 @@ impl<T> OpenGlEdgeBuffer<T> where T: GL {
     }
 
     pub fn bind(&self, location_position: &Option<u32>, location_colors: &Option<u32>) {
-        let gl_ = &self.gl;
+        let gl = &self.gl;
 
         unsafe {
-            gl_.bind_vertex_array(self.array);
+            gl.bind_vertex_array(self.array);
         }
 
         if let Some(e) = location_position {
             unsafe {
-                gl_.bind_buffer(glow::ARRAY_BUFFER, self.buffer_vertices);
-                gl_.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_vertices);
+                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
             }
         }
         if let Some(e) = location_colors {
             unsafe {
-                gl_.bind_buffer(glow::ARRAY_BUFFER, self.buffer_colors);
-                gl_.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_colors);
+                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
             }
         }
     }
