@@ -1,6 +1,8 @@
-use std::collections::HashMap;
-use std::iter::Iterator;
-use std::vec::Vec;
+use std::{
+    collections::{HashMap, HashSet},
+    iter::Iterator,
+    vec::Vec,
+};
 
 use crate::elements::{Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle};
 use crate::{NormalizedAlias, Winding};
@@ -39,6 +41,20 @@ pub struct Document {
     pub commands: Vec<Command>,
 }
 
+fn traverse_depends(document: &Document, parent: Option<&MultipartDocument>,
+                    mut list: &mut HashSet<NormalizedAlias>) {
+    for part_ref in document.iter_refs() {
+        if let Some(ref parent) = parent {
+            if parent.subparts.contains_key(&part_ref.name) {
+                traverse_depends(&parent.subparts.get(&part_ref.name).unwrap(),
+                                 Some(parent), &mut list);
+                continue;
+            }
+        }
+        list.insert(part_ref.name.clone());
+    }
+}
+
 impl Document {
     pub fn has_geometry(&self) -> bool {
         for item in self.commands.iter() {
@@ -54,6 +70,14 @@ impl Document {
         }
 
         false
+    }
+
+    pub fn list_depends(&self) -> HashSet<NormalizedAlias> {
+        let mut result = HashSet::new();
+
+        traverse_depends(&self, None, &mut result);
+
+        result
     }
 }
 
@@ -103,4 +127,16 @@ define_iterator!(
 pub struct MultipartDocument {
     pub body: Document,
     pub subparts: HashMap<NormalizedAlias, Document>,
+}
+
+impl MultipartDocument {
+
+    pub fn list_depends(&self) -> HashSet<NormalizedAlias> {
+        let mut result = HashSet::new();
+
+        traverse_depends(&self.body, Some(&self), &mut result);
+
+        result
+    }
+    
 }
