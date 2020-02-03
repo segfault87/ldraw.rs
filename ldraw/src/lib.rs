@@ -28,7 +28,7 @@ pub trait AliasType = Clone + Debug;
 
 #[derive(Clone, Debug)]
 pub struct NormalizedAlias {
-    normalized: String,
+    pub normalized: String,
     pub original: String,
 }
 
