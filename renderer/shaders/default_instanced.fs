@@ -2,7 +2,6 @@
 
 precision mediump float;
 
-uniform vec4 color;
 uniform vec4 lightColor;
 uniform vec4 lightDirection;
 
@@ -18,17 +17,18 @@ const bool isBfcCertified = ##IS_BFC_CERTIFIED##;
 
 varying vec3 vViewPosition;
 varying vec3 vNormal;
+varying vec4 vColor;
 varying mat4 vInvertedView;
 
 void main() {
     if (!isBfcCertified) {
-        gl_FragColor = color;
+        gl_FragColor = vColor;
         return;
     }
 
-    vec3 diffuse = color.xyz;
+    vec3 diffuse = vColor.xyz;
 
-    gl_FragColor = vec4( 1.0, 1.0, 1.0, color.w );
+    gl_FragColor = vec4( 1.0, 1.0, 1.0, vColor.w );
 
     vec3 viewPosition = normalize( vViewPosition );
 

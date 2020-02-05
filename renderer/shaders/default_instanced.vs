@@ -8,19 +8,24 @@ uniform mat4 viewMatrix;
 
 attribute vec3 position;
 attribute vec3 normal;
+attribute mat4 instnaceModelView;
+attribute vec4 color;
 
 varying vec3 vViewPosition;
 varying vec3 vNormal;
+varying vec4 vColor;
 varying mat4 vInvertedView;
 
 void main() {
-  mat3 normalMatrix = transpose(inverse(mat3(modelView)));
+  mat4 transformedModelView = modelView * instanceModelView;
+  mat3 normalMatrix = transpose(inverse(mat3(transformedModelView)));
 
   vNormal = normalize(normalMatrix * normal);
   vInvertedView = inverse(viewMatrix);
+  vColor = color;
   
   vec4 adjustedPosition = vec4(position, 1.0);
-  vec4 mvPosition = modelView * adjustedPosition;
+  vec4 mvPosition = transformedModelView * adjustedPosition;
   
   gl_Position = projection * viewMatrix * mvPosition;
   vViewPosition = -mvPosition.xyz;
