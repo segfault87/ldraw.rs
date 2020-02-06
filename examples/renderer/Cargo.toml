@@ -7,6 +7,6 @@ edition = "2018"
 [dependencies]
 cgmath = "~0.17.0"
 # glow = "~0.4.0"
-glow = { git = "https://github.com/grovesNL/glow" }
+glow = { git = "https://github.com/segfault87/glow", branch = "use-sized-array-for-gluniforms" }
 ldraw = { path = "../../ldraw" }
 ldraw_renderer = { path = "../../renderer" }

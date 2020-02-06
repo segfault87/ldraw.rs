@@ -3,11 +3,11 @@ use std::{
     vec::Vec,
 };
 
-use cgmath::{Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3};
+use cgmath::{Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3, SquareMatrix};
 use glow::HasContext;
 use ldraw::{
     color::{ColorReference, Material, MaterialRegistry},
-    {Matrix4, Vector3, Vector4},
+    {Matrix3, Matrix4, Vector3, Vector4},
 };
 use ldraw_renderer::{
     error::RendererError,
@@ -33,6 +33,7 @@ pub struct TestRenderer<T: HasContext> {
     degrees: Deg<f32>,
 
     projection_params: ProjectionParams,
+    normal_matrix: Matrix3,
     shading_params: ShadingParams,
 
     time: f32,
@@ -95,6 +96,7 @@ impl<T: HasContext> TestRenderer<T> {
             degrees,
 
             projection_params: ProjectionParams::new(),
+            normal_matrix: Matrix3::identity(),
             shading_params: ShadingParams::new(),
 
             time: 0.0,
@@ -130,8 +132,8 @@ impl<T: HasContext> TestRenderer<T> {
 
         self.degrees += Deg(delta * 60.0);
         let rotation = Quaternion::from_angle_y(self.degrees);
-        self.projection_params.model_view =
-            self.projection_params.view_matrix * Matrix4::from(rotation);
+        self.projection_params.model_view = Matrix4::from(rotation);
+        self.normal_matrix = self.projection_params.calculate_normal_matrix();
 
         self.time = time;
     }
@@ -155,7 +157,7 @@ impl<T: HasContext> TestRenderer<T> {
                     &self.program_manager.solid_flat
                 };
                 program.bind();
-                program.bind_uniforms(&self.projection_params, &self.shading_params, &color);
+                program.bind_uniforms(&self.projection_params, &self.normal_matrix, &self.shading_params, &color);
 
                 self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
 
