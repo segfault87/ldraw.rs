@@ -118,26 +118,26 @@ impl<T: GL> ProjectionUniforms<T> {
 
     pub fn bind(&self, gl: &T, projection_params: &ProjectionParams, normal_matrix: Option<&Matrix3>) {
         unsafe {
-            gl.uniform_matrix_4_f32_sized_slice(
+            gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.projection),
                 false,
-                projection_params.projection.as_ref(),
+                AsRef::<[f32; 16]>::as_ref(&projection_params.projection)
             );
-            gl.uniform_matrix_4_f32_sized_slice(
+            gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.model_view),
                 false,
-                projection_params.model_view.as_ref(),
+                AsRef::<[f32; 16]>::as_ref(&projection_params.model_view)
             );
-            gl.uniform_matrix_4_f32_sized_slice(
+            gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.view_matrix),
                 false,
-                projection_params.view_matrix.as_ref(),
+                AsRef::<[f32; 16]>::as_ref(&projection_params.view_matrix)
             );
             if let Some(ref e) = normal_matrix {
-                gl.uniform_matrix_3_f32_sized_slice(
+                gl.uniform_matrix_3_f32_slice(
                     borrow_uniform_location::<T>(&self.normal_matrix),
                     false,
-                    e.as_ref(),
+                    AsRef::<[f32; 9]>::as_ref(&e)
                 );
             }
         }
@@ -196,17 +196,17 @@ impl<T: GL> ShadedProgram<T> {
         let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params, Some(&normal_matrix));
         unsafe {
-            gl.uniform_4_f32_sized_slice(
+            gl.uniform_4_f32_slice(
                 borrow_uniform_location::<T>(&self.uniform_color),
-                color.as_ref(),
+                AsRef::<[f32; 4]>::as_ref(&color)
             );
-            gl.uniform_4_f32_sized_slice(
+            gl.uniform_4_f32_slice(
                 borrow_uniform_location::<T>(&self.uniform_light_color),
-                shading_params.light_color.as_ref(),
+                AsRef::<[f32; 4]>::as_ref(&shading_params.light_color)
             );
-            gl.uniform_4_f32_sized_slice(
+            gl.uniform_4_f32_slice(
                 borrow_uniform_location::<T>(&self.uniform_light_direction),
-                shading_params.light_direction.as_ref(),
+                AsRef::<[f32; 4]>::as_ref(&shading_params.light_direction)
             );
         }
     }
@@ -296,13 +296,13 @@ impl<T: GL> InstancedShadedProgram<T> {
         let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params, None);
         unsafe {
-            gl.uniform_4_f32_sized_slice(
+            gl.uniform_4_f32_slice(
                 borrow_uniform_location::<T>(&self.uniform_light_color),
-                shading_params.light_color.as_ref(),
+                AsRef::<[f32; 4]>::as_ref(&shading_params.light_color)
             );
-            gl.uniform_4_f32_sized_slice(
+            gl.uniform_4_f32_slice(
                 borrow_uniform_location::<T>(&self.uniform_light_direction),
-                shading_params.light_direction.as_ref(),
+                AsRef::<[f32; 4]>::as_ref(&shading_params.light_direction)
             );
         }
     }

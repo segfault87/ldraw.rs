@@ -26,13 +26,13 @@ impl ProjectionParams {
 
     pub fn calculate_normal_matrix(&self) -> Matrix3 {
         matrix3_from_matrix4(
-            self.model_view.invert().unwrap_or(Matrix4::identity()).transpose()
+            (self.view_matrix * self.model_view).invert().unwrap_or(Matrix4::identity()).transpose()
         )
     }
 
     pub fn calculate_normal_matrix_with(&self, m: &Matrix4) -> Matrix3 {
         matrix3_from_matrix4(
-            (self.model_view * m).invert().unwrap_or(Matrix4::identity()).transpose()
+            (self.view_matrix * self.model_view * m).invert().unwrap_or(Matrix4::identity()).transpose()
         )    
     }
 }
@@ -52,7 +52,7 @@ impl ShadingParams {
     pub fn new() -> ShadingParams {
         ShadingParams {
             light_color: Vector4::new(1.0, 1.0, 1.0, 1.0),
-            light_direction: Vector4::new(-0.2, 0.45, 0.5, 1.0).normalize(),
+            light_direction: Vector4::new(1.0, 1.0, 1.0, 1.0),
         }
     }
 }
