@@ -157,7 +157,8 @@ impl<T: HasContext> TestRenderer<T> {
                     &self.program_manager.solid_flat
                 };
                 program.bind();
-                program.bind_uniforms(&self.projection_params, &self.normal_matrix, &self.shading_params, &color);
+                program.bind_uniforms(&self.projection_params, AsRef::<[f32; 9]>::as_ref(&self.normal_matrix),
+                                      &self.shading_params, AsRef::<[f32; 4]>::as_ref(&color));
 
                 self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
 

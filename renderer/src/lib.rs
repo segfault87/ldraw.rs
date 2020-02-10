@@ -5,12 +5,14 @@ use ldraw::Vector3;
 use serde::{Deserialize, Serialize};
 
 pub mod buffer;
+pub mod display_list;
 pub mod error;
 pub mod geometry;
 pub mod model;
 pub mod scene;
 pub mod shader;
 pub mod state;
+pub mod utils;
 
 pub trait GL = HasContext;
 

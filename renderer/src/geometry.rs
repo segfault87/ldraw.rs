@@ -87,7 +87,7 @@ impl PartialEq for GroupKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct IndexBound(pub usize, pub usize);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

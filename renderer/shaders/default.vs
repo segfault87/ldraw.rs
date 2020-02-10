@@ -16,6 +16,7 @@ varying mat4 vInvertedView;
 
 void main() {
   vNormal = normalize(normalMatrix * normal);
+  vNormal.y = -vNormal.y;
   vInvertedView = inverse(viewMatrix);
   
   vec4 adjustedPosition = vec4(position, 1.0);

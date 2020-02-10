@@ -19,6 +19,7 @@ varying mat4 vInvertedView;
 
 void main() {
   vNormal = normalize(instancedNormalMatrix * normal);
+  vNormal.y = -vNormal.y;
   vInvertedView = inverse(viewMatrix);
   vColor = instancedColor;
   

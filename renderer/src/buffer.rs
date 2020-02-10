@@ -1,6 +1,5 @@
 use std::{
     rc::Rc,
-    slice::from_raw_parts,
     vec::Vec,
 };
 
@@ -10,11 +9,10 @@ use ldraw::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::GL;
-
-fn cast_as_bytes<'a>(input: &'a [f32]) -> &'a [u8] {
-    unsafe { from_raw_parts(input.as_ptr() as *const u8, input.len() * 4) }
-}
+use crate::{
+    utils::cast_as_bytes,
+    GL,
+};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NativeEdgeBuffer {

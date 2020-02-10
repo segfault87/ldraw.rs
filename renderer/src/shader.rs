@@ -116,7 +116,7 @@ impl<T: GL> ProjectionUniforms<T> {
         }
     }
 
-    pub fn bind(&self, gl: &T, projection_params: &ProjectionParams, normal_matrix: Option<&Matrix3>) {
+    pub fn bind(&self, gl: &T, projection_params: &ProjectionParams, normal_matrix: Option<&[f32]>) {
         unsafe {
             gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.projection),
@@ -137,7 +137,7 @@ impl<T: GL> ProjectionUniforms<T> {
                 gl.uniform_matrix_3_f32_slice(
                     borrow_uniform_location::<T>(&self.normal_matrix),
                     false,
-                    AsRef::<[f32; 9]>::as_ref(&e)
+                    e
                 );
             }
         }
@@ -189,16 +189,16 @@ impl<T: GL> ShadedProgram<T> {
     pub fn bind_uniforms(
         &self,
         projection_params: &ProjectionParams,
-        normal_matrix: &Matrix3,
+        normal_matrix: &[f32],
         shading_params: &ShadingParams,
-        color: &Vector4,
+        color: &[f32],
     ) {
         let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params, Some(&normal_matrix));
         unsafe {
             gl.uniform_4_f32_slice(
                 borrow_uniform_location::<T>(&self.uniform_color),
-                AsRef::<[f32; 4]>::as_ref(&color)
+                color
             );
             gl.uniform_4_f32_slice(
                 borrow_uniform_location::<T>(&self.uniform_light_color),
@@ -504,6 +504,26 @@ impl<T: GL> Bindable for InstancedEdgeProgram<T> {
     }
 }
 
+pub enum ProgramKind<'a, T: GL> {
+    Solid(&'a ShadedProgram<T>),
+    SolidFlat(&'a ShadedProgram<T>),
+    Edge(&'a EdgeProgram<T>),
+    InstancedSolid(&'a InstancedShadedProgram<T>),
+    InstancedSolidFlat(&'a InstancedShadedProgram<T>),
+    InstancedEdge(&'a InstancedEdgeProgram<T>),
+}
+
+impl<'a, T: GL> ProgramKind<'a, T> {
+    pub fn unbind(&self) {
+        match self {
+            Self::Solid(e) | Self::SolidFlat(e) => e.unbind(),
+            Self::Edge(e) => e.unbind(),
+            Self::InstancedSolid(e) | Self::InstancedSolidFlat(e) => e.unbind(),
+            Self::InstancedEdge(e) => e.unbind(),
+        };
+    }
+}
+
 pub struct ProgramManager<T: GL> {
     pub solid: ShadedProgram<T>,
     pub solid_flat: ShadedProgram<T>,
@@ -550,22 +570,3 @@ impl<T: GL> ProgramManager<T> {
     }
 }
 
-pub enum ProgramKind<'a, T: GL> {
-    Solid(&'a ShadedProgram<T>),
-    SolidFlat(&'a ShadedProgram<T>),
-    Edge(&'a EdgeProgram<T>),
-    InstancedSolid(&'a InstancedShadedProgram<T>),
-    InstancedSolidFlat(&'a InstancedShadedProgram<T>),
-    InstancedEdge(&'a InstancedEdgeProgram<T>),
-}
-
-impl<'a, T: GL> ProgramKind<'a, T> {
-    pub fn unbind(&self) {
-        match self {
-            Self::Solid(e) | Self::SolidFlat(e) => e.unbind(),
-            Self::Edge(e) => e.unbind(),
-            Self::InstancedSolid(e) | Self::InstancedSolidFlat(e) => e.unbind(),
-            Self::InstancedEdge(e) => e.unbind(),
-        };
-    }
-}
