@@ -99,8 +99,8 @@ impl<T> DisplayItem<T> where T: GL {
             &program_manager.solid_flat
         };
         program.bind();
-        program.bind_uniforms(projection_params, &self.mesh_data[16..25], shading_params,
-                              &self.mesh_data[25..29]);
+        program.bind_uniforms(projection_params, array_ref!(self.mesh_data, 16, 9), shading_params,
+                              array_ref!(self.mesh_data, 25, 4));
         self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
 
         let gl = &self.gl;
@@ -121,16 +121,47 @@ impl<T> DisplayItem<T> where T: GL {
 
     pub fn render_instanced(&mut self, program_manager: &ProgramManager<T>, projection_params: &ProjectionParams,
                             shading_params: &ShadingParams) {
+        let program = if self.group.bfc {
+            &program_manager.instanced_solid
+        } else {
+            &program_manager.instanced_solid_flat
+        };
+        program.bind();
 
+        let gl = &self.gl;
+        if self.group.semitransparent {
+            unsafe { gl.enable(glow::BLEND); }
+        } else {
+            unsafe { gl.disable(glow::BLEND); }
+        }
+
+        let index = &self.group.index_bound;
+
+        program.bind_uniforms(projection_params, shading_params);
+        self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
+
+        let gl = &self.gl;
+
+        if self.group.semitransparent {
+            unsafe { gl.enable(glow::BLEND); }
+        } else {
+            unsafe { gl.disable(glow::BLEND); }
+        }
+
+        let index = &self.group.index_bound;
+
+        
+
+        unsafe {
+            gl.draw_arrays_instanced(glow::TRIANGLES, index.0 as i32, (index.1 - index.0) as i32, self.length as i32);
+        }
+        
+        program.unbind();
     }
 
     pub fn render(&mut self, program_manager: &ProgramManager<T>, projection_params: &ProjectionParams,
                   shading_params: &ShadingParams) {
         self.update_gl_buffer();
-
-        if self.length == 0 {
-            return;
-        }
 
         match self.length {
             0 => return,

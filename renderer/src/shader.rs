@@ -116,7 +116,7 @@ impl<T: GL> ProjectionUniforms<T> {
         }
     }
 
-    pub fn bind(&self, gl: &T, projection_params: &ProjectionParams, normal_matrix: Option<&[f32]>) {
+    pub fn bind(&self, gl: &T, projection_params: &ProjectionParams, normal_matrix: Option<&[f32; 9]>) {
         unsafe {
             gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.projection),
@@ -133,7 +133,7 @@ impl<T: GL> ProjectionUniforms<T> {
                 false,
                 AsRef::<[f32; 16]>::as_ref(&projection_params.view_matrix)
             );
-            if let Some(ref e) = normal_matrix {
+            if let Some(e) = normal_matrix {
                 gl.uniform_matrix_3_f32_slice(
                     borrow_uniform_location::<T>(&self.normal_matrix),
                     false,
@@ -189,9 +189,9 @@ impl<T: GL> ShadedProgram<T> {
     pub fn bind_uniforms(
         &self,
         projection_params: &ProjectionParams,
-        normal_matrix: &[f32],
+        normal_matrix: &[f32; 9],
         shading_params: &ShadingParams,
-        color: &[f32],
+        color: &[f32; 4],
     ) {
         let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params, Some(&normal_matrix));

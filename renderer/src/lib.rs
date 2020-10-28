@@ -1,5 +1,7 @@
 #![feature(trait_alias)]
 
+#[macro_use] extern crate arrayref;
+
 use glow::HasContext;
 use ldraw::Vector3;
 use serde::{Deserialize, Serialize};
