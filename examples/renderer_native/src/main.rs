@@ -89,7 +89,7 @@ fn main_loop(model: &NativeBakedModel, colors: &MaterialRegistry) {
         .build_windowed(window_builder, &evloop)
         .unwrap();
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
-    let gl = Context::from_loader_function(|s| windowed_context.get_proc_address(s) as *const _);
+    let gl = unsafe { Context::from_loader_function(|s| windowed_context.get_proc_address(s) as *const _) };
     set_up_context(&gl);
 
     let gl = Rc::new(gl);

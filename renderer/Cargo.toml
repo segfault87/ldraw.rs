@@ -5,10 +5,9 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-approx = "~0.3.1"
 arrayref = "~0.3.6"
-cgmath = "~0.17.0"
-glow = "~0.5.0"
+cgmath = "~0.18.0"
+glow = "~0.11.0"
 kdtree = "~0.6"
 ldraw = { path = "../ldraw" }
 serde = { version = "1.0", features = ["derive"] }

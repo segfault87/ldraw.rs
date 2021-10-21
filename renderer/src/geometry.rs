@@ -8,8 +8,7 @@ use std::{
     vec::Vec,
 };
 
-use approx::{abs_diff_eq, AbsDiffEq};
-use cgmath::{InnerSpace, Rad, SquareMatrix};
+use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
 use kdtree::{
     distance::squared_euclidean,
     KdTree
