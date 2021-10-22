@@ -17,7 +17,7 @@ use ldraw::library::{
     ResolutionMap,
 };
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
-use ldraw::{Matrix4, NormalizedAlias};
+use ldraw::{Matrix4, PartAlias};
 use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
 use test_renderer::TestRenderer;
 

@@ -10,21 +10,21 @@ use crate::color::MaterialRegistry;
 use crate::error::LibraryError;
 use crate::library::{PartCache, PartDirectory, PartEntry, PartKind};
 use crate::parser::parse_single_document;
-use crate::NormalizedAlias;
+use crate::PartAlias;
 
 pub type PartEntryNative = PartEntry<OsString>;
 pub type PartDirectoryNative = PartDirectory<OsString>;
 
-impl From<&OsString> for NormalizedAlias {
-    fn from(e: &OsString) -> NormalizedAlias {
-        NormalizedAlias::from(&e.to_string_lossy().to_owned().to_string())
+impl From<&OsString> for PartAlias {
+    fn from(e: &OsString) -> PartAlias {
+        PartAlias::from(&e.to_string_lossy().to_owned().to_string())
     }
 }
 
 fn scan_directory(
     basepath: &PathBuf,
     relpath: PathBuf,
-    mut dir: &mut HashMap<NormalizedAlias, PartEntryNative>,
+    mut dir: &mut HashMap<PartAlias, PartEntryNative>,
     kind: PartKind,
 ) -> Result<(), LibraryError> {
     for entry in basepath.read_dir()? {
@@ -40,7 +40,7 @@ fn scan_directory(
             )?;
         } else {
             let key = relpath.join(path.file_name().unwrap());
-            let alias = NormalizedAlias::from(&key.into_os_string());
+            let alias = PartAlias::from(&key.into_os_string());
             dir.insert(
                 alias,
                 PartEntryNative {
@@ -80,9 +80,9 @@ pub fn load_files<'a, T>(
     materials: &MaterialRegistry,
     cache: Rc<RefCell<PartCache>>,
     files: T,
-) -> Option<Vec<NormalizedAlias>>
+) -> Option<Vec<PartAlias>>
 where
-    T: Iterator<Item = (&'a NormalizedAlias, &'a PartEntryNative)>,
+    T: Iterator<Item = (&'a PartAlias, &'a PartEntryNative)>,
 {
     let mut loaded = Vec::new();
     let mut cache = cache.borrow_mut();

@@ -27,12 +27,12 @@ pub type Vector4 = Vector4_<f32>;
 pub trait AliasType = Clone + Debug;
 
 #[derive(Clone, Debug)]
-pub struct NormalizedAlias {
+pub struct PartAlias {
     pub normalized: String,
     pub original: String,
 }
 
-impl NormalizedAlias {
+impl PartAlias {
     pub fn set(&mut self, alias: String) {
         self.normalized = Self::normalize(&alias);
         self.original = alias;
@@ -43,32 +43,38 @@ impl NormalizedAlias {
     }
 }
 
-impl From<String> for NormalizedAlias {
-    fn from(alias: String) -> NormalizedAlias {
-        NormalizedAlias {
+impl From<String> for PartAlias {
+    fn from(alias: String) -> PartAlias {
+        PartAlias {
             normalized: Self::normalize(&alias),
             original: alias,
         }
     }
 }
 
-impl From<&String> for NormalizedAlias {
-    fn from(alias: &String) -> NormalizedAlias {
-        NormalizedAlias {
+impl From<&String> for PartAlias {
+    fn from(alias: &String) -> PartAlias {
+        PartAlias {
             normalized: Self::normalize(alias),
             original: alias.clone(),
         }
     }
 }
 
-impl From<&str> for NormalizedAlias {
-    fn from(alias: &str) -> NormalizedAlias {
+impl From<&str> for PartAlias {
+    fn from(alias: &str) -> PartAlias {
         let string = alias.to_string();
 
-        NormalizedAlias {
+        PartAlias {
             normalized: Self::normalize(&string),
             original: string,
         }
+    }
+}
+
+impl ToString for PartAlias {
+    fn to_string(&self) -> String {
+        self.original.clone()
     }
 }
 
@@ -86,29 +92,29 @@ impl<'a> Visitor<'a> for StringVisitor {
     }
 }
 
-impl Serialize for NormalizedAlias {
+impl Serialize for PartAlias {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.original.as_str())
     }
 }
 
-impl<'a> Deserialize<'a> for NormalizedAlias {
+impl<'a> Deserialize<'a> for PartAlias {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(NormalizedAlias::from(
+        Ok(PartAlias::from(
             &deserializer.deserialize_str(StringVisitor)?,
         ))
     }
 }
 
-impl cmp::Eq for NormalizedAlias {}
+impl cmp::Eq for PartAlias {}
 
-impl cmp::PartialEq for NormalizedAlias {
-    fn eq(&self, other: &NormalizedAlias) -> bool {
+impl cmp::PartialEq for PartAlias {
+    fn eq(&self, other: &PartAlias) -> bool {
         self.normalized.eq(&other.normalized)
     }
 }
 
-impl Hash for NormalizedAlias {
+impl Hash for PartAlias {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.normalized.hash(state)
     }

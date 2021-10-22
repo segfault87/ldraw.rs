@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::document::{Document, MultipartDocument};
 use crate::elements::PartReference;
 use crate::AliasType;
-use crate::NormalizedAlias;
+use crate::PartAlias;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum PartKind {
@@ -46,8 +46,8 @@ where
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartDirectory<T> {
-    pub primitives: HashMap<NormalizedAlias, PartEntry<T>>,
-    pub parts: HashMap<NormalizedAlias, PartEntry<T>>,
+    pub primitives: HashMap<PartAlias, PartEntry<T>>,
+    pub parts: HashMap<PartAlias, PartEntry<T>>,
 }
 
 impl<T> Default for PartDirectory<T> {
@@ -60,14 +60,14 @@ impl<T> Default for PartDirectory<T> {
 }
 
 impl<T> PartDirectory<T> {
-    pub fn add(&mut self, key: NormalizedAlias, entry: PartEntry<T>) {
+    pub fn add(&mut self, key: PartAlias, entry: PartEntry<T>) {
         match entry.kind {
             PartKind::Primitive => self.primitives.insert(key, entry),
             PartKind::Part => self.parts.insert(key, entry),
         };
     }
 
-    pub fn query(&self, key: &NormalizedAlias) -> Option<&PartEntry<T>> {
+    pub fn query(&self, key: &PartAlias) -> Option<&PartEntry<T>> {
         match self.parts.get(key) {
             Some(v) => Some(v),
             None => match self.primitives.get(&key) {
@@ -80,8 +80,8 @@ impl<T> PartDirectory<T> {
 
 #[derive(Debug)]
 pub struct PartCache {
-    primitives: HashMap<NormalizedAlias, Rc<Document>>,
-    parts: HashMap<NormalizedAlias, Rc<Document>>,
+    primitives: HashMap<PartAlias, Rc<Document>>,
+    parts: HashMap<PartAlias, Rc<Document>>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -107,14 +107,14 @@ impl Drop for PartCache {
 }
 
 impl PartCache {
-    pub fn register(&mut self, kind: PartKind, alias: NormalizedAlias, document: Document) {
+    pub fn register(&mut self, kind: PartKind, alias: PartAlias, document: Document) {
         match kind {
             PartKind::Part => self.parts.insert(alias, Rc::new(document)),
             PartKind::Primitive => self.primitives.insert(alias, Rc::new(document)),
         };
     }
 
-    pub fn query(&self, alias: &NormalizedAlias) -> Option<Rc<Document>> {
+    pub fn query(&self, alias: &PartAlias) -> Option<Rc<Document>> {
         match self.parts.get(alias) {
             Some(part) => Some(Rc::clone(&part)),
             None => match self.primitives.get(alias) {
@@ -170,7 +170,7 @@ pub enum ResolutionResult<'a, T> {
 pub struct ResolutionMap<'a, T> {
     directory: Rc<RefCell<PartDirectory<T>>>,
     cache: Rc<RefCell<PartCache>>,
-    pub map: HashMap<NormalizedAlias, ResolutionResult<'a, T>>,
+    pub map: HashMap<PartAlias, ResolutionResult<'a, T>>,
 }
 
 impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
@@ -185,7 +185,7 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
         }
     }
 
-    pub fn get_pending(&'b self) -> impl Iterator<Item = (&'b NormalizedAlias, &'b PartEntry<T>)> {
+    pub fn get_pending(&'b self) -> impl Iterator<Item = (&'b PartAlias, &'b PartEntry<T>)> {
         self.map.iter().filter_map(|(key, value)| match value {
             ResolutionResult::Pending(a) => Some((key, a)),
             _ => None,
@@ -230,7 +230,7 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
         }
     }
 
-    pub fn update(&mut self, key: &NormalizedAlias, document: Rc<Document>) {
+    pub fn update(&mut self, key: &PartAlias, document: Rc<Document>) {
         self.resolve(&Rc::clone(&document), None);
         self.map.insert(
             key.clone(),

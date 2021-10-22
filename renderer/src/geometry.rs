@@ -18,7 +18,7 @@ use ldraw::{
     document::Document,
     elements::{BfcStatement, Command, Meta},
     library::{ResolutionMap, ResolutionResult},
-    {AliasType, Matrix4, NormalizedAlias, Vector3, Winding}
+    {AliasType, Matrix4, PartAlias, Vector3, Winding}
 };
 use serde::{Deserialize, Serialize};
 
@@ -267,7 +267,7 @@ impl<'a> Adjacency {
     }
 }
 
-pub type FeatureMap = HashMap<NormalizedAlias, Vec<(ColorReference, Matrix4)>>;
+pub type FeatureMap = HashMap<PartAlias, Vec<(ColorReference, Matrix4)>>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BakedModel<B> where B: Buffer {
@@ -473,7 +473,7 @@ pub struct ModelBuilder<'a, T> {
     color_stack: Vec<ColorReference>,
     features: FeatureMap,
 
-    enabled_features: HashSet<NormalizedAlias>,
+    enabled_features: HashSet<PartAlias>,
 }
 
 impl<'a, T: AliasType> ModelBuilder<'a, T> {
@@ -735,7 +735,7 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
         mb
     }
 
-    pub fn with_feature(mut self, alias: NormalizedAlias) -> Self {
+    pub fn with_feature(mut self, alias: PartAlias) -> Self {
         self.enabled_features.insert(alias);
 
         self

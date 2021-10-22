@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::elements::{Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle};
-use crate::{NormalizedAlias, Winding};
+use crate::{PartAlias, Winding};
 
 #[derive(Clone, Debug)]
 pub enum BfcCertification {
@@ -42,7 +42,7 @@ pub struct Document {
 }
 
 fn traverse_depends(document: &Document, parent: Option<&MultipartDocument>,
-                    mut list: &mut HashSet<NormalizedAlias>) {
+                    mut list: &mut HashSet<PartAlias>) {
     for part_ref in document.iter_refs() {
         if let Some(ref parent) = parent {
             if parent.subparts.contains_key(&part_ref.name) {
@@ -72,7 +72,7 @@ impl Document {
         false
     }
 
-    pub fn list_depends(&self) -> HashSet<NormalizedAlias> {
+    pub fn list_depends(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
         traverse_depends(&self, None, &mut result);
@@ -126,12 +126,12 @@ define_iterator!(
 #[derive(Clone, Debug)]
 pub struct MultipartDocument {
     pub body: Document,
-    pub subparts: HashMap<NormalizedAlias, Document>,
+    pub subparts: HashMap<PartAlias, Document>,
 }
 
 impl MultipartDocument {
 
-    pub fn list_depends(&self) -> HashSet<NormalizedAlias> {
+    pub fn list_depends(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
         traverse_depends(&self.body, Some(&self), &mut result);

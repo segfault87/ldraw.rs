@@ -5,17 +5,24 @@ use std::str::Chars;
 
 use cgmath::Matrix;
 
-use crate::color::{
-    ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter, MaterialRegistry,
-    MaterialSpeckle, Rgba,
+use crate::{
+    color::{
+        ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter, MaterialRegistry,
+        MaterialSpeckle, Rgba,
+    },
+    document::{
+        BfcCertification, Document, MultipartDocument
+    },
+    elements::{
+        BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle,
+    },
+    error::{
+        ColorDefinitionParseError, DocumentParseError, ParseError
+    },
+    {
+        Matrix4, PartAlias, Vector4, Winding
+    },
 };
-use crate::document::{BfcCertification, Document, MultipartDocument};
-use crate::elements::{
-    BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle,
-};
-use crate::error::{ColorDefinitionParseError, DocumentParseError, ParseError};
-use crate::NormalizedAlias;
-use crate::{Matrix4, Vector4, Winding};
 
 #[derive(Debug)]
 enum Line0 {
@@ -210,7 +217,7 @@ fn parse_line_1(
     Ok(PartReference {
         color: ColorReference::resolve(color, materials),
         matrix,
-        name: NormalizedAlias::from(name),
+        name: PartAlias::from(name),
     })
 }
 
@@ -517,7 +524,7 @@ pub fn parse_multipart_document<T: BufRead>(
     while next.is_some() {
         let (part, next_) = parse_inner(materials, &mut it, true)?;
 
-        subparts.insert(NormalizedAlias::from(&next.unwrap()), part);
+        subparts.insert(PartAlias::from(&next.unwrap()), part);
         next = next_;
     }
 

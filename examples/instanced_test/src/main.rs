@@ -19,7 +19,7 @@ use ldraw::library::{
     ResolutionMap,
 };
 use ldraw::parser::{parse_color_definition, parse_multipart_document};
-use ldraw::{Vector3, Vector4, Matrix3, Matrix4, NormalizedAlias};
+use ldraw::{Vector3, Vector4, Matrix3, Matrix4, PartAlias};
 use ldraw_renderer::{
     error::RendererError,
     geometry::{GroupKey, ModelBuilder, NativeBakedModel, OpenGlBakedModel},
@@ -236,7 +236,7 @@ fn bake(
     println!("Baking model...");
 
     let mut builder =
-        ModelBuilder::new(&resolution).with_feature(NormalizedAlias::from("stud.dat"));
+        ModelBuilder::new(&resolution).with_feature(PartAlias::from("stud.dat"));
     builder.traverse(&&document.body, Matrix4::identity(), true, false);
     let model = builder.bake();
 

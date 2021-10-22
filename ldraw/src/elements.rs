@@ -1,5 +1,5 @@
 use crate::color::ColorReference;
-use crate::{Matrix4, NormalizedAlias, Vector4, Winding};
+use crate::{Matrix4, PartAlias, Vector4, Winding};
 
 #[derive(Clone, Debug)]
 pub struct Header(pub String, pub String);
@@ -28,7 +28,7 @@ pub enum Meta {
 pub struct PartReference {
     pub color: ColorReference,
     pub matrix: Matrix4,
-    pub name: NormalizedAlias,
+    pub name: PartAlias,
 }
 
 #[derive(Clone, Debug)]

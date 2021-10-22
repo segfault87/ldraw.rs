@@ -2,7 +2,7 @@
 name = "ldraw_renderer"
 version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 arrayref = "~0.3.6"

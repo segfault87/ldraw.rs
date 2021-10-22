@@ -1,6 +1,6 @@
 [package]
 name = "instanced_test"
-edition = "2018"
+edition = "2021"
 version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 

@@ -6,7 +6,7 @@ use std::{
 
 use ldraw::{
     color::Material,
-    {Matrix3, Matrix4, NormalizedAlias, Vector4},
+    {Matrix3, Matrix4, PartAlias, Vector4},
 };
 
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct InstanceGroup {
-    pub part_ref: NormalizedAlias,
+    pub part_ref: PartAlias,
     pub bfc: bool,
     pub semitransparent: bool,
     pub index_bound: IndexBound,
@@ -196,7 +196,7 @@ impl<T> DisplayList<T> where T: GL {
         Self(HashMap::new())
     }
 
-    pub fn query<'a>(&'a mut self, gl: Rc<T>, part_ref: &NormalizedAlias, model: Rc<OpenGlBakedModel<T>>,
+    pub fn query<'a>(&'a mut self, gl: Rc<T>, part_ref: &PartAlias, model: Rc<OpenGlBakedModel<T>>,
                      bfc: bool, semitransparent: bool, index_bound: &IndexBound) -> &'a mut DisplayItem<T> {
         let group = InstanceGroup {
             part_ref: part_ref.clone(),

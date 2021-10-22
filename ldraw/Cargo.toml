@@ -2,7 +2,7 @@
 name = "ldraw"
 version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 cgmath = { version = "~0.18.0", features = ["serde"] }
