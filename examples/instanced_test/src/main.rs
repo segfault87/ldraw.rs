@@ -22,7 +22,7 @@ use ldraw::parser::{parse_color_definition, parse_multipart_document};
 use ldraw::{Vector3, Vector4, Matrix3, Matrix4, PartAlias};
 use ldraw_renderer::{
     error::RendererError,
-    geometry::{GroupKey, ModelBuilder, NativeBakedModel, OpenGlBakedModel},
+    geometry::{GroupKey, PartBuilder, BakedPartBuilder, BakedPart},
     scene::{ProjectionParams, ShadingParams},
     shader::{Bindable, ProgramManager},
 };
@@ -34,7 +34,7 @@ pub struct TestRenderer<T: HasContext> {
 
     default_material: Material,
 
-    model: OpenGlBakedModel<T>,
+    model: BakedPart<T>,
 
     edge_length: i32,
     drawing_order: Vec<GroupKey>,
@@ -52,7 +52,7 @@ pub struct TestRenderer<T: HasContext> {
 
 impl<T: HasContext> TestRenderer<T> {
     pub fn new(
-        model: &NativeBakedModel,
+        builder: &BakedPartBuilder,
         colors: &MaterialRegistry,
         gl: Rc<T>,
     ) -> Result<TestRenderer<T>, RendererError> {
@@ -76,9 +76,9 @@ impl<T: HasContext> TestRenderer<T> {
             gl_.line_width(1.0);
         }
 
-        let opengl_model = OpenGlBakedModel::create(Rc::clone(&gl), &model);
+        let part = builder.build(Rc::clone(&gl));
 
-        let mut drawing_order = model
+        let mut drawing_order = part
             .index
             .0
             .keys()
@@ -97,9 +97,9 @@ impl<T: HasContext> TestRenderer<T> {
 
             default_material,
 
-            model: opengl_model,
+            model: part,
 
-            edge_length: model.buffer.edges.len() as i32,
+            edge_length: builder.builder.edges.len() as i32,
             drawing_order,
 
             center,
@@ -213,7 +213,7 @@ fn bake(
     colors: &MaterialRegistry,
     directory: Rc<RefCell<PartDirectoryNative>>,
     path: &str,
-) -> NativeBakedModel {
+) -> BakedPartBuilder {
     println!("Parsing document...");
     let document =
         parse_multipart_document(&colors, &mut BufReader::new(File::open(path).unwrap())).unwrap();
@@ -236,7 +236,7 @@ fn bake(
     println!("Baking model...");
 
     let mut builder =
-        ModelBuilder::new(&resolution).with_feature(PartAlias::from("stud.dat"));
+        PartBuilder::new(&resolution).with_feature(PartAlias::from("stud.dat"));
     builder.traverse(&&document.body, Matrix4::identity(), true, false);
     let model = builder.bake();
 
@@ -267,7 +267,7 @@ fn set_up_context(gl: &Context) {
     }
 }
 
-fn main_loop(model: &NativeBakedModel, colors: &MaterialRegistry) {
+fn main_loop(model: &BakedPartBuilder, colors: &MaterialRegistry) {
     let mut evloop = EventsLoop::new();
     let window_builder = WindowBuilder::new()
         .with_title("ldraw.rs demo")

@@ -4,8 +4,13 @@ use std::{
     vec::Vec,
 };
 
-use crate::elements::{Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle};
-use crate::{PartAlias, Winding};
+use crate::{
+    elements::{
+        Command, Header, Line, Meta, OptionalLine,
+        PartReference, Quad, Triangle
+    },
+    PartAlias, Winding
+};
 
 #[derive(Clone, Debug)]
 pub enum BfcCertification {
@@ -41,12 +46,14 @@ pub struct Document {
     pub commands: Vec<Command>,
 }
 
-fn traverse_depends(document: &Document, parent: Option<&MultipartDocument>,
-                    mut list: &mut HashSet<PartAlias>) {
+fn traverse_dependencies(
+    document: &Document, parent: Option<&MultipartDocument>,
+    mut list: &mut HashSet<PartAlias>
+) {
     for part_ref in document.iter_refs() {
         if let Some(ref parent) = parent {
             if parent.subparts.contains_key(&part_ref.name) {
-                traverse_depends(&parent.subparts.get(&part_ref.name).unwrap(),
+                traverse_dependencies(&parent.subparts.get(&part_ref.name).unwrap(),
                                  Some(parent), &mut list);
                 continue;
             }
@@ -72,10 +79,10 @@ impl Document {
         false
     }
 
-    pub fn list_depends(&self) -> HashSet<PartAlias> {
+    pub fn list_dependencies(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
-        traverse_depends(&self, None, &mut result);
+        traverse_dependencies(&self, None, &mut result);
 
         result
     }
@@ -131,10 +138,10 @@ pub struct MultipartDocument {
 
 impl MultipartDocument {
 
-    pub fn list_depends(&self) -> HashSet<PartAlias> {
+    pub fn list_dependencies(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
-        traverse_depends(&self.body, Some(&self), &mut result);
+        traverse_dependencies(&self.body, Some(&self), &mut result);
 
         result
     }

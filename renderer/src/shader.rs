@@ -5,7 +5,7 @@ use ldraw::{Matrix3, Matrix4, Vector4};
 
 use crate::{
     error::ShaderError,
-    scene::{ProjectionParams, ShadingParams},
+    state::{ProjectionData, ShadingData},
     GL,
 };
 
@@ -116,7 +116,7 @@ impl<T: GL> ProjectionUniforms<T> {
         }
     }
 
-    pub fn bind(&self, gl: &T, projection_params: &ProjectionParams, normal_matrix: Option<&[f32; 9]>) {
+    pub fn bind(&self, gl: &T, projection_params: &ProjectionData, normal_matrix: Option<&[f32; 9]>) {
         unsafe {
             gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.projection),
@@ -126,7 +126,7 @@ impl<T: GL> ProjectionUniforms<T> {
             gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.model_view),
                 false,
-                AsRef::<[f32; 16]>::as_ref(&projection_params.model_view)
+                AsRef::<[f32; 16]>::as_ref(&projection_params.model_view.last().unwrap())
             );
             gl.uniform_matrix_4_f32_slice(
                 borrow_uniform_location::<T>(&self.view_matrix),
@@ -188,9 +188,9 @@ impl<T: GL> ShadedProgram<T> {
 
     pub fn bind_uniforms(
         &self,
-        projection_params: &ProjectionParams,
+        projection_params: &ProjectionData,
         normal_matrix: &[f32; 9],
-        shading_params: &ShadingParams,
+        shading_params: &ShadingData,
         color: &[f32; 4],
     ) {
         let gl = &self.program.gl;
@@ -290,8 +290,8 @@ impl<T: GL> InstancedShadedProgram<T> {
 
     pub fn bind_uniforms(
         &self,
-        projection_params: &ProjectionParams,
-        shading_params: &ShadingParams,
+        projection_params: &ProjectionData,
+        shading_params: &ShadingData,
     ) {
         let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params, None);
@@ -399,7 +399,7 @@ impl<T: GL> EdgeProgram<T> {
         })
     }
 
-    pub fn bind_uniforms(&self, projection_params: &ProjectionParams) {
+    pub fn bind_uniforms(&self, projection_params: &ProjectionData) {
         let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params, None);
     }
@@ -470,7 +470,7 @@ impl<T: GL> InstancedEdgeProgram<T> {
         })
     }
 
-    pub fn bind_uniforms(&self, projection_params: &ProjectionParams) {
+    pub fn bind_uniforms(&self, projection_params: &ProjectionData) {
         let gl = &self.program.gl;
         self.projection_uniforms.bind(&gl, &projection_params, None);
     }

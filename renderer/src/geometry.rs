@@ -24,11 +24,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     buffer::{
-        Buffer,
-        NativeBuffer,
-        NativeEdgeBuffer,
-        NativeMeshBuffer,
-        OpenGlBuffer,
+        PartBufferBuilder,
+        EdgeBufferBuilder,
+        MeshBufferBuilder,
+        OptionalEdgeBufferBuilder,
+        PartBuffer,
     },
     BoundingBox, GL
 };
@@ -270,24 +270,33 @@ impl<'a> Adjacency {
 pub type FeatureMap = HashMap<PartAlias, Vec<(ColorReference, Matrix4)>>;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BakedModel<B> where B: Buffer {
-    pub buffer: B,
+pub struct BakedPartBuilder {
+    pub builder: PartBufferBuilder,
     pub index: BufferIndex,
     pub features: FeatureMap,
     pub bounding_box: BoundingBox,
     pub rotation_center: Vector3,
 }
 
-impl<B> BakedModel<B> where B: Buffer {
+#[derive(Debug)]
+pub struct BakedPart<T> where T: GL {
+    pub buffer: PartBuffer<T>,
+    pub index: BufferIndex,
+    pub features: FeatureMap,
+    pub bounding_box: BoundingBox,
+    pub rotation_center: Vector3,
+}
+
+impl BakedPartBuilder {
     pub fn new(
-        buffer: B,
+        builder: PartBufferBuilder,
         index: BufferIndex,
         features: FeatureMap,
         bounding_box: BoundingBox,
         rotation_center: &Vector3,
-    ) -> BakedModel<B> {
-        BakedModel {
-            buffer,
+    ) -> BakedPartBuilder {
+        BakedPartBuilder {
+            builder,
             index,
             features,
             bounding_box,
@@ -296,18 +305,15 @@ impl<B> BakedModel<B> where B: Buffer {
     }
 }
 
-pub type NativeBakedModel = BakedModel<NativeBuffer>;
-pub type OpenGlBakedModel<T> = BakedModel<OpenGlBuffer<T>>;
+impl BakedPartBuilder {
 
-impl<T> OpenGlBakedModel<T> where T: GL {
-
-    pub fn create(gl: Rc<T>, native_model: &NativeBakedModel) -> Self {
-        OpenGlBakedModel {
-            buffer: OpenGlBuffer::create(Rc::clone(&gl), &native_model.buffer),
-            index: native_model.index.clone(),
-            features: native_model.features.clone(),
-            bounding_box: native_model.bounding_box.clone(),
-            rotation_center: native_model.rotation_center.clone(),
+    pub fn build<T: GL>(&self, gl: Rc<T>) -> BakedPart<T> {
+        BakedPart {
+            buffer: PartBuffer::create(Rc::clone(&gl), &self.builder),
+            index: self.index.clone(),
+            features: self.features.clone(),
+            bounding_box: self.bounding_box.clone(),
+            rotation_center: self.rotation_center.clone(),
         }
     }
     
@@ -360,7 +366,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn bake(&self) -> HashMap<GroupKey, (NativeMeshBuffer, BoundingBox)> {
+    pub fn bake(&self) -> HashMap<GroupKey, (MeshBufferBuilder, BoundingBox)> {
         let mut mesh_group = HashMap::new();
 
         let mut bounding_box_min = None;
@@ -452,7 +458,7 @@ impl MeshBuilder {
             mesh_group.insert(
                 group_key.clone(),
                 (
-                    NativeMeshBuffer { vertices, normals },
+                    MeshBufferBuilder { vertices, normals },
                     BoundingBox::new(
                         &bounding_box_min.unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0)),
                         &bounding_box_max.unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0)),
@@ -465,18 +471,19 @@ impl MeshBuilder {
     }
 }
 
-pub struct ModelBuilder<'a, T> {
+pub struct PartBuilder<'a, T> {
     resolutions: &'a ResolutionMap<'a, T>,
 
     mesh_builder: MeshBuilder,
-    edges: NativeEdgeBuffer,
+    edges: EdgeBufferBuilder,
+    optional_edges: OptionalEdgeBufferBuilder,
     color_stack: Vec<ColorReference>,
     features: FeatureMap,
 
     enabled_features: HashSet<PartAlias>,
 }
 
-impl<'a, T: AliasType> ModelBuilder<'a, T> {
+impl<'a, T: AliasType> PartBuilder<'a, T> {
     pub fn traverse<D: Deref<Target = Document>>(
         &mut self,
         document: &D,
@@ -550,6 +557,14 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
                         .add(&(matrix * cmd.a).truncate(), &cmd.color, top);
                     self.edges
                         .add(&(matrix * cmd.b).truncate(), &cmd.color, top);
+                }
+                Command::OptionalLine(cmd) => {
+                    let top = self.color_stack.last().unwrap();
+
+                    self.optional_edges
+                        .add(&(matrix * cmd.a).truncate(), &(matrix * cmd.c).truncate(), &cmd.color, top);
+                    self.optional_edges
+                        .add(&(matrix * cmd.b).truncate(), &(matrix * cmd.d).truncate(), &cmd.color, top);
                 }
                 Command::Triangle(cmd) => {
                     let color = match &cmd.color {
@@ -651,8 +666,8 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
         }
     }
 
-    pub fn bake(&self) -> NativeBakedModel {
-        let mut built_mesh = NativeMeshBuffer::new();
+    pub fn bake(&self) -> BakedPartBuilder {
+        let mut built_mesh = MeshBufferBuilder::new();
         let mut built_index = BufferIndex::new();
         let mesh_groups = self.mesh_builder.bake();
         let mut bounding_box = None;
@@ -677,10 +692,11 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
             index += mesh.vertices.len();
         }
 
-        NativeBakedModel::new(
-            NativeBuffer {
+        BakedPartBuilder::new(
+            PartBufferBuilder {
                 mesh: built_mesh,
                 edges: self.edges.clone(),
+                optional_edges: self.optional_edges.clone(),
             },
             built_index,
             self.features.clone(),
@@ -689,8 +705,8 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
         )
     }
 
-    pub fn visualize_normals(&self, scale: f32) -> NativeEdgeBuffer {
-        let mut buffer = NativeEdgeBuffer::default();
+    pub fn visualize_normals(&self, scale: f32) -> EdgeBufferBuilder {
+        let mut buffer = EdgeBufferBuilder::default();
 
         for (group, mesh) in self.mesh_builder.faces.iter() {
             if !group.bfc {
@@ -718,12 +734,13 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
         buffer
     }
 
-    pub fn new(resolutions: &'a ResolutionMap<T>) -> ModelBuilder<'a, T> {
-        let mut mb = ModelBuilder {
+    pub fn new(resolutions: &'a ResolutionMap<T>) -> PartBuilder<'a, T> {
+        let mut mb = PartBuilder {
             resolutions,
 
             mesh_builder: MeshBuilder::new(),
-            edges: NativeEdgeBuffer::new(),
+            edges: EdgeBufferBuilder::new(),
+            optional_edges: OptionalEdgeBufferBuilder::new(),
             color_stack: Vec::new(),
             features: HashMap::new(),
 
@@ -745,8 +762,8 @@ impl<'a, T: AliasType> ModelBuilder<'a, T> {
 pub fn bake_model<'a, T: AliasType, S: BuildHasher>(
     resolution: &ResolutionMap<'a, T>,
     document: &Document,
-) -> NativeBakedModel {
-    let mut builder = ModelBuilder::new(resolution);
+) -> BakedPartBuilder {
+    let mut builder = PartBuilder::new(resolution);
 
     builder.traverse(&document, Matrix4::identity(), true, false);
     builder.bake()

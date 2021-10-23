@@ -10,9 +10,9 @@ use ldraw::{
 };
 
 use crate::{
-    geometry::{OpenGlBakedModel, IndexBound},
-    scene::{ProjectionParams, ShadingParams},
+    geometry::{BakedPart, IndexBound},
     shader::{Bindable, ProgramManager},
+    state::{ProjectionData, RenderingContext, ShadingData},
     utils::cast_as_bytes,
     GL,
 };
@@ -26,9 +26,8 @@ pub struct InstanceGroup {
 }
 
 pub struct DisplayItem<T> where T: GL {
-    gl: Rc<T>,
     group: InstanceGroup,
-    model: Rc<OpenGlBakedModel<T>>,
+    model: Rc<BakedPart<T>>,
     pub length: usize,
     mesh_data: Vec<f32>,
     mesh_buffer: Option<T::Buffer>,
@@ -69,13 +68,11 @@ impl<T> DisplayItem<T> where T: GL {
         Ok(())
     }
 
-    fn update_gl_buffer(&mut self) {
+    fn update_gl_buffer(&mut self, gl: Rc<T>) {
         if !self.needs_update {
             return;
         }
         
-        let gl = &self.gl;
-
         unsafe {
             gl.bind_buffer(glow::ARRAY_BUFFER, self.mesh_buffer);
             gl.buffer_data_u8_slice(
@@ -91,8 +88,7 @@ impl<T> DisplayItem<T> where T: GL {
         self.needs_update = false;
     }
 
-    pub fn render_single(&mut self, program_manager: &ProgramManager<T>, projection_params: &ProjectionParams,
-                         shading_params: &ShadingParams) {
+    pub fn render_single(&mut self, state: &mut RenderingState<T>) {
         let program = if self.group.bfc {
             &program_manager.solid
         } else {
@@ -119,8 +115,7 @@ impl<T> DisplayItem<T> where T: GL {
         program.unbind();
     }
 
-    pub fn render_instanced(&mut self, program_manager: &ProgramManager<T>, projection_params: &ProjectionParams,
-                            shading_params: &ShadingParams) {
+    pub fn render_instanced(&mut self, state: &mut RenderingState<T>) {
         let program = if self.group.bfc {
             &program_manager.instanced_solid
         } else {
@@ -159,8 +154,7 @@ impl<T> DisplayItem<T> where T: GL {
         program.unbind();
     }
 
-    pub fn render(&mut self, program_manager: &ProgramManager<T>, projection_params: &ProjectionParams,
-                  shading_params: &ShadingParams) {
+    pub fn render(&mut self, ) {
         self.update_gl_buffer();
 
         match self.length {
@@ -196,7 +190,7 @@ impl<T> DisplayList<T> where T: GL {
         Self(HashMap::new())
     }
 
-    pub fn query<'a>(&'a mut self, gl: Rc<T>, part_ref: &PartAlias, model: Rc<OpenGlBakedModel<T>>,
+    pub fn query<'a>(&'a mut self, gl: Rc<T>, part_ref: &PartAlias, model: Rc<BakedPart<T>>,
                      bfc: bool, semitransparent: bool, index_bound: &IndexBound) -> &'a mut DisplayItem<T> {
         let group = InstanceGroup {
             part_ref: part_ref.clone(),
@@ -215,7 +209,6 @@ impl<T> DisplayList<T> where T: GL {
             };
             
             DisplayItem {
-                gl: gl,
                 group: InstanceGroup {
                     part_ref: part_ref.clone(),
                     bfc,
