@@ -1,7 +1,15 @@
 #[macro_use] extern crate arrayref;
 
+use std::{
+    cmp::Ordering,
+    hash::{Hash, Hasher},
+};
+
 use glow::HasContext;
-use ldraw::{Matrix3, Matrix4, Vector3};
+use ldraw::{
+    color::ColorReference,
+    Matrix3, Matrix4, Vector3
+};
 use serde::{Deserialize, Serialize};
 
 pub mod buffer;
@@ -50,30 +58,91 @@ impl BoundingBox {
         self.max.z - self.min.z
     }
 
+    pub fn is_null(&self) -> bool {
+        self.min.x == 0.0 && self.min.y == 0.0 && self.min.z == 0.0 &&
+        self.max.x == 0.0 && self.max.y == 0.0 && self.max.z == 0.0
+    }
+
     pub fn update_point(&mut self, v: &Vector3) {
-        if self.min.x > v.x {
-            self.min.x = v.x;
-        }
-        if self.min.y > v.y {
-            self.min.y = v.y;
-        }
-        if self.min.z > v.z {
-            self.min.z = v.z;
-        }
-        if self.max.x < v.x {
-            self.max.x = v.x;
-        }
-        if self.max.y < v.y {
-            self.max.y = v.y;
-        }
-        if self.max.z < v.z {
-            self.max.z = v.z;
+        if self.is_null() {
+            self.min = v.clone();
+            self.max = v.clone();
+        } else {
+            if self.min.x > v.x {
+                self.min.x = v.x;
+            }
+            if self.min.y > v.y {
+                self.min.y = v.y;
+            }
+            if self.min.z > v.z {
+                self.min.z = v.z;
+            }
+            if self.max.x < v.x {
+                self.max.x = v.x;
+            }
+            if self.max.y < v.y {
+                self.max.y = v.y;
+            }
+            if self.max.z < v.z {
+                self.max.z = v.z;
+            }
         }
     }
 
     pub fn update(&mut self, bb: &BoundingBox) {
         self.update_point(&bb.min);
         self.update_point(&bb.max);
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MeshGroup {
+    pub color_ref: ColorReference,
+    pub bfc: bool,
+}
+
+impl Hash for MeshGroup {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.color_ref.code().hash(state);
+        self.bfc.hash(state);
+    }
+}
+
+impl PartialOrd for MeshGroup {
+    fn partial_cmp(&self, other: &MeshGroup) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MeshGroup {
+    fn cmp(&self, other: &MeshGroup) -> Ordering {
+        let lhs_semitransparent = match &self.color_ref {
+            ColorReference::Material(m) => m.is_semi_transparent(),
+            _ => false,
+        };
+        let rhs_semitransparent = match &other.color_ref {
+            ColorReference::Material(m) => m.is_semi_transparent(),
+            _ => false,
+        };
+
+        match (lhs_semitransparent, rhs_semitransparent) {
+            (true, false) => return Ordering::Greater,
+            (false, true) => return Ordering::Less,
+            (_, _) => (),
+        };
+
+        match self.color_ref.code().cmp(&other.color_ref.code()) {
+            Ordering::Equal => self.bfc.cmp(&other.bfc),
+            e => e,
+        }
+    }
+}
+
+impl Eq for MeshGroup {}
+
+impl PartialEq for MeshGroup {
+    fn eq(&self, other: &MeshGroup) -> bool {
+        self.color_ref.code() == other.color_ref.code() && self.bfc == other.bfc
     }
 }
 

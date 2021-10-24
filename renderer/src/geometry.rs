@@ -1,8 +1,8 @@
 use std::{
-    cmp::Ordering,
     collections::{HashMap, HashSet},
     f32,
-    hash::{BuildHasher, Hash, Hasher},
+    hash::{BuildHasher, Hash},
+    mem::replace,
     ops::Deref,
     rc::Rc,
     vec::Vec,
@@ -31,67 +31,17 @@ use crate::{
         OptionalEdgeBufferBuilder,
         PartBuffer,
     },
-    BoundingBox
+    BoundingBox,
+    MeshGroup
 };
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct GroupKey {
-    pub color_ref: ColorReference,
-    pub bfc: bool,
-}
-
-impl Hash for GroupKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.color_ref.code().hash(state);
-        self.bfc.hash(state);
-    }
-}
-
-impl PartialOrd for GroupKey {
-    fn partial_cmp(&self, other: &GroupKey) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for GroupKey {
-    fn cmp(&self, other: &GroupKey) -> Ordering {
-        let lhs_semitransparent = match &self.color_ref {
-            ColorReference::Material(m) => m.is_semi_transparent(),
-            _ => false,
-        };
-        let rhs_semitransparent = match &other.color_ref {
-            ColorReference::Material(m) => m.is_semi_transparent(),
-            _ => false,
-        };
-
-        match (lhs_semitransparent, rhs_semitransparent) {
-            (true, false) => return Ordering::Greater,
-            (false, true) => return Ordering::Less,
-            (_, _) => (),
-        };
-
-        match self.color_ref.code().cmp(&other.color_ref.code()) {
-            Ordering::Equal => self.bfc.cmp(&other.bfc),
-            e => e,
-        }
-    }
-}
-
-impl Eq for GroupKey {}
-
-impl PartialEq for GroupKey {
-    fn eq(&self, other: &GroupKey) -> bool {
-        self.color_ref.code() == other.color_ref.code() && self.bfc == other.bfc
-    }
-}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct IndexBound(pub usize, pub usize);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct BufferIndex(pub HashMap<GroupKey, IndexBound>);
+pub struct BufferIndex(pub HashMap<MeshGroup, IndexBound>);
 
 impl BufferIndex {
     pub fn new() -> BufferIndex {
@@ -102,7 +52,7 @@ impl BufferIndex {
         let mut new = HashMap::new();
         for (k, v) in self.0.iter() {
             new.insert(
-                GroupKey {
+                MeshGroup {
                     color_ref: ColorReference::resolve(k.color_ref.code(), materials),
                     bfc: k.bfc,
                 },
@@ -273,7 +223,6 @@ pub type FeatureMap = HashMap<PartAlias, Vec<(ColorReference, Matrix4)>>;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BakedPartBuilder {
     pub builder: PartBufferBuilder,
-    pub index: BufferIndex,
     pub features: FeatureMap,
     pub bounding_box: BoundingBox,
     pub rotation_center: Vector3,
@@ -281,8 +230,7 @@ pub struct BakedPartBuilder {
 
 #[derive(Debug)]
 pub struct BakedPart<GL: HasContext> {
-    pub buffer: PartBuffer<GL>,
-    pub index: BufferIndex,
+    pub part: PartBuffer<GL>,
     pub features: FeatureMap,
     pub bounding_box: BoundingBox,
     pub rotation_center: Vector3,
@@ -291,27 +239,21 @@ pub struct BakedPart<GL: HasContext> {
 impl BakedPartBuilder {
     pub fn new(
         builder: PartBufferBuilder,
-        index: BufferIndex,
         features: FeatureMap,
         bounding_box: BoundingBox,
         rotation_center: &Vector3,
     ) -> BakedPartBuilder {
         BakedPartBuilder {
             builder,
-            index,
             features,
             bounding_box,
             rotation_center: *rotation_center,
         }
     }
-}
-
-impl BakedPartBuilder {
 
     pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> BakedPart<GL> {
         BakedPart {
-            buffer: self.builder.build(Rc::clone(&gl)),
-            index: self.index.clone(),
+            part: self.builder.build(Rc::clone(&gl)),
             features: self.features.clone(),
             bounding_box: self.bounding_box.clone(),
             rotation_center: self.rotation_center.clone(),
@@ -322,7 +264,7 @@ impl BakedPartBuilder {
 
 #[derive(Debug)]
 struct MeshBuilder {
-    pub faces: HashMap<GroupKey, Vec<Face>>,
+    pub faces: HashMap<MeshGroup, Vec<Face>>,
     point_cloud: KdTree<f32, Adjacency, [f32; 3]>,
 }
 
@@ -334,7 +276,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn add(&mut self, group_key: &GroupKey, face: Face) {
+    pub fn add(&mut self, group_key: &MeshGroup, face: Face) {
         let list = self.faces.entry(group_key.clone()).or_insert_with(Vec::new);
         list.push(face.clone());
 
@@ -367,17 +309,20 @@ impl MeshBuilder {
         }
     }
 
-    pub fn bake(&self) -> HashMap<GroupKey, (MeshBufferBuilder, BoundingBox)> {
-        let mut mesh_group = HashMap::new();
-
+    pub fn bake(&self, builder: &mut PartBufferBuilder, bounding_box: &mut BoundingBox) {
         let mut bounding_box_min = None;
         let mut bounding_box_max = None;
 
         for (group_key, faces) in self.faces.iter() {
-            let mut vertices = Vec::new();
-            let mut normals = Vec::new();
+            let mesh = builder.query_mesh(&group_key);
+            if mesh.is_none() {
+                println!("Skipping unknown color group_key {:?}", group_key);
+                continue;
+            }
+            let mesh = mesh.unwrap();
+
             for face in faces.iter() {
-                let normal = face.vertices.normal();
+                let mut normal = face.vertices.normal();
 
                 for vertex in face.vertices.triangles(false) {
                     match bounding_box_min {
@@ -413,75 +358,42 @@ impl MeshBuilder {
                         }
                     }
 
-                    vertices.push(vertex.x);
-                    vertices.push(vertex.y);
-                    vertices.push(vertex.z);
-
                     let r: &[f32; 3] = vertex.as_ref();
-                    let adjacent_faces = match self.point_cloud.iter_nearest(r, &squared_euclidean)
-                    {
-                        Ok(mut v) => match v.next() {
-                            Some(vv) => {
-                                if vv.0 < f32::default_epsilon() {
-                                    Some(vv.1)
-                                } else {
-                                    None
+                    if let Ok(mut matches) = self.point_cloud.iter_nearest(r, &squared_euclidean) {
+                        if let Some(first_match) = matches.next() {
+                            if first_match.0 < f32::default_epsilon() {
+                                for face in first_match.1.faces.iter() {
+                                    let fnormal = face.vertices.normal();
+                                    if normal.angle(fnormal) < NORMAL_BLEND_THRESHOLD {
+                                        normal = (normal + fnormal) * 0.5;
+                                    }
                                 }
+                                normal = normal.normalize();
                             }
-                            None => None,
-                        },
-                        Err(_) => None,
+                        }
                     };
 
-                    match adjacent_faces {
-                        Some(v) => {
-                            let mut normal = normal;
-                            for face in v.faces.iter() {
-                                let fnormal = face.vertices.normal();
-                                if normal.angle(fnormal) < NORMAL_BLEND_THRESHOLD {
-                                    normal = (normal + fnormal) * 0.5;
-                                }
-                            }
-                            normal = normal.normalize();
-                            normals.push(normal.x);
-                            normals.push(normal.y);
-                            normals.push(normal.z);
-                        }
-                        None => {
-                            normals.push(normal.x);
-                            normals.push(normal.y);
-                            normals.push(normal.z);
-                        }
-                    };
+                    mesh.add(&vertex, &normal);
                 }
             }
-
-            mesh_group.insert(
-                group_key.clone(),
-                (
-                    MeshBufferBuilder { vertices, normals },
-                    BoundingBox::new(
-                        &bounding_box_min.unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0)),
-                        &bounding_box_max.unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0)),
-                    ),
-                ),
-            );
         }
 
-        mesh_group
+        if bounding_box_min.is_some() && bounding_box_max.is_some() {
+            bounding_box.update_point(&bounding_box_min.unwrap());
+            bounding_box.update_point(&bounding_box_max.unwrap());
+        }
     }
 }
 
 pub struct PartBuilder<'a, T> {
     resolutions: &'a ResolutionMap<'a, T>,
+    enabled_features: &'a HashSet<PartAlias>,
 
+    builder: PartBufferBuilder,
     mesh_builder: MeshBuilder,
-    edges: EdgeBufferBuilder,
-    optional_edges: OptionalEdgeBufferBuilder,
     color_stack: Vec<ColorReference>,
     features: FeatureMap,
-
-    enabled_features: HashSet<PartAlias>,
+    bounding_box: BoundingBox,
 }
 
 impl<'a, T: AliasType> PartBuilder<'a, T> {
@@ -554,17 +466,17 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
                 Command::Line(cmd) => {
                     let top = self.color_stack.last().unwrap();
 
-                    self.edges
+                    self.builder.edges
                         .add(&(matrix * cmd.a).truncate(), &cmd.color, top);
-                    self.edges
+                    self.builder.edges
                         .add(&(matrix * cmd.b).truncate(), &cmd.color, top);
                 }
                 Command::OptionalLine(cmd) => {
                     let top = self.color_stack.last().unwrap();
 
-                    self.optional_edges
+                    self.builder.optional_edges
                         .add(&(matrix * cmd.a).truncate(), &(matrix * cmd.c).truncate(), &cmd.color, top);
-                    self.optional_edges
+                    self.builder.optional_edges
                         .add(&(matrix * cmd.b).truncate(), &(matrix * cmd.d).truncate(), &cmd.color, top);
                 }
                 Command::Triangle(cmd) => {
@@ -592,7 +504,7 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
                         },
                     };
 
-                    let category = GroupKey {
+                    let category = MeshGroup {
                         color_ref: color.clone(),
                         bfc: if bfc_certified {
                             cull && local_cull
@@ -630,7 +542,7 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
                         },
                     };
 
-                    let category = GroupKey {
+                    let category = MeshGroup {
                         color_ref: color.clone(),
                         bfc: if bfc_certified {
                             cull && local_cull
@@ -667,41 +579,14 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
         }
     }
 
-    pub fn bake(&self) -> BakedPartBuilder {
-        let mut built_mesh = MeshBufferBuilder::new();
-        let mut built_index = BufferIndex::new();
-        let mesh_groups = self.mesh_builder.bake();
-        let mut bounding_box = None;
-        let mut index = 0;
-        for (group, (mesh, sub_bounding_box)) in mesh_groups.iter() {
-            match bounding_box {
-                None => {
-                    bounding_box = Some(sub_bounding_box.clone());
-                }
-                Some(ref mut e) => {
-                    e.update(&sub_bounding_box);
-                }
-            };
-
-            built_mesh.vertices.extend(&mesh.vertices);
-            built_mesh.normals.extend(&mesh.normals);
-            built_index.0.insert(
-                group.clone(),
-                IndexBound(index / 3, (index + mesh.vertices.len()) / 3),
-            );
-
-            index += mesh.vertices.len();
-        }
+    pub fn bake(&mut self) -> BakedPartBuilder {
+        let mut bounding_box = BoundingBox::zero();
+        self.mesh_builder.bake(&mut self.builder, &mut bounding_box);
 
         BakedPartBuilder::new(
-            PartBufferBuilder {
-                mesh: built_mesh,
-                edges: self.edges.clone(),
-                optional_edges: self.optional_edges.clone(),
-            },
-            built_index,
+            replace(&mut self.builder, PartBufferBuilder::default()),
             self.features.clone(),
-            bounding_box.unwrap_or_else(BoundingBox::zero),
+            bounding_box,
             &Vector3::new(0.0, 0.0, 0.0),
         )
     }
@@ -735,36 +620,30 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
         buffer
     }
 
-    pub fn new(resolutions: &'a ResolutionMap<T>) -> PartBuilder<'a, T> {
+    pub fn new(resolutions: &'a ResolutionMap<T>, enabled_features: &'a HashSet<PartAlias>) -> PartBuilder<'a, T> {
         let mut mb = PartBuilder {
             resolutions,
+            enabled_features,
 
+            builder: PartBufferBuilder::default(),
             mesh_builder: MeshBuilder::new(),
-            edges: EdgeBufferBuilder::new(),
-            optional_edges: OptionalEdgeBufferBuilder::new(),
             color_stack: Vec::new(),
             features: HashMap::new(),
-
-            enabled_features: HashSet::new(),
+            bounding_box: BoundingBox::zero(),
         };
 
         mb.color_stack.push(ColorReference::Current);
 
         mb
     }
-
-    pub fn with_feature(mut self, alias: PartAlias) -> Self {
-        self.enabled_features.insert(alias);
-
-        self
-    }
 }
 
 pub fn bake_model<'a, T: AliasType, S: BuildHasher>(
     resolution: &ResolutionMap<'a, T>,
+    enabled_features: &HashSet<PartAlias>,
     document: &Document,
 ) -> BakedPartBuilder {
-    let mut builder = PartBuilder::new(resolution);
+    let mut builder = PartBuilder::new(resolution, enabled_features);
 
     builder.traverse(&document, Matrix4::identity(), true, false);
     builder.bake()

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     rc::Rc,
     vec::Vec,
 };
@@ -11,6 +12,7 @@ use ldraw::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    MeshGroup,
     utils::cast_as_bytes,
 };
 
@@ -21,13 +23,6 @@ pub struct EdgeBufferBuilder {
 }
 
 impl EdgeBufferBuilder {
-    pub fn new() -> EdgeBufferBuilder {
-        EdgeBufferBuilder {
-            vertices: Vec::new(),
-            colors: Vec::new(),
-        }
-    }
-
     pub fn add(&mut self, vec: &Vector3, color: &ColorReference, top: &ColorReference) {
         self.vertices.push(vec.x);
         self.vertices.push(vec.y);
@@ -84,14 +79,6 @@ pub struct OptionalEdgeBufferBuilder {
 }
 
 impl OptionalEdgeBufferBuilder {
-    pub fn new() -> OptionalEdgeBufferBuilder {
-        OptionalEdgeBufferBuilder {
-            vertices: Vec::new(),
-            controls: Vec::new(),
-            colors: Vec::new(),
-        }
-    }
-
     pub fn add(&mut self, v: &Vector3, c: &Vector3, color: &ColorReference, top: &ColorReference) {
         self.vertices.push(v.x);
         self.vertices.push(v.y);
@@ -144,20 +131,13 @@ impl OptionalEdgeBufferBuilder {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MeshBufferBuilder {
     pub vertices: Vec<f32>,
     pub normals: Vec<f32>,
 }
 
 impl MeshBufferBuilder {
-    pub fn new() -> MeshBufferBuilder {
-        MeshBufferBuilder {
-            vertices: Vec::new(),
-            normals: Vec::new(),
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.vertices.len() / 3
     }
@@ -165,11 +145,14 @@ impl MeshBufferBuilder {
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty()
     }
-}
 
-impl Default for MeshBufferBuilder {
-    fn default() -> Self {
-        Self::new()
+    pub fn add(&mut self, vertex: &Vector3, normal: &Vector3) {
+        self.vertices.push(vertex.x);
+        self.vertices.push(vertex.y);
+        self.vertices.push(vertex.z);
+        self.normals.push(normal.x);
+        self.normals.push(normal.y);
+        self.normals.push(normal.z);
     }
 }
 
@@ -183,7 +166,6 @@ pub struct MeshBuffer<GL: HasContext> {
 }
 
 impl MeshBufferBuilder {
-
     pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> MeshBuffer<GL> {
         let array: Option<GL::VertexArray>;
         let buffer_vertices: Option<GL::Buffer>;
@@ -220,7 +202,6 @@ impl MeshBufferBuilder {
 }
 
 impl<GL: HasContext> MeshBuffer<GL> {
-
     pub fn bind(&self, location_position: &Option<u32>, location_normals: &Option<u32>) {
         let gl = &self.gl;
 
@@ -241,7 +222,6 @@ impl<GL: HasContext> MeshBuffer<GL> {
             }
         }
     }
-    
 }
 
 impl<GL: HasContext> Drop for MeshBuffer<GL> {
@@ -334,7 +314,6 @@ impl<GL: HasContext> EdgeBuffer<GL> {
 }
 
 impl<GL: HasContext> Drop for EdgeBuffer<GL> {
-
     fn drop(&mut self) {
         let gl = &self.gl;
         unsafe {
@@ -349,7 +328,6 @@ impl<GL: HasContext> Drop for EdgeBuffer<GL> {
             }
         }
     }
-    
 }
 
 #[derive(Debug)]
@@ -454,29 +432,55 @@ impl<GL: HasContext> Drop for OptionalEdgeBuffer<GL> {
     
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct PartBufferBuilder {
-    pub mesh: MeshBufferBuilder,
+    pub uncolored_mesh: MeshBufferBuilder,
+    pub opaque_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
+    pub semitransparent_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
     pub edges: EdgeBufferBuilder,
     pub optional_edges: OptionalEdgeBufferBuilder,
 }
 
 #[derive(Debug)]
 pub struct PartBuffer<GL> where GL: HasContext {
-    pub mesh: MeshBuffer<GL>,
+    pub uncolored_mesh: Option<MeshBuffer<GL>>,
+    pub opaque_meshes: HashMap<MeshGroup, MeshBuffer<GL>>,
+    pub semitransparent_meshes: HashMap<MeshGroup, MeshBuffer<GL>>,
     pub edges: EdgeBuffer<GL>,
     pub optional_edges: OptionalEdgeBuffer<GL>,
 }
 
 impl PartBufferBuilder {
+    pub fn query_mesh<'a>(&'a mut self, group: &MeshGroup) -> Option<&'a mut MeshBufferBuilder> {
+        match &group.color_ref {
+            ColorReference::Current => {
+                Some(&mut self.uncolored_mesh)
+            }
+            ColorReference::Material(m) => {
+                let entry = if m.is_semi_transparent() {
+                    self.semitransparent_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
+                } else {
+                    self.opaque_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
+                };
+                Some(entry)
+            }
+            _ => None
+        }
+    }
 
     pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> PartBuffer<GL> {
+        let uncolored = if self.uncolored_mesh.is_empty() {
+            None
+        } else {
+            Some(self.uncolored_mesh.build(Rc::clone(&gl)))
+        };
+
         PartBuffer {
-            mesh: self.mesh.build(Rc::clone(&gl)),
+            uncolored_mesh: uncolored,
+            opaque_meshes: self.opaque_meshes.iter().map(|(k, v)| (k.clone(), v.build(Rc::clone(&gl)))).collect(),
+            semitransparent_meshes: self.semitransparent_meshes.iter().map(|(k, v)| (k.clone(), v.build(Rc::clone(&gl)))).collect(),
             edges: self.edges.build(Rc::clone(&gl)),
             optional_edges: self.optional_edges.build(Rc::clone(&gl)),
         }
     }
-    
 }
-

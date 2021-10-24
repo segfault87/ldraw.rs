@@ -17,18 +17,9 @@ use crate::{
     utils::cast_as_bytes,
 };
 
-#[derive(Clone, Eq, Hash, PartialEq)]
-pub struct InstanceGroup {
-    pub part_ref: PartAlias,
-    pub bfc: bool,
-    pub semitransparent: bool,
-    pub index_bound: IndexBound,
-}
-
 pub struct DisplayItem<GL: HasContext> {
     gl: Rc<GL>,
 
-    group: InstanceGroup,
     model: Rc<BakedPart<GL>>,
     pub length: usize,
     mesh_data: Vec<f32>,
@@ -41,7 +32,7 @@ pub struct DisplayItem<GL: HasContext> {
 pub const INSTANCE_BUFFER_MESH_SIZE: usize = 16 + 9 + 4;
 pub const INSTANCE_BUFFER_EDGE_SIZE: usize = 16 + 4 + 4;
 
-impl<GL: HasContext> DisplayItem<GL> {
+/*impl<GL: HasContext> DisplayItem<GL> {
 
     pub fn append(&mut self, projection_data: &ProjectionData, matrix: &Matrix4, material: &Material) -> usize {
         self.mesh_data.extend(AsRef::<[f32; 16]>::as_ref(matrix));
@@ -228,4 +219,9 @@ impl<GL: HasContext> DisplayList<GL> {
     
 }
 
+pub struct InstanceGroupA<'ft, GL: HasContext> {
+    pub part: Option<&'ft BakedPart<GL>>,
+
+    
+}*/
 
