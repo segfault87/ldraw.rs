@@ -3,6 +3,7 @@ use std::{
     vec::Vec,
 };
 
+use glow::HasContext;
 use ldraw::{
     color::ColorReference,
     {Vector3, Vector4}
@@ -11,7 +12,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     utils::cast_as_bytes,
-    GL,
 };
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -174,20 +174,20 @@ impl Default for MeshBufferBuilder {
 }
 
 #[derive(Debug)]
-pub struct MeshBuffer<T> where T: GL {
-    gl: Rc<T>,
+pub struct MeshBuffer<GL: HasContext> {
+    gl: Rc<GL>,
     
-    array: Option<T::VertexArray>,
-    buffer_vertices: Option<T::Buffer>,
-    buffer_normals: Option<T::Buffer>,
+    array: Option<GL::VertexArray>,
+    buffer_vertices: Option<GL::Buffer>,
+    buffer_normals: Option<GL::Buffer>,
 }
 
-impl<T> MeshBuffer<T> where T: GL {
+impl MeshBufferBuilder {
 
-    pub fn create(gl: Rc<T>, buffer: &MeshBufferBuilder) -> Self {
-        let array: Option<T::VertexArray>;
-        let buffer_vertices: Option<T::Buffer>;
-        let buffer_normals: Option<T::Buffer>;
+    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> MeshBuffer<GL> {
+        let array: Option<GL::VertexArray>;
+        let buffer_vertices: Option<GL::Buffer>;
+        let buffer_normals: Option<GL::Buffer>;
         unsafe {
             let gl = &gl;
             
@@ -198,13 +198,13 @@ impl<T> MeshBuffer<T> where T: GL {
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(buffer.vertices.as_ref()),
+                cast_as_bytes(self.vertices.as_ref()),
                 glow::STATIC_DRAW
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_normals);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(buffer.normals.as_ref()),
+                cast_as_bytes(self.normals.as_ref()),
                 glow::STATIC_DRAW
             );
         }
@@ -216,6 +216,10 @@ impl<T> MeshBuffer<T> where T: GL {
             buffer_normals,
         }
     }
+
+}
+
+impl<GL: HasContext> MeshBuffer<GL> {
 
     pub fn bind(&self, location_position: &Option<u32>, location_normals: &Option<u32>) {
         let gl = &self.gl;
@@ -240,7 +244,7 @@ impl<T> MeshBuffer<T> where T: GL {
     
 }
 
-impl<T> Drop for MeshBuffer<T> where T: GL {
+impl<GL: HasContext> Drop for MeshBuffer<GL> {
 
     fn drop(&mut self) {
         let gl = &self.gl;
@@ -260,22 +264,22 @@ impl<T> Drop for MeshBuffer<T> where T: GL {
 }
 
 #[derive(Debug)]
-pub struct EdgeBuffer<T: GL> {
-    gl: Rc<T>,
+pub struct EdgeBuffer<GL: HasContext> {
+    gl: Rc<GL>,
     
-    array: Option<T::VertexArray>,
-    buffer_vertices: Option<T::Buffer>,
-    buffer_colors: Option<T::Buffer>
+    array: Option<GL::VertexArray>,
+    buffer_vertices: Option<GL::Buffer>,
+    buffer_colors: Option<GL::Buffer>
 }
 
-impl<T> EdgeBuffer<T> where T: GL {
+impl EdgeBufferBuilder {
 
-    pub fn create(gl: Rc<T>, buffer: &EdgeBufferBuilder) -> Self {
-        let array: Option<T::VertexArray>;
-        let buffer_vertices: Option<T::Buffer>;
-        let buffer_colors: Option<T::Buffer>;
+    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> EdgeBuffer<GL> {
+        let array: Option<GL::VertexArray>;
+        let buffer_vertices: Option<GL::Buffer>;
+        let buffer_colors: Option<GL::Buffer>;
         unsafe {
-            let gl = &gl;
+            //let gl = &gl;
             array = gl.create_vertex_array().ok();
             buffer_vertices = gl.create_buffer().ok();
             buffer_colors = gl.create_buffer().ok();
@@ -283,13 +287,13 @@ impl<T> EdgeBuffer<T> where T: GL {
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(buffer.vertices.as_ref()),
+                cast_as_bytes(self.vertices.as_ref()),
                 glow::STATIC_DRAW
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(buffer.colors.as_ref()),
+                cast_as_bytes(self.colors.as_ref()),
                 glow::STATIC_DRAW
             );
         }
@@ -301,6 +305,10 @@ impl<T> EdgeBuffer<T> where T: GL {
             buffer_colors,
         }
     }
+
+}
+
+impl<GL: HasContext> EdgeBuffer<GL> {
 
     pub fn bind(&self, location_position: &Option<u32>, location_colors: &Option<u32>) {
         let gl = &self.gl;
@@ -325,7 +333,7 @@ impl<T> EdgeBuffer<T> where T: GL {
     
 }
 
-impl<T> Drop for EdgeBuffer<T> where T: GL {
+impl<GL: HasContext> Drop for EdgeBuffer<GL> {
 
     fn drop(&mut self) {
         let gl = &self.gl;
@@ -345,22 +353,22 @@ impl<T> Drop for EdgeBuffer<T> where T: GL {
 }
 
 #[derive(Debug)]
-pub struct OptionalEdgeBuffer<T: GL> {
-    gl: Rc<T>,
+pub struct OptionalEdgeBuffer<GL: HasContext> {
+    gl: Rc<GL>,
     
-    array: Option<T::VertexArray>,
-    buffer_vertices: Option<T::Buffer>,
-    buffer_controls: Option<T::Buffer>,
-    buffer_colors: Option<T::Buffer>
+    array: Option<GL::VertexArray>,
+    buffer_vertices: Option<GL::Buffer>,
+    buffer_controls: Option<GL::Buffer>,
+    buffer_colors: Option<GL::Buffer>
 }
 
-impl<T> OptionalEdgeBuffer<T> where T: GL {
+impl OptionalEdgeBufferBuilder {
 
-    pub fn create(gl: Rc<T>, buffer: &OptionalEdgeBufferBuilder) -> Self {
-        let array: Option<T::VertexArray>;
-        let buffer_vertices: Option<T::Buffer>;
-        let buffer_controls: Option<T::Buffer>;
-        let buffer_colors: Option<T::Buffer>;
+    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> OptionalEdgeBuffer<GL> {
+        let array: Option<GL::VertexArray>;
+        let buffer_vertices: Option<GL::Buffer>;
+        let buffer_controls: Option<GL::Buffer>;
+        let buffer_colors: Option<GL::Buffer>;
         unsafe {
             let gl = &gl;
             array = gl.create_vertex_array().ok();
@@ -371,19 +379,19 @@ impl<T> OptionalEdgeBuffer<T> where T: GL {
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(buffer.vertices.as_ref()),
+                cast_as_bytes(self.vertices.as_ref()),
                 glow::STATIC_DRAW
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(buffer.controls.as_ref()),
+                cast_as_bytes(self.controls.as_ref()),
                 glow::STATIC_DRAW
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(buffer.colors.as_ref()),
+                cast_as_bytes(self.colors.as_ref()),
                 glow::STATIC_DRAW
             );
         }
@@ -396,6 +404,10 @@ impl<T> OptionalEdgeBuffer<T> where T: GL {
             buffer_colors,
         }
     }
+
+}
+
+impl<GL: HasContext> OptionalEdgeBuffer<GL> {
 
     pub fn bind(&self, location_position: &Option<u32>, location_colors: &Option<u32>) {
         let gl = &self.gl;
@@ -420,7 +432,7 @@ impl<T> OptionalEdgeBuffer<T> where T: GL {
     
 }
 
-impl<T> Drop for OptionalEdgeBuffer<T> where T: GL {
+impl<GL: HasContext> Drop for OptionalEdgeBuffer<GL> {
 
     fn drop(&mut self) {
         let gl = &self.gl;
@@ -450,19 +462,19 @@ pub struct PartBufferBuilder {
 }
 
 #[derive(Debug)]
-pub struct PartBuffer<T> where T: GL {
-    pub mesh: MeshBuffer<T>,
-    pub edges: EdgeBuffer<T>,
-    pub optional_edges: OptionalEdgeBuffer<T>,
+pub struct PartBuffer<GL> where GL: HasContext {
+    pub mesh: MeshBuffer<GL>,
+    pub edges: EdgeBuffer<GL>,
+    pub optional_edges: OptionalEdgeBuffer<GL>,
 }
 
-impl<T> PartBuffer<T> where T: GL {
+impl PartBufferBuilder {
 
-    pub fn create(gl: Rc<T>, builder: &PartBufferBuilder) -> PartBuffer<T> {
+    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> PartBuffer<GL> {
         PartBuffer {
-            mesh: MeshBuffer::create(Rc::clone(&gl), &builder.mesh),
-            edges: EdgeBuffer::create(Rc::clone(&gl), &builder.edges),
-            optional_edges: OptionalEdgeBuffer::create(Rc::clone(&gl), &builder.optional_edges),
+            mesh: self.mesh.build(Rc::clone(&gl)),
+            edges: self.edges.build(Rc::clone(&gl)),
+            optional_edges: self.optional_edges.build(Rc::clone(&gl)),
         }
     }
     

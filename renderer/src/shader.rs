@@ -1,24 +1,24 @@
 use std::rc::Rc;
 use std::str;
 
+use glow::HasContext;
 use ldraw::{Matrix3, Matrix4, Vector4};
 
 use crate::{
     error::ShaderError,
     state::{ProjectionData, ShadingData},
-    GL,
 };
 
 #[derive(Debug)]
-struct Program<T: GL> {
-    gl: Rc<T>, // This is used only when unallocating
+struct Program<GL: HasContext> {
+    gl: Rc<GL>, // This is used only when unallocating
 
-    vertex_shader: T::Shader,
-    fragment_shader: T::Shader,
-    program: T::Program,
+    vertex_shader: GL::Shader,
+    fragment_shader: GL::Shader,
+    program: GL::Program,
 }
 
-fn borrow_uniform_location<T: GL>(e: &Option<T::UniformLocation>) -> Option<&T::UniformLocation> {
+fn borrow_uniform_location<GL: HasContext>(e: &Option<GL::UniformLocation>) -> Option<&GL::UniformLocation> {
     match e {
         Some(e) => Some(&e),
         None => None,
@@ -30,8 +30,8 @@ pub trait Bindable {
     fn unbind(&self);
 }
 
-impl<T: GL> Program<T> {
-    fn compile_shader(gl: &T, src: &str, ty: u32) -> Result<T::Shader, ShaderError> {
+impl<GL: HasContext> Program<GL> {
+    fn compile_shader(gl: &GL, src: &str, ty: u32) -> Result<GL::Shader, ShaderError> {
         let shader;
 
         unsafe {
@@ -52,10 +52,10 @@ impl<T: GL> Program<T> {
     }
 
     pub fn compile(
-        gl: Rc<T>,
+        gl: Rc<GL>,
         vertex_shader: &str,
         fragment_shader: &str,
-    ) -> Result<Program<T>, ShaderError> {
+    ) -> Result<Program<GL>, ShaderError> {
         let gl_ = &gl;
 
         let vs = Self::compile_shader(gl_, &vertex_shader, glow::VERTEX_SHADER)?;
@@ -85,7 +85,7 @@ impl<T: GL> Program<T> {
     }
 }
 
-impl<T: GL> Drop for Program<T> {
+impl<GL: HasContext> Drop for Program<GL> {
     fn drop(&mut self) {
         let gl = &self.gl;
 
@@ -97,15 +97,15 @@ impl<T: GL> Drop for Program<T> {
     }
 }
 
-struct ProjectionUniforms<T: GL> {
-    projection: Option<T::UniformLocation>,
-    model_view: Option<T::UniformLocation>,
-    view_matrix: Option<T::UniformLocation>,
-    normal_matrix: Option<T::UniformLocation>,
+struct ProjectionUniforms<GL: HasContext> {
+    projection: Option<GL::UniformLocation>,
+    model_view: Option<GL::UniformLocation>,
+    view_matrix: Option<GL::UniformLocation>,
+    normal_matrix: Option<GL::UniformLocation>,
 }
 
-impl<T: GL> ProjectionUniforms<T> {
-    pub fn new(gl: &T, program: &Program<T>) -> ProjectionUniforms<T> {
+impl<GL: HasContext> ProjectionUniforms<GL> {
+    pub fn new(gl: &GL, program: &Program<GL>) -> ProjectionUniforms<GL> {
         unsafe {
             ProjectionUniforms {
                 projection: gl.get_uniform_location(program.program, "projection"),
@@ -116,26 +116,26 @@ impl<T: GL> ProjectionUniforms<T> {
         }
     }
 
-    pub fn bind(&self, gl: &T, projection_params: &ProjectionData, normal_matrix: Option<&[f32; 9]>) {
+    pub fn bind(&self, gl: &GL, projection_params: &ProjectionData, normal_matrix: Option<&[f32; 9]>) {
         unsafe {
             gl.uniform_matrix_4_f32_slice(
-                borrow_uniform_location::<T>(&self.projection),
+                borrow_uniform_location::<GL>(&self.projection),
                 false,
                 AsRef::<[f32; 16]>::as_ref(&projection_params.projection)
             );
             gl.uniform_matrix_4_f32_slice(
-                borrow_uniform_location::<T>(&self.model_view),
+                borrow_uniform_location::<GL>(&self.model_view),
                 false,
                 AsRef::<[f32; 16]>::as_ref(&projection_params.model_view.last().unwrap())
             );
             gl.uniform_matrix_4_f32_slice(
-                borrow_uniform_location::<T>(&self.view_matrix),
+                borrow_uniform_location::<GL>(&self.view_matrix),
                 false,
                 AsRef::<[f32; 16]>::as_ref(&projection_params.view_matrix)
             );
             if let Some(e) = normal_matrix {
                 gl.uniform_matrix_3_f32_slice(
-                    borrow_uniform_location::<T>(&self.normal_matrix),
+                    borrow_uniform_location::<GL>(&self.normal_matrix),
                     false,
                     e
                 );
@@ -144,28 +144,28 @@ impl<T: GL> ProjectionUniforms<T> {
     }
 }
 
-pub struct ShadedProgram<T: GL> {
-    program: Program<T>,
+pub struct ShadedProgram<GL: HasContext> {
+    program: Program<GL>,
 
-    projection_uniforms: ProjectionUniforms<T>,
-    uniform_color: Option<T::UniformLocation>,
-    uniform_light_color: Option<T::UniformLocation>,
-    uniform_light_direction: Option<T::UniformLocation>,
+    projection_uniforms: ProjectionUniforms<GL>,
+    uniform_color: Option<GL::UniformLocation>,
+    uniform_light_color: Option<GL::UniformLocation>,
+    uniform_light_direction: Option<GL::UniformLocation>,
 
     pub attrib_position: Option<u32>,
     pub attrib_normal: Option<u32>,
 }
 
-impl<T: GL> ShadedProgram<T> {
+impl<GL: HasContext> ShadedProgram<GL> {
     pub fn new(
-        gl: Rc<T>,
+        gl: Rc<GL>,
         vertex_shader: &str,
         fragment_shader: &str,
     ) -> Result<Self, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), &vertex_shader, &fragment_shader)?;
 
         let gl = &gl;
-        let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl, &program);
+        let projection_uniforms: ProjectionUniforms<GL> = ProjectionUniforms::new(&gl, &program);
         unsafe {
             let uniform_color = gl.get_uniform_location(program.program, "color");
             let uniform_light_color = gl.get_uniform_location(program.program, "lightColor");
@@ -197,22 +197,22 @@ impl<T: GL> ShadedProgram<T> {
         self.projection_uniforms.bind(&gl, &projection_params, Some(&normal_matrix));
         unsafe {
             gl.uniform_4_f32_slice(
-                borrow_uniform_location::<T>(&self.uniform_color),
+                borrow_uniform_location::<GL>(&self.uniform_color),
                 color
             );
             gl.uniform_4_f32_slice(
-                borrow_uniform_location::<T>(&self.uniform_light_color),
+                borrow_uniform_location::<GL>(&self.uniform_light_color),
                 AsRef::<[f32; 4]>::as_ref(&shading_params.light_color)
             );
             gl.uniform_4_f32_slice(
-                borrow_uniform_location::<T>(&self.uniform_light_direction),
+                borrow_uniform_location::<GL>(&self.uniform_light_direction),
                 AsRef::<[f32; 4]>::as_ref(&shading_params.light_direction)
             );
         }
     }
 }
 
-impl<T: GL> Bindable for ShadedProgram<T> {
+impl<GL: HasContext> Bindable for ShadedProgram<GL> {
     fn bind(&self) -> &Self {
         let gl = &self.program.gl;
         unsafe {
@@ -240,12 +240,12 @@ impl<T: GL> Bindable for ShadedProgram<T> {
     }
 }
 
-pub struct InstancedShadedProgram<T: GL> {
-    program: Program<T>,
+pub struct InstancedShadedProgram<GL: HasContext> {
+    program: Program<GL>,
 
-    projection_uniforms: ProjectionUniforms<T>,
-    uniform_light_color: Option<T::UniformLocation>,
-    uniform_light_direction: Option<T::UniformLocation>,
+    projection_uniforms: ProjectionUniforms<GL>,
+    uniform_light_color: Option<GL::UniformLocation>,
+    uniform_light_direction: Option<GL::UniformLocation>,
 
     pub attrib_position: Option<u32>,
     pub attrib_normal: Option<u32>,
@@ -254,16 +254,16 @@ pub struct InstancedShadedProgram<T: GL> {
     pub attrib_instanced_color: Option<u32>,
 }
 
-impl<T: GL> InstancedShadedProgram<T> {
+impl<GL: HasContext> InstancedShadedProgram<GL> {
     pub fn new(
-        gl: Rc<T>,
+        gl: Rc<GL>,
         vertex_shader: &str,
         fragment_shader: &str,
     ) -> Result<Self, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), &vertex_shader, &fragment_shader)?;
 
         let gl = &gl;
-        let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl, &program);
+        let projection_uniforms: ProjectionUniforms<GL> = ProjectionUniforms::new(&gl, &program);
         unsafe {
             let uniform_light_color = gl.get_uniform_location(program.program, "lightColor");
             let uniform_light_direction =
@@ -297,18 +297,18 @@ impl<T: GL> InstancedShadedProgram<T> {
         self.projection_uniforms.bind(&gl, &projection_params, None);
         unsafe {
             gl.uniform_4_f32_slice(
-                borrow_uniform_location::<T>(&self.uniform_light_color),
+                borrow_uniform_location::<GL>(&self.uniform_light_color),
                 AsRef::<[f32; 4]>::as_ref(&shading_params.light_color)
             );
             gl.uniform_4_f32_slice(
-                borrow_uniform_location::<T>(&self.uniform_light_direction),
+                borrow_uniform_location::<GL>(&self.uniform_light_direction),
                 AsRef::<[f32; 4]>::as_ref(&shading_params.light_direction)
             );
         }
     }
 }
 
-impl<T: GL> Bindable for InstancedShadedProgram<T> {
+impl<GL: HasContext> Bindable for InstancedShadedProgram<GL> {
     fn bind(&self) -> &Self {
         let gl = &self.program.gl;
         unsafe {
@@ -364,27 +364,27 @@ impl<T: GL> Bindable for InstancedShadedProgram<T> {
     }
 }
 
-pub struct EdgeProgram<T: GL> {
-    program: Program<T>,
+pub struct EdgeProgram<GL: HasContext> {
+    program: Program<GL>,
 
-    projection_uniforms: ProjectionUniforms<T>,
+    projection_uniforms: ProjectionUniforms<GL>,
 
-    pub uniform_color_default: Option<T::UniformLocation>,
-    pub uniform_color_edge: Option<T::UniformLocation>,
+    pub uniform_color_default: Option<GL::UniformLocation>,
+    pub uniform_color_edge: Option<GL::UniformLocation>,
 
     pub attrib_position: Option<u32>,
     pub attrib_colors: Option<u32>,
 }
 
-impl<T: GL> EdgeProgram<T> {
+impl<GL: HasContext> EdgeProgram<GL> {
     pub fn new(
-        gl: Rc<T>,
+        gl: Rc<GL>,
         vertex_shader: &str,
         fragment_shader: &str,
     ) -> Result<Self, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), &vertex_shader, &fragment_shader)?;
         let gl = &gl;
-        let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl, &program);
+        let projection_uniforms: ProjectionUniforms<GL> = ProjectionUniforms::new(&gl, &program);
         let uniform_color_default = unsafe { gl.get_uniform_location(program.program, "colorDefault") };
         let uniform_color_edge = unsafe { gl.get_uniform_location(program.program, "colorEdge") };
         let attrib_position = unsafe { gl.get_attrib_location(program.program, "position") };
@@ -405,7 +405,7 @@ impl<T: GL> EdgeProgram<T> {
     }
 }
 
-impl<T: GL> Bindable for EdgeProgram<T> {
+impl<GL: HasContext> Bindable for EdgeProgram<GL> {
     fn bind(&self) -> &Self {
         let gl = &self.program.gl;
         unsafe {
@@ -433,10 +433,10 @@ impl<T: GL> Bindable for EdgeProgram<T> {
     }
 }
 
-pub struct InstancedEdgeProgram<T: GL> {
-    program: Program<T>,
+pub struct InstancedEdgeProgram<GL: HasContext> {
+    program: Program<GL>,
 
-    projection_uniforms: ProjectionUniforms<T>,
+    projection_uniforms: ProjectionUniforms<GL>,
 
     pub attrib_position: Option<u32>,
     pub attrib_colors: Option<u32>,
@@ -445,15 +445,15 @@ pub struct InstancedEdgeProgram<T: GL> {
     pub attrib_instanced_model_view: Option<u32>,
 }
 
-impl<T: GL> InstancedEdgeProgram<T> {
+impl<GL: HasContext> InstancedEdgeProgram<GL> {
     pub fn new(
-        gl: Rc<T>,
+        gl: Rc<GL>,
         vertex_shader: &str,
         fragment_shader: &str,
     ) -> Result<Self, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), &vertex_shader, &fragment_shader)?;
         let gl = &gl;
-        let projection_uniforms: ProjectionUniforms<T> = ProjectionUniforms::new(&gl, &program);
+        let projection_uniforms: ProjectionUniforms<GL> = ProjectionUniforms::new(&gl, &program);
         let attrib_position = unsafe { gl.get_attrib_location(program.program, "position") };
         let attrib_colors = unsafe { gl.get_attrib_location(program.program, "color") };
         let attrib_instanced_color_default = unsafe { gl.get_attrib_location(program.program, "instancedColorDefault") };
@@ -476,7 +476,7 @@ impl<T: GL> InstancedEdgeProgram<T> {
     }
 }
 
-impl<T: GL> Bindable for InstancedEdgeProgram<T> {
+impl<GL: HasContext> Bindable for InstancedEdgeProgram<GL> {
     fn bind(&self) -> &Self {
         let gl = &self.program.gl;
         unsafe {
@@ -504,16 +504,16 @@ impl<T: GL> Bindable for InstancedEdgeProgram<T> {
     }
 }
 
-pub enum ProgramKind<'a, T: GL> {
-    Solid(&'a ShadedProgram<T>),
-    SolidFlat(&'a ShadedProgram<T>),
-    Edge(&'a EdgeProgram<T>),
-    InstancedSolid(&'a InstancedShadedProgram<T>),
-    InstancedSolidFlat(&'a InstancedShadedProgram<T>),
-    InstancedEdge(&'a InstancedEdgeProgram<T>),
+pub enum ProgramKind<'a, GL: HasContext> {
+    Solid(&'a ShadedProgram<GL>),
+    SolidFlat(&'a ShadedProgram<GL>),
+    Edge(&'a EdgeProgram<GL>),
+    InstancedSolid(&'a InstancedShadedProgram<GL>),
+    InstancedSolidFlat(&'a InstancedShadedProgram<GL>),
+    InstancedEdge(&'a InstancedEdgeProgram<GL>),
 }
 
-impl<'a, T: GL> ProgramKind<'a, T> {
+impl<'a, GL: HasContext> ProgramKind<'a, GL> {
     pub fn unbind(&self) {
         match self {
             Self::Solid(e) | Self::SolidFlat(e) => e.unbind(),
@@ -524,18 +524,18 @@ impl<'a, T: GL> ProgramKind<'a, T> {
     }
 }
 
-pub struct ProgramManager<T: GL> {
-    pub solid: ShadedProgram<T>,
-    pub solid_flat: ShadedProgram<T>,
-    pub edge: EdgeProgram<T>,
+pub struct ProgramManager<GL: HasContext> {
+    pub solid: ShadedProgram<GL>,
+    pub solid_flat: ShadedProgram<GL>,
+    pub edge: EdgeProgram<GL>,
 
-    pub instanced_solid: InstancedShadedProgram<T>,
-    pub instanced_solid_flat: InstancedShadedProgram<T>,
-    pub instanced_edge: InstancedEdgeProgram<T>,
+    pub instanced_solid: InstancedShadedProgram<GL>,
+    pub instanced_solid_flat: InstancedShadedProgram<GL>,
+    pub instanced_edge: InstancedEdgeProgram<GL>,
 }
 
-impl<T: GL> ProgramManager<T> {
-    pub fn new(gl: Rc<T>) -> Result<ProgramManager<T>, ShaderError> {
+impl<GL: HasContext> ProgramManager<GL> {
+    pub fn new(gl: Rc<GL>) -> Result<ProgramManager<GL>, ShaderError> {
         let solid_fs = str::from_utf8(include_bytes!("../shaders/default.fs")).unwrap();
         let solid_vs = str::from_utf8(include_bytes!("../shaders/default.vs")).unwrap();
         let solid_fs_with_bfc = solid_fs.replace("##IS_BFC_CERTIFIED##", "true");

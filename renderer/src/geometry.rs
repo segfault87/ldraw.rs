@@ -9,6 +9,7 @@ use std::{
 };
 
 use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
+use glow::HasContext;
 use kdtree::{
     distance::squared_euclidean,
     KdTree
@@ -18,7 +19,7 @@ use ldraw::{
     document::Document,
     elements::{BfcStatement, Command, Meta},
     library::{ResolutionMap, ResolutionResult},
-    {AliasType, Matrix4, PartAlias, Vector3, Winding}
+    AliasType, Matrix4, PartAlias, Vector3, Winding
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +31,7 @@ use crate::{
         OptionalEdgeBufferBuilder,
         PartBuffer,
     },
-    BoundingBox, GL
+    BoundingBox
 };
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
@@ -279,8 +280,8 @@ pub struct BakedPartBuilder {
 }
 
 #[derive(Debug)]
-pub struct BakedPart<T> where T: GL {
-    pub buffer: PartBuffer<T>,
+pub struct BakedPart<GL: HasContext> {
+    pub buffer: PartBuffer<GL>,
     pub index: BufferIndex,
     pub features: FeatureMap,
     pub bounding_box: BoundingBox,
@@ -307,9 +308,9 @@ impl BakedPartBuilder {
 
 impl BakedPartBuilder {
 
-    pub fn build<T: GL>(&self, gl: Rc<T>) -> BakedPart<T> {
+    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> BakedPart<GL> {
         BakedPart {
-            buffer: PartBuffer::create(Rc::clone(&gl), &self.builder),
+            buffer: self.builder.build(Rc::clone(&gl)),
             index: self.index.clone(),
             features: self.features.clone(),
             bounding_box: self.bounding_box.clone(),

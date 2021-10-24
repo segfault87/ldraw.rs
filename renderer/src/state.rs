@@ -7,13 +7,13 @@ use cgmath::{
     SquareMatrix,
     prelude::*
 };
+use glow::HasContext;
 use ldraw::{
     Matrix3, Matrix4, Vector4,
 };
 
 use crate::{
     truncate_matrix4,
-    GL,
     shader::{
         Bindable, EdgeProgram, ProgramKind, ProgramManager, ShadedProgram
     },
@@ -44,8 +44,14 @@ impl ProjectionData {
         )
     }
 
+    pub fn derive_normal_matrix(&self, m: &Matrix4) -> Matrix3 {
+        truncate_matrix4(
+            (m * self.model_view.last().unwrap()).invert().unwrap_or(Matrix4::identity()).transpose()
+        )
+    }
+
     pub fn push_model_view_matrix(&mut self, m: &Matrix4) {
-        let top = self.model_view.last().unwrap();
+        let top = self.model_view.last().unwrap().clone();
         self.model_view.push(top * m);
     }
 
@@ -70,19 +76,19 @@ impl Default for ShadingData {
     }
 }
 
-pub struct RenderingContext<'a, T: GL> {
-    gl: Rc<T>,
+pub struct RenderingContext<'a, GL: HasContext> {
+    gl: Rc<GL>,
 
-    program_manager: ProgramManager<T>,
-    bound: Option<ProgramKind<'a, T>>,
+    pub program_manager: ProgramManager<GL>,
+    pub bound: Option<ProgramKind<'a, GL>>,
 
-    projection_data: ProjectionData,
-    shading_data: ShadingData,
+    pub projection_data: ProjectionData,
+    pub shading_data: ShadingData,
 }
 
 
-impl<'a, T: GL> RenderingContext<'a, T> {
-    pub fn new(gl: Rc<T>, program_manager: ProgramManager<T>) -> Self {
+impl<'a, GL: HasContext> RenderingContext<'a, GL> {
+    pub fn new(gl: Rc<GL>, program_manager: ProgramManager<GL>) -> Self {
         RenderingContext {
             gl: Rc::clone(&gl),
             program_manager,
@@ -92,7 +98,7 @@ impl<'a, T: GL> RenderingContext<'a, T> {
         }
     }
 
-    pub fn bind_solid(&'a mut self, bfc_certified: bool) -> &'a ShadedProgram<T> {
+    pub fn bind_solid(&'a mut self, bfc_certified: bool) -> &'a ShadedProgram<GL> {
         if let Some(e) = &self.bound {
             match (e, bfc_certified) {
                 (ProgramKind::Solid(p), true) => return p,
@@ -112,7 +118,7 @@ impl<'a, T: GL> RenderingContext<'a, T> {
         }
     }
 
-    pub fn bind_edge(&'a mut self) -> &'a EdgeProgram<T> {
+    pub fn bind_edge(&'a mut self) -> &'a EdgeProgram<GL> {
         if let Some(e) = &self.bound {
             if let ProgramKind::Edge(p) = e {
                 return p;

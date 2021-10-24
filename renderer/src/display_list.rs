@@ -4,6 +4,7 @@ use std::{
     vec::Vec,
 };
 
+use glow::HasContext;
 use ldraw::{
     color::Material,
     {Matrix3, Matrix4, PartAlias, Vector4},
@@ -14,7 +15,6 @@ use crate::{
     shader::{Bindable, ProgramManager},
     state::{ProjectionData, RenderingContext, ShadingData},
     utils::cast_as_bytes,
-    GL,
 };
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -25,25 +25,27 @@ pub struct InstanceGroup {
     pub index_bound: IndexBound,
 }
 
-pub struct DisplayItem<T> where T: GL {
+pub struct DisplayItem<GL: HasContext> {
+    gl: Rc<GL>,
+
     group: InstanceGroup,
-    model: Rc<BakedPart<T>>,
+    model: Rc<BakedPart<GL>>,
     pub length: usize,
     mesh_data: Vec<f32>,
-    mesh_buffer: Option<T::Buffer>,
+    mesh_buffer: Option<GL::Buffer>,
     edge_data: Vec<f32>,
-    edge_buffer: Option<T::Buffer>,
+    edge_buffer: Option<GL::Buffer>,
     needs_update: bool,
 }
 
 pub const INSTANCE_BUFFER_MESH_SIZE: usize = 16 + 9 + 4;
 pub const INSTANCE_BUFFER_EDGE_SIZE: usize = 16 + 4 + 4;
 
-impl<T> DisplayItem<T> where T: GL {
+impl<GL: HasContext> DisplayItem<GL> {
 
-    pub fn append(&mut self, projection_params: &ProjectionParams, matrix: &Matrix4, material: &Material) -> usize {
+    pub fn append(&mut self, projection_data: &ProjectionData, matrix: &Matrix4, material: &Material) -> usize {
         self.mesh_data.extend(AsRef::<[f32; 16]>::as_ref(matrix));
-        self.mesh_data.extend(AsRef::<[f32; 9]>::as_ref(&projection_params.calculate_normal_matrix_with(matrix)));
+        self.mesh_data.extend(AsRef::<[f32; 9]>::as_ref(&projection_data.derive_normal_matrix(matrix)));
         self.mesh_data.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
         self.edge_data.extend(AsRef::<[f32; 16]>::as_ref(matrix));
         self.edge_data.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
@@ -68,11 +70,12 @@ impl<T> DisplayItem<T> where T: GL {
         Ok(())
     }
 
-    fn update_gl_buffer(&mut self, gl: Rc<T>) {
+    fn update_gl_buffer(&mut self) {
         if !self.needs_update {
             return;
         }
         
+        let gl = &self.gl;
         unsafe {
             gl.bind_buffer(glow::ARRAY_BUFFER, self.mesh_buffer);
             gl.buffer_data_u8_slice(
@@ -88,18 +91,18 @@ impl<T> DisplayItem<T> where T: GL {
         self.needs_update = false;
     }
 
-    pub fn render_single(&mut self, state: &mut RenderingState<T>) {
+    pub fn render_single(&mut self, state: &mut RenderingContext<GL>) {
+        let gl = &self.gl;
         let program = if self.group.bfc {
-            &program_manager.solid
+            &state.program_manager.solid
         } else {
-            &program_manager.solid_flat
+            &state.program_manager.solid_flat
         };
         program.bind();
-        program.bind_uniforms(projection_params, array_ref!(self.mesh_data, 16, 9), shading_params,
+        program.bind_uniforms(&state.projection_data, array_ref!(self.mesh_data, 16, 9), &state.shading_data,
                               array_ref!(self.mesh_data, 25, 4));
         self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
 
-        let gl = &self.gl;
         if self.group.semitransparent {
             unsafe { gl.enable(glow::BLEND); }
         } else {
@@ -115,15 +118,15 @@ impl<T> DisplayItem<T> where T: GL {
         program.unbind();
     }
 
-    pub fn render_instanced(&mut self, state: &mut RenderingState<T>) {
+    pub fn render_instanced(&mut self, state: &mut RenderingContext<GL>) {
+        let gl = &self.gl;
         let program = if self.group.bfc {
-            &program_manager.instanced_solid
+            &state.program_manager.instanced_solid
         } else {
-            &program_manager.instanced_solid_flat
+            &state.program_manager.instanced_solid_flat
         };
         program.bind();
 
-        let gl = &self.gl;
         if self.group.semitransparent {
             unsafe { gl.enable(glow::BLEND); }
         } else {
@@ -132,11 +135,9 @@ impl<T> DisplayItem<T> where T: GL {
 
         let index = &self.group.index_bound;
 
-        program.bind_uniforms(projection_params, shading_params);
+        program.bind_uniforms(&state.projection_data, &state.shading_data);
         self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
 
-        let gl = &self.gl;
-
         if self.group.semitransparent {
             unsafe { gl.enable(glow::BLEND); }
         } else {
@@ -144,8 +145,6 @@ impl<T> DisplayItem<T> where T: GL {
         }
 
         let index = &self.group.index_bound;
-
-        
 
         unsafe {
             gl.draw_arrays_instanced(glow::TRIANGLES, index.0 as i32, (index.1 - index.0) as i32, self.length as i32);
@@ -154,19 +153,19 @@ impl<T> DisplayItem<T> where T: GL {
         program.unbind();
     }
 
-    pub fn render(&mut self, ) {
+    pub fn render(&mut self, state: &mut RenderingContext<GL>) {
         self.update_gl_buffer();
 
         match self.length {
             0 => return,
-            1 => self.render_single(program_manager, projection_params, shading_params),
-            _ => self.render_instanced(program_manager, projection_params, shading_params),
+            1 => self.render_single(state),
+            _ => self.render_instanced(state),
         };
     }
 
 }
 
-impl<T> Drop for DisplayItem<T> where T: GL {
+impl<GL: HasContext> Drop for DisplayItem<GL> {
 
     fn drop(&mut self) {
         let gl = &self.gl;
@@ -182,16 +181,16 @@ impl<T> Drop for DisplayItem<T> where T: GL {
     
 }
 
-pub struct DisplayList<T>(HashMap<InstanceGroup, DisplayItem<T>>) where T: GL;
+pub struct DisplayList<GL: HasContext>(HashMap<InstanceGroup, DisplayItem<GL>>);
 
-impl<T> DisplayList<T> where T: GL {
+impl<GL: HasContext> DisplayList<GL> {
 
     pub fn new() -> Self {
         Self(HashMap::new())
     }
 
-    pub fn query<'a>(&'a mut self, gl: Rc<T>, part_ref: &PartAlias, model: Rc<BakedPart<T>>,
-                     bfc: bool, semitransparent: bool, index_bound: &IndexBound) -> &'a mut DisplayItem<T> {
+    pub fn query<'a>(&'a mut self, gl: Rc<GL>, part_ref: &PartAlias, model: Rc<BakedPart<GL>>,
+                     bfc: bool, semitransparent: bool, index_bound: &IndexBound) -> &'a mut DisplayItem<GL> {
         let group = InstanceGroup {
             part_ref: part_ref.clone(),
             bfc,
@@ -209,6 +208,7 @@ impl<T> DisplayList<T> where T: GL {
             };
             
             DisplayItem {
+                gl: Rc::clone(&gl),
                 group: InstanceGroup {
                     part_ref: part_ref.clone(),
                     bfc,

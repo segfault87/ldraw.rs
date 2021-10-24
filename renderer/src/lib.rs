@@ -1,5 +1,3 @@
-#![feature(trait_alias)]
-
 #[macro_use] extern crate arrayref;
 
 use glow::HasContext;
@@ -14,8 +12,6 @@ pub mod model;
 pub mod shader;
 pub mod state;
 pub mod utils;
-
-pub trait GL = HasContext;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BoundingBox {
