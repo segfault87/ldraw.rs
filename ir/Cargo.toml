@@ -1,0 +1,11 @@
+[package]
+name = "ldraw_ir"
+version = "0.1.0"
+authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+cgmath = { version = "~0.18.0", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+ldraw = { path = "../ldraw" }
+ldraw_renderer = { path = "../renderer" }
