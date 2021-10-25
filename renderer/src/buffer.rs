@@ -185,6 +185,7 @@ impl MeshBufferBuilder {
             array,
             buffer_vertices,
             buffer_normals,
+            length: self.len(),
         }
     }
 }
@@ -196,6 +197,7 @@ pub struct MeshBuffer<GL: HasContext> {
     array: Option<GL::VertexArray>,
     buffer_vertices: Option<GL::Buffer>,
     buffer_normals: Option<GL::Buffer>,
+    length: usize,
 }
 
 impl<GL: HasContext> MeshBuffer<GL> {
@@ -246,7 +248,8 @@ pub struct EdgeBuffer<GL: HasContext> {
     
     array: Option<GL::VertexArray>,
     buffer_vertices: Option<GL::Buffer>,
-    buffer_colors: Option<GL::Buffer>
+    buffer_colors: Option<GL::Buffer>,
+    length: usize,
 }
 
 impl EdgeBufferBuilder {
@@ -256,7 +259,6 @@ impl EdgeBufferBuilder {
         let buffer_vertices: Option<GL::Buffer>;
         let buffer_colors: Option<GL::Buffer>;
         unsafe {
-            //let gl = &gl;
             array = gl.create_vertex_array().ok();
             buffer_vertices = gl.create_buffer().ok();
             buffer_colors = gl.create_buffer().ok();
@@ -280,6 +282,7 @@ impl EdgeBufferBuilder {
             array,
             buffer_vertices,
             buffer_colors,
+            length: self.len(),
         }
     }
 
@@ -334,7 +337,8 @@ pub struct OptionalEdgeBuffer<GL: HasContext> {
     array: Option<GL::VertexArray>,
     buffer_vertices: Option<GL::Buffer>,
     buffer_controls: Option<GL::Buffer>,
-    buffer_colors: Option<GL::Buffer>
+    buffer_colors: Option<GL::Buffer>,
+    length: usize,
 }
 
 impl OptionalEdgeBufferBuilder {
@@ -377,6 +381,7 @@ impl OptionalEdgeBufferBuilder {
             buffer_vertices,
             buffer_controls,
             buffer_colors,
+            length: self.len(),
         }
     }
 

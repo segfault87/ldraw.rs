@@ -6,8 +6,8 @@ use std::{
 
 use glow::HasContext;
 use ldraw::{
-    color::Material,
-    {Matrix3, Matrix4, PartAlias, Vector4},
+    color::{ColorReference, Material},
+    Matrix3, Matrix4, PartAlias, Vector4,
 };
 
 use crate::{
@@ -17,16 +17,20 @@ use crate::{
     utils::cast_as_bytes,
 };
 
+pub struct DisplayItemBuilder {
+    name: PartAlias,
+    matrices: Vec<Matrix4>,
+    colors: Vec<ColorReference>,
+}
+
 pub struct DisplayItem<GL: HasContext> {
     gl: Rc<GL>,
 
-    model: Rc<BakedPart<GL>>,
-    pub length: usize,
-    mesh_data: Vec<f32>,
-    mesh_buffer: Option<GL::Buffer>,
-    edge_data: Vec<f32>,
-    edge_buffer: Option<GL::Buffer>,
-    needs_update: bool,
+    pub part: Option<Rc<BakedPart<GL>>>,
+    pub count: usize,
+    pub matrices: Vec<f32>,
+    pub colors: Vec<f32>,
+    
 }
 
 pub const INSTANCE_BUFFER_MESH_SIZE: usize = 16 + 9 + 4;
