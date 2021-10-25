@@ -154,18 +154,7 @@ impl MeshBufferBuilder {
         self.normals.push(normal.y);
         self.normals.push(normal.z);
     }
-}
 
-#[derive(Debug)]
-pub struct MeshBuffer<GL: HasContext> {
-    gl: Rc<GL>,
-    
-    array: Option<GL::VertexArray>,
-    buffer_vertices: Option<GL::Buffer>,
-    buffer_normals: Option<GL::Buffer>,
-}
-
-impl MeshBufferBuilder {
     pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> MeshBuffer<GL> {
         let array: Option<GL::VertexArray>;
         let buffer_vertices: Option<GL::Buffer>;
@@ -198,7 +187,15 @@ impl MeshBufferBuilder {
             buffer_normals,
         }
     }
+}
 
+#[derive(Debug)]
+pub struct MeshBuffer<GL: HasContext> {
+    gl: Rc<GL>,
+    
+    array: Option<GL::VertexArray>,
+    buffer_vertices: Option<GL::Buffer>,
+    buffer_normals: Option<GL::Buffer>,
 }
 
 impl<GL: HasContext> MeshBuffer<GL> {

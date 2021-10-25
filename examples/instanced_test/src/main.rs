@@ -1,219 +1,47 @@
-use std::cell::RefCell;
-use std::env;
-use std::fs::File;
-use std::io::BufReader;
-use std::path::Path;
-use std::rc::Rc;
-use std::str;
-use std::time::Instant;
-use std::vec::Vec;
-
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    env,
+    fs::File,
+    io::BufReader,
+    path::Path,
+    rc::Rc,
+    str,
+    time::Instant,
+    vec::Vec,
+};
 use cgmath::{Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3, SquareMatrix};
 use glow::{self, Context, HasContext};
-use glutin::dpi::LogicalSize;
-use glutin::{ContextBuilder, Event, EventsLoop, WindowBuilder, WindowEvent};
-use ldraw::color::{Material, MaterialRegistry};
-use ldraw::color::ColorReference;
-use ldraw::library::{
-    load_files, scan_ldraw_directory, CacheCollectionStrategy, PartCache, PartDirectoryNative,
-    ResolutionMap,
+use glutin::{
+    dpi::LogicalSize,
+    ContextBuilder, Event, EventsLoop, WindowBuilder, WindowEvent
 };
-use ldraw::parser::{parse_color_definition, parse_multipart_document};
-use ldraw::{Vector3, Vector4, Matrix3, Matrix4, PartAlias};
+use ldraw::{
+    color::{
+        ColorReference, Material, MaterialRegistry
+    },
+    library::{
+        load_files, scan_ldraw_directory,
+        CacheCollectionStrategy, PartCache, PartDirectoryNative,
+        ResolutionMap, ResolutionResult
+    },
+    parser::{parse_color_definition, parse_multipart_document},
+    Vector3, Vector4, Matrix3, Matrix4, PartAlias
+};
 use ldraw_renderer::{
+    MeshGroup,
     error::RendererError,
-    geometry::{GroupKey, PartBuilder, BakedPartBuilder, BakedPart},
-    scene::{ProjectionParams, ShadingParams},
+    geometry::{PartBuilder, BakedPartBuilder, BakedPart},
+    state::{RenderingContext},
     shader::{Bindable, ProgramManager},
 };
-
-pub struct TestRenderer<T: HasContext> {
-    gl: Rc<T>,
-
-    program_manager: ProgramManager<T>,
-
-    default_material: Material,
-
-    model: BakedPart<T>,
-
-    edge_length: i32,
-    drawing_order: Vec<GroupKey>,
-
-    center: Point3<f32>,
-    radius: f32,
-    degrees: Deg<f32>,
-
-    projection_params: ProjectionParams,
-    normal_matrix: Matrix3,
-    shading_params: ShadingParams,
-
-    time: f32,
-}
-
-impl<T: HasContext> TestRenderer<T> {
-    pub fn new(
-        builder: &BakedPartBuilder,
-        colors: &MaterialRegistry,
-        gl: Rc<T>,
-    ) -> Result<TestRenderer<T>, RendererError> {
-        let program_manager = ProgramManager::new(Rc::clone(&gl))?;
-
-        let default_material = ColorReference::resolve(7, &colors)
-            .get_material()
-            .unwrap()
-            .clone();
-
-        let gl_ = &gl;
-
-        unsafe {
-            gl_.clear_color(1.0, 1.0, 1.0, 1.0);
-            gl_.cull_face(glow::BACK);
-            gl_.enable(glow::CULL_FACE);
-            gl_.enable(glow::DEPTH_TEST);
-            gl_.enable(glow::BLEND);
-            gl_.depth_func(glow::LEQUAL);
-            gl_.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
-            gl_.line_width(1.0);
-        }
-
-        let part = builder.build(Rc::clone(&gl));
-
-        let mut drawing_order = part
-            .index
-            .0
-            .keys()
-            .map(|v| v.clone())
-            .collect::<Vec<_>>();
-        drawing_order.sort();
-
-        let center = Point3::new(0.0, 0.0, 0.0);
-        let radius = 500.0;
-        let degrees = Deg(0.0);
-
-        Ok(TestRenderer {
-            gl: Rc::clone(&gl),
-
-            program_manager,
-
-            default_material,
-
-            model: part,
-
-            edge_length: builder.builder.edges.len() as i32,
-            drawing_order,
-
-            center,
-            radius,
-            degrees,
-
-            projection_params: ProjectionParams::new(),
-            normal_matrix: Matrix3::identity(),
-            shading_params: ShadingParams::new(),
-
-            time: 0.0,
-        })
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.projection_params.projection = Matrix4::from(PerspectiveFov {
-            fovy: Rad::from(Deg(45.0)),
-            aspect: width as f32 / height as f32,
-            near: 1.0,
-            far: 100000.0,
-        });
-
-        let gl = &self.gl;
-        unsafe {
-            gl.viewport(0, 0, width as i32, height as i32);
-        }
-    }
-
-    pub fn animate(&mut self, time: f32) {
-        let delta = time - self.time;
-
-        self.projection_params.view_matrix = Matrix4::look_at(
-            Point3::new(
-                0.0 + self.center.x,
-                -self.radius / 5.0 * 2.0 + self.center.y,
-                self.radius + self.center.z,
-            ),
-            self.center,
-            Vector3::new(0.0, -1.0, 0.0),
-        );
-
-        self.degrees += Deg(delta * 60.0);
-        let rotation = Quaternion::from_angle_y(self.degrees);
-        self.projection_params.model_view = Matrix4::from(rotation);
-        self.normal_matrix = self.projection_params.calculate_normal_matrix();
-
-        self.time = time;
-    }
-
-    pub fn render(&mut self) {
-        let gl = &self.gl;
-
-        unsafe {
-            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-            gl.enable(glow::DEPTH_TEST);
-
-            for order in self.drawing_order.iter() {
-                let color = if let Some(mat) = order.color_ref.get_material() {
-                    Vector4::from(mat.color)
-                } else {
-                    Vector4::from(self.default_material.color)
-                };
-                let program = if order.bfc {
-                    &self.program_manager.solid
-                } else {
-                    &self.program_manager.solid_flat
-                };
-                program.bind();
-                program.bind_uniforms(&self.projection_params, AsRef::<[f32; 9]>::as_ref(&self.normal_matrix),
-                                      &self.shading_params, AsRef::<[f32; 4]>::as_ref(&color));
-
-                self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
-
-                if order.color_ref.is_material()
-                    && order
-                        .color_ref
-                        .get_material()
-                        .unwrap()
-                        .is_semi_transparent()
-                {
-                    gl.enable(glow::BLEND);
-                } else {
-                    gl.disable(glow::BLEND);
-                }
-
-                let index = self.model.index.0[order];
-
-                gl.draw_arrays(glow::TRIANGLES, index.0 as i32, (index.1 - index.0) as i32);
-
-                program.unbind();
-            }
-
-            gl.disable(glow::BLEND);
-            gl.disable(glow::CULL_FACE);
-
-            let program = &self.program_manager.edge;
-            program.bind();
-            program.bind_uniforms(&self.projection_params);
-            self.model.buffer.edges.bind(&program.attrib_position, &program.attrib_colors);
-
-            gl.draw_arrays(glow::LINES, 0, self.edge_length);
-
-            program.unbind();
-
-            gl.flush();
-        }
-    }
-}
 
 fn bake(
     colors: &MaterialRegistry,
     directory: Rc<RefCell<PartDirectoryNative>>,
     path: &str,
-) -> BakedPartBuilder {
+    enabled_features: &HashSet<PartAlias>,
+) -> (HashMap<PartAlias, BakedPartBuilder>, HashMap<PartAlias, BakedPartBuilder>) {
     println!("Parsing document...");
     let document =
         parse_multipart_document(&colors, &mut BufReader::new(File::open(path).unwrap())).unwrap();
@@ -235,12 +63,55 @@ fn bake(
 
     println!("Baking model...");
 
-    let mut builder =
-        PartBuilder::new(&resolution).with_feature(PartAlias::from("stud.dat"));
-    builder.traverse(&&document.body, Matrix4::identity(), true, false);
-    let model = builder.bake();
+    let mut features = HashMap::new();
+    let mut deps = HashMap::new();
+    for feature in enabled_features.iter() {
+        let mut builder = PartBuilder::new(&resolution, None);
+        let part = resolution.map.get(&feature);
+        if part.is_none() {
+            println!("Dependency {} has not been found", feature);
+            continue;
+        }
+        let part = part.unwrap();
+        let element = match part {
+            ResolutionResult::Associated(e) => {
+                e
+            }
+            _ => {
+                println!("Could not bake dependency {}", feature);
+                continue;
+            }
+        };
+        builder.traverse(&*element, Matrix4::identity(), true, false);
 
-    drop(builder);
+        features.insert(feature.clone(), builder.bake());
+
+        drop(builder);
+    }
+    for dep in document.list_dependencies() {
+        let mut builder = PartBuilder::new(&resolution, Some(&enabled_features));
+        let part = resolution.map.get(&dep);
+        if part.is_none() {
+            println!("Dependency {} has not been found", dep);
+            continue;
+        }
+        let part = part.unwrap();
+        let element = match part {
+            ResolutionResult::Associated(e) => {
+                e
+            }
+            _ => {
+                println!("Could not bake dependency {}", dep);
+                continue;
+            }
+        };
+        builder.traverse(&*element, Matrix4::identity(), true, false);
+
+        deps.insert(dep.clone(), builder.bake());
+
+        drop(builder);
+    }
+
     drop(resolution);
     drop(document);
 
@@ -251,7 +122,7 @@ fn bake(
             .collect(CacheCollectionStrategy::PartsAndPrimitives)
     );
 
-    model
+    (features, deps)
 }
 
 fn set_up_context(gl: &Context) {
@@ -267,6 +138,7 @@ fn set_up_context(gl: &Context) {
     }
 }
 
+/*
 fn main_loop(model: &BakedPartBuilder, colors: &MaterialRegistry) {
     let mut evloop = EventsLoop::new();
     let window_builder = WindowBuilder::new()
@@ -325,8 +197,18 @@ fn main_loop(model: &BakedPartBuilder, colors: &MaterialRegistry) {
         });
     }
 }
+*/
+
+fn get_features_list() -> HashSet<PartAlias> {
+    let mut features = HashSet::new();
+    features.insert(PartAlias::from(String::from("stud.dat")));
+
+    features
+}
 
 fn main() {
+    let enabled_features = get_features_list();
+
     let ldrawdir = match env::var("LDRAWDIR") {
         Ok(val) => val,
         Err(e) => panic!("{}", e),
@@ -347,7 +229,49 @@ fn main() {
         None => panic!("usage: loader [filename]"),
     };
 
-    let baked = bake(&colors, directory, &ldrpath);
+    let (features, deps) = bake(&colors, directory, &ldrpath, &enabled_features);
 
-    main_loop(&baked, &colors);
+    let mut total_bytes: usize = 0;
+    for (key, part) in features.iter() {
+        println!("Feature {}", key);
+        if part.builder.uncolored_mesh.len() > 0 {
+            total_bytes += part.builder.uncolored_mesh.len() * 3 * 4 * 2;
+            println!("  Uncolored: {}", part.builder.uncolored_mesh.len());
+        }
+        for (group, mesh) in part.builder.opaque_meshes.iter() {
+            total_bytes += mesh.len() * 3 * 4 * 2;
+            println!("  Opaque color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
+        }
+        for (group, mesh) in part.builder.semitransparent_meshes.iter() {
+            total_bytes += mesh.len() * 3 * 4 * 2;
+            println!("  Semitransparent color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
+        }
+        total_bytes += part.builder.edges.len() * 3 * 4 * 2;
+        println!("  Edges: {}", part.builder.edges.len());
+        total_bytes += part.builder.optional_edges.len() * 3 * 4 * 2;
+        println!("  Optional edges: {}", part.builder.optional_edges.len());
+    }
+    for (key, part) in deps.iter() {
+        println!("Part {}", key);
+        if part.builder.uncolored_mesh.len() > 0 {
+            total_bytes += part.builder.uncolored_mesh.len() * 3 * 4 * 2;
+            println!("  Uncolored: {}", part.builder.uncolored_mesh.len());
+        }
+        for (group, mesh) in part.builder.opaque_meshes.iter() {
+            total_bytes += mesh.len() * 3 * 4 * 2;
+            println!("  Opaque color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
+        }
+        for (group, mesh) in part.builder.semitransparent_meshes.iter() {
+            total_bytes += mesh.len() * 3 * 4 * 2;
+            println!("  Semitransparent color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
+        }
+        total_bytes += part.builder.edges.len() * 3 * 4 * 2;
+        println!("  Edges: {}", part.builder.edges.len());
+        total_bytes += part.builder.optional_edges.len() * 3 * 4 * 2;
+        println!("  Optional edges: {}", part.builder.optional_edges.len());
+    }
+
+    println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);
+
+    //main_loop(&baked, &colors);
 }

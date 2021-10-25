@@ -387,7 +387,7 @@ impl MeshBuilder {
 
 pub struct PartBuilder<'a, T> {
     resolutions: &'a ResolutionMap<'a, T>,
-    enabled_features: &'a HashSet<PartAlias>,
+    enabled_features: Option<&'a HashSet<PartAlias>>,
 
     builder: PartBufferBuilder,
     mesh_builder: MeshBuilder,
@@ -440,26 +440,24 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
                         e => e.clone(),
                     };
 
-                    if self.enabled_features.contains(&cmd.name) {
+                    if self.enabled_features.is_some() && self.enabled_features.unwrap().contains(&cmd.name) && !invert_child {
                         (*self.features.entry(cmd.name.clone()).or_insert_with(Vec::new))
                             .push((color.clone(), matrix));
-                        invert_next = false;
-                        continue;
+                    } else {
+                        match self.resolutions.get(cmd) {
+                            Some(ResolutionResult::Subpart(part)) => {
+                                self.color_stack.push(color);
+                                self.traverse(part, matrix, cull_next, invert_child);
+                                self.color_stack.pop();
+                            }
+                            Some(ResolutionResult::Associated(part)) => {
+                                self.color_stack.push(color);
+                                self.traverse(&Rc::clone(part), matrix, cull_next, invert_child);
+                                self.color_stack.pop();
+                            }
+                            _ => (),
+                        }
                     }
-
-                    match self.resolutions.get(cmd) {
-                        Some(ResolutionResult::Subpart(part)) => {
-                            self.color_stack.push(color);
-                            self.traverse(part, matrix, cull_next, invert_child);
-                            self.color_stack.pop();
-                        }
-                        Some(ResolutionResult::Associated(part)) => {
-                            self.color_stack.push(color);
-                            self.traverse(&Rc::clone(part), matrix, cull_next, invert_child);
-                            self.color_stack.pop();
-                        }
-                        _ => (),
-                    };
 
                     invert_next = false;
                 }
@@ -620,7 +618,7 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
         buffer
     }
 
-    pub fn new(resolutions: &'a ResolutionMap<T>, enabled_features: &'a HashSet<PartAlias>) -> PartBuilder<'a, T> {
+    pub fn new(resolutions: &'a ResolutionMap<T>, enabled_features: Option<&'a HashSet<PartAlias>>) -> PartBuilder<'a, T> {
         let mut mb = PartBuilder {
             resolutions,
             enabled_features,
@@ -640,7 +638,7 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
 
 pub fn bake_model<'a, T: AliasType, S: BuildHasher>(
     resolution: &ResolutionMap<'a, T>,
-    enabled_features: &HashSet<PartAlias>,
+    enabled_features: Option<&HashSet<PartAlias>>,
     document: &Document,
 ) -> BakedPartBuilder {
     let mut builder = PartBuilder::new(resolution, enabled_features);

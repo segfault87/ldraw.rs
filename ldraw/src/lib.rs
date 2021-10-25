@@ -1,7 +1,7 @@
 #![feature(trait_alias)]
 
 use std::cmp;
-use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::hash::{Hash, Hasher};
 use std::ops::BitXor;
 
@@ -72,9 +72,9 @@ impl From<&str> for PartAlias {
     }
 }
 
-impl ToString for PartAlias {
-    fn to_string(&self) -> String {
-        self.original.clone()
+impl Display for PartAlias {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        Display::fmt(&self.original, f)
     }
 }
 
