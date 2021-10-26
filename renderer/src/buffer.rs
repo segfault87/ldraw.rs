@@ -160,8 +160,6 @@ impl MeshBufferBuilder {
         let buffer_vertices: Option<GL::Buffer>;
         let buffer_normals: Option<GL::Buffer>;
         unsafe {
-            let gl = &gl;
-            
             array = gl.create_vertex_array().ok();
             buffer_vertices = gl.create_buffer().ok();
             buffer_normals = gl.create_buffer().ok();
@@ -349,7 +347,6 @@ impl OptionalEdgeBufferBuilder {
         let buffer_controls: Option<GL::Buffer>;
         let buffer_colors: Option<GL::Buffer>;
         unsafe {
-            let gl = &gl;
             array = gl.create_vertex_array().ok();
             buffer_vertices = gl.create_buffer().ok();
             buffer_controls = gl.create_buffer().ok();

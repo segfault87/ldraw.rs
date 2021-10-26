@@ -15,7 +15,7 @@ use ldraw::{
 use crate::{
     truncate_matrix4,
     shader::{
-        Bindable, EdgeProgram, ProgramKind, ProgramManager, ShadedProgram
+        ProgramManager
     },
 };
 
@@ -76,58 +76,24 @@ impl Default for ShadingData {
     }
 }
 
-pub struct RenderingContext<'a, GL: HasContext> {
+pub struct RenderingContext<GL: HasContext> {
     gl: Rc<GL>,
 
     pub program_manager: ProgramManager<GL>,
-    pub bound: Option<ProgramKind<'a, GL>>,
-
+    
     pub projection_data: ProjectionData,
     pub shading_data: ShadingData,
 }
 
 
-impl<'a, GL: HasContext> RenderingContext<'a, GL> {
+impl<GL: HasContext> RenderingContext<GL> {
     pub fn new(gl: Rc<GL>, program_manager: ProgramManager<GL>) -> Self {
         RenderingContext {
             gl: Rc::clone(&gl),
             program_manager,
-            bound: None,
             projection_data: ProjectionData::default(),
             shading_data: ShadingData::default(),
         }
     }
 
-    pub fn bind_solid(&'a mut self, bfc_certified: bool) -> &'a ShadedProgram<GL> {
-        if let Some(e) = &self.bound {
-            match (e, bfc_certified) {
-                (ProgramKind::Solid(p), true) => return p,
-                (ProgramKind::SolidFlat(p), false) => return p,
-                (_, _) => {
-                    e.unbind();
-                }
-            }
-        }
-
-        if bfc_certified {
-            self.bound = Some(ProgramKind::Solid(&self.program_manager.solid));
-            &self.program_manager.solid.bind()
-        } else {
-            self.bound = Some(ProgramKind::SolidFlat(&self.program_manager.solid_flat));
-            &self.program_manager.solid_flat.bind()
-        }
-    }
-
-    pub fn bind_edge(&'a mut self) -> &'a EdgeProgram<GL> {
-        if let Some(e) = &self.bound {
-            if let ProgramKind::Edge(p) = e {
-                return p;
-            } else {
-                e.unbind();
-            }
-        }
-
-        self.bound = Some(ProgramKind::Edge(&self.program_manager.edge));
-        &self.program_manager.edge.bind()
-    }
 }

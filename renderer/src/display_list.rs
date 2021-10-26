@@ -21,6 +21,19 @@ pub struct DisplayItemBuilder {
     name: PartAlias,
     matrices: Vec<Matrix4>,
     colors: Vec<ColorReference>,
+    
+
+}
+
+impl DisplayItemBuilder {
+    pub fn new(name: PartAlias) -> Self {
+        DisplayItemBuilder {
+            name,
+            matrices: vec![],
+            colors: vec![],
+        }
+    }
+
 }
 
 pub struct DisplayItem<GL: HasContext> {
@@ -30,6 +43,7 @@ pub struct DisplayItem<GL: HasContext> {
     pub count: usize,
     pub matrices: Vec<f32>,
     pub colors: Vec<f32>,
+    pub matrices_buffer: GL::Buffer,
     
 }
 

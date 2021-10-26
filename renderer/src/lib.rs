@@ -1,3 +1,4 @@
+#![feature(array_map)]
 #[macro_use] extern crate arrayref;
 
 use std::{
