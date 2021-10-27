@@ -138,8 +138,7 @@ fn set_up_context(gl: &Context) {
     }
 }
 
-/*
-fn main_loop(model: &BakedPartBuilder, colors: &MaterialRegistry) {
+fn main_loop(colors: &MaterialRegistry) {
     let mut evloop = EventsLoop::new();
     let window_builder = WindowBuilder::new()
         .with_title("ldraw.rs demo")
@@ -154,11 +153,13 @@ fn main_loop(model: &BakedPartBuilder, colors: &MaterialRegistry) {
 
     let gl = Rc::new(gl);
 
-    let mut app = match TestRenderer::new(model, &colors, Rc::clone(&gl)) {
-        Ok(v) => v,
-        Err(e) => panic!("{}", e),
-    };
-    let window = windowed_context.window();
+    let program_manager = ProgramManager::new(Rc::clone(&gl), 1, 0);
+    match program_manager {
+        Ok(_) => println!("Yay!"),
+        Err(e) => println!("{}", e),
+    }
+
+    /*let window = windowed_context.window();
     let size = window.get_inner_size().unwrap();
     let (w, h) = size.to_physical(window.get_hidpi_factor()).into();
     app.resize(w, h);
@@ -195,9 +196,8 @@ fn main_loop(model: &BakedPartBuilder, colors: &MaterialRegistry) {
                 }
             }
         });
-    }
+    }*/
 }
-*/
 
 fn get_features_list() -> HashSet<PartAlias> {
     let mut features = HashSet::new();
@@ -273,5 +273,5 @@ fn main() {
 
     println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);
 
-    //main_loop(&baked, &colors);
+    main_loop(&colors);
 }

@@ -104,7 +104,7 @@ impl<GL: HasContext> Program<GL> {
         }
     }
 
-    pub fn compile(
+    fn compile(
         gl: Rc<GL>,
         vertex_shader: &ShaderSource,
         fragment_shader: &ShaderSource,
@@ -203,7 +203,7 @@ impl<GL: HasContext> PointLightUniforms<GL> {
 
 }
 
-struct DefaultProgram<GL: HasContext> {
+pub struct DefaultProgram<GL: HasContext> {
     gl: Rc<GL>,
     program: Program<GL>,
 
@@ -241,7 +241,7 @@ struct DefaultProgram<GL: HasContext> {
 }
 
 impl<GL: HasContext> DefaultProgram<GL> {
-    pub fn new(
+    fn new(
         gl: Rc<GL>, vertex_shader: &ShaderSource, fragment_shader: &ShaderSource,
         num_directional_lights: usize, num_point_lights: usize
     ) -> Result<Self, ShaderError> {
@@ -288,14 +288,27 @@ impl<GL: HasContext> DefaultProgram<GL> {
         }
     }
 
-    pub fn bind(&self) {
-        let gl = &self.gl;
+    pub fn use_program(&self) {
+        unsafe {
+            self.gl.use_program(Some(self.program.program));
+        }
+    }
 
-
+    pub fn bind_projection_data(&self, projection_data: &ProjectionData) {
+        unsafe {
+            
+        }
     }
 }
 
-struct EdgeProgram<GL: HasContext> {
+#[derive(Copy, Clone)]
+pub enum DefaultProgramInstancingKind {
+    NonInstanced,
+    Instanced,
+    InstancedWithColors,
+}
+
+pub struct EdgeProgram<GL: HasContext> {
     gl: Rc<GL>,
     program: Program<GL>,
 
@@ -318,7 +331,7 @@ struct EdgeProgram<GL: HasContext> {
 }
 
 impl<GL: HasContext> EdgeProgram<GL> {
-    pub fn new(
+    fn new(
         gl: Rc<GL>, vertex_shader: &ShaderSource, fragment_shader: &ShaderSource
     ) -> Result<Self, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), vertex_shader, fragment_shader)?;
@@ -353,16 +366,16 @@ pub struct ProgramManager<GL: HasContext> {
     num_directional_lights: usize,
     num_point_lights: usize,
 
-    default: DefaultProgram<GL>,
-    default_instanced: DefaultProgram<GL>,
-    default_instanced_with_colors: DefaultProgram<GL>,
+    pub default: DefaultProgram<GL>,
+    pub default_instanced: DefaultProgram<GL>,
+    pub default_instanced_with_colors: DefaultProgram<GL>,
 
-    default_without_bfc: DefaultProgram<GL>,
-    default_without_bfc_instanced: DefaultProgram<GL>,
-    default_without_bfc_instanced_with_colors: DefaultProgram<GL>,
+    pub default_without_bfc: DefaultProgram<GL>,
+    pub default_without_bfc_instanced: DefaultProgram<GL>,
+    pub default_without_bfc_instanced_with_colors: DefaultProgram<GL>,
 
-    edge: EdgeProgram<GL>,
-    edge_instanced: EdgeProgram<GL>,
+    pub edge: EdgeProgram<GL>,
+    pub edge_instanced: EdgeProgram<GL>,
 }
 
 impl<GL: HasContext> ProgramManager<GL> {
@@ -437,6 +450,17 @@ impl<GL: HasContext> ProgramManager<GL> {
             edge,
             edge_instanced
         })
+    }
+
+    pub fn get_default_program<'a>(&'a self, instancing_kind: DefaultProgramInstancingKind, bfc: bool) -> &'a DefaultProgram<GL> {
+        match (instancing_kind, bfc) {
+            (DefaultProgramInstancingKind::NonInstanced, false) => &self.default,
+            (DefaultProgramInstancingKind::Instanced, false) => &self.default_instanced,
+            (DefaultProgramInstancingKind::InstancedWithColors, false) => &self.default_instanced_with_colors,
+            (DefaultProgramInstancingKind::NonInstanced, true) => &self.default_without_bfc,
+            (DefaultProgramInstancingKind::Instanced, true) => &self.default_without_bfc_instanced,
+            (DefaultProgramInstancingKind::InstancedWithColors, true) => &self.default_without_bfc_instanced_with_colors,
+        }
     }
 }
 

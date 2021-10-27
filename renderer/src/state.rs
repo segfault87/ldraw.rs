@@ -23,7 +23,7 @@ pub struct ProjectionData {
     pub projection: Matrix4,
     pub model_view: Vec<Matrix4>,
     pub view_matrix: Matrix4,
-    pub normal_matrix: Matrix3,
+    pub orthographic: bool,
 }
 
 impl Default for ProjectionData {
@@ -32,13 +32,13 @@ impl Default for ProjectionData {
             projection: Matrix4::identity(),
             model_view: vec![Matrix4::identity()],
             view_matrix: Matrix4::identity(),
-            normal_matrix: Matrix3::identity(),
+            orthographic: false,
         }
     }
 }
 
 impl ProjectionData {
-    pub fn update_normal_matrix(&mut self) {
+    /*pub fn update_normal_matrix(&mut self) {
         self.normal_matrix = truncate_matrix4(
             (self.view_matrix * self.model_view.last().unwrap()).invert().unwrap_or(Matrix4::identity()).transpose()
         )
@@ -48,7 +48,7 @@ impl ProjectionData {
         truncate_matrix4(
             (m * self.model_view.last().unwrap()).invert().unwrap_or(Matrix4::identity()).transpose()
         )
-    }
+    }*/
 
     pub fn push_model_view_matrix(&mut self, m: &Matrix4) {
         let top = self.model_view.last().unwrap().clone();
