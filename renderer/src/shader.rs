@@ -62,21 +62,24 @@ impl ShaderSource {
     pub fn build(&self) -> String {
         let mut buf = BufWriter::new(Vec::new());
 
-        for line in self.source.lines() {
-            writeln!(buf, "{}", line);
-            if line.starts_with("#version ") {
-                for (flag, value) in &self.flags {
-                    match value {
-                        Some(v) => {
-                            writeln!(buf, "#define {} {}", flag, v);
-                        }
-                        None => {
-                            writeln!(buf, "#define {}", flag);
-                        }
-                    };
-                }
-            }
+        if cfg!(target_arch = "wasm32") {
+            writeln!(buf, "#version 300 es");
+        } else {
+            writeln!(buf, "#version 330");
         }
+
+        for (flag, value) in &self.flags {
+            match value {
+                Some(v) => {
+                    writeln!(buf, "#define {} {}", flag, v);
+                }
+                None => {
+                    writeln!(buf, "#define {}", flag);
+                }
+            };
+        }
+
+        write!(buf, "{}", self.source);
 
         String::from_utf8(buf.into_inner().unwrap()).unwrap()
     }

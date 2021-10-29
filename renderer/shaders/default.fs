@@ -2,8 +2,6 @@
 //
 // Copyright © 2010-2021 three.js authors
 
-#version 300 es
-
 precision mediump float;
 precision highp float;
 precision highp int;

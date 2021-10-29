@@ -14,7 +14,8 @@ use cgmath::{Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3, SquareMatr
 use glow::{self, Context, HasContext};
 use glutin::{
     dpi::LogicalSize,
-    ContextBuilder, Event, EventsLoop, WindowBuilder, WindowEvent
+    ContextBuilder, Event, EventsLoop, GlProfile, GlRequest,
+    WindowBuilder, WindowEvent
 };
 use ldraw::{
     color::{
@@ -28,10 +29,12 @@ use ldraw::{
     parser::{parse_color_definition, parse_multipart_document},
     Vector3, Vector4, Matrix3, Matrix4, PartAlias
 };
-use ldraw_renderer::{
+use ldraw_ir::{
     MeshGroup,
+    part::{PartBuilder, bake_part},
+};
+use ldraw_renderer::{
     error::RendererError,
-    geometry::{PartBuilder, BakedPartBuilder, BakedPart},
     state::{RenderingContext},
     shader::{Bindable, ProgramManager},
 };
@@ -41,7 +44,7 @@ fn bake(
     directory: Rc<RefCell<PartDirectoryNative>>,
     path: &str,
     enabled_features: &HashSet<PartAlias>,
-) -> (HashMap<PartAlias, BakedPartBuilder>, HashMap<PartAlias, BakedPartBuilder>) {
+) -> (HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
     println!("Parsing document...");
     let document =
         parse_multipart_document(&colors, &mut BufReader::new(File::open(path).unwrap())).unwrap();
@@ -66,7 +69,6 @@ fn bake(
     let mut features = HashMap::new();
     let mut deps = HashMap::new();
     for feature in enabled_features.iter() {
-        let mut builder = PartBuilder::new(&resolution, None);
         let part = resolution.map.get(&feature);
         if part.is_none() {
             println!("Dependency {} has not been found", feature);
@@ -82,14 +84,9 @@ fn bake(
                 continue;
             }
         };
-        builder.traverse(&*element, Matrix4::identity(), true, false);
-
-        features.insert(feature.clone(), builder.bake());
-
-        drop(builder);
+        features.insert(feature.clone(), bake_part(&resolution, None, &element));
     }
     for dep in document.list_dependencies() {
-        let mut builder = PartBuilder::new(&resolution, Some(&enabled_features));
         let part = resolution.map.get(&dep);
         if part.is_none() {
             println!("Dependency {} has not been found", dep);
@@ -105,11 +102,7 @@ fn bake(
                 continue;
             }
         };
-        builder.traverse(&*element, Matrix4::identity(), true, false);
-
-        deps.insert(dep.clone(), builder.bake());
-
-        drop(builder);
+        deps.insert(dep.clone(), bake_part(&resolution, Some(&enabled_features), &element));
     }
 
     drop(resolution);
@@ -144,6 +137,8 @@ fn main_loop(colors: &MaterialRegistry) {
         .with_title("ldraw.rs demo")
         .with_dimensions(LogicalSize::new(1280.0, 720.0));
     let windowed_context = ContextBuilder::new()
+        .with_gl_profile(GlProfile::Core)
+        .with_gl(GlRequest::Latest)
         .with_vsync(true)
         .build_windowed(window_builder, &evloop)
         .unwrap();
@@ -234,41 +229,41 @@ fn main() {
     let mut total_bytes: usize = 0;
     for (key, part) in features.iter() {
         println!("Feature {}", key);
-        if part.builder.uncolored_mesh.len() > 0 {
-            total_bytes += part.builder.uncolored_mesh.len() * 3 * 4 * 2;
-            println!("  Uncolored: {}", part.builder.uncolored_mesh.len());
+        if part.part_builder.uncolored_mesh.len() > 0 {
+            total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
+            println!("  Uncolored: {}", part.part_builder.uncolored_mesh.len());
         }
-        for (group, mesh) in part.builder.opaque_meshes.iter() {
+        for (group, mesh) in part.part_builder.opaque_meshes.iter() {
             total_bytes += mesh.len() * 3 * 4 * 2;
             println!("  Opaque color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
         }
-        for (group, mesh) in part.builder.semitransparent_meshes.iter() {
+        for (group, mesh) in part.part_builder.semitransparent_meshes.iter() {
             total_bytes += mesh.len() * 3 * 4 * 2;
             println!("  Semitransparent color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
         }
-        total_bytes += part.builder.edges.len() * 3 * 4 * 2;
-        println!("  Edges: {}", part.builder.edges.len());
-        total_bytes += part.builder.optional_edges.len() * 3 * 4 * 2;
-        println!("  Optional edges: {}", part.builder.optional_edges.len());
+        total_bytes += part.part_builder.edges.len() * 3 * 4 * 2;
+        println!("  Edges: {}", part.part_builder.edges.len());
+        total_bytes += part.part_builder.optional_edges.len() * 3 * 4 * 2;
+        println!("  Optional edges: {}", part.part_builder.optional_edges.len());
     }
     for (key, part) in deps.iter() {
         println!("Part {}", key);
-        if part.builder.uncolored_mesh.len() > 0 {
-            total_bytes += part.builder.uncolored_mesh.len() * 3 * 4 * 2;
-            println!("  Uncolored: {}", part.builder.uncolored_mesh.len());
+        if part.part_builder.uncolored_mesh.len() > 0 {
+            total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
+            println!("  Uncolored: {}", part.part_builder.uncolored_mesh.len());
         }
-        for (group, mesh) in part.builder.opaque_meshes.iter() {
+        for (group, mesh) in part.part_builder.opaque_meshes.iter() {
             total_bytes += mesh.len() * 3 * 4 * 2;
             println!("  Opaque color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
         }
-        for (group, mesh) in part.builder.semitransparent_meshes.iter() {
+        for (group, mesh) in part.part_builder.semitransparent_meshes.iter() {
             total_bytes += mesh.len() * 3 * 4 * 2;
             println!("  Semitransparent color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
         }
-        total_bytes += part.builder.edges.len() * 3 * 4 * 2;
-        println!("  Edges: {}", part.builder.edges.len());
-        total_bytes += part.builder.optional_edges.len() * 3 * 4 * 2;
-        println!("  Optional edges: {}", part.builder.optional_edges.len());
+        total_bytes += part.part_builder.edges.len() * 3 * 4 * 2;
+        println!("  Edges: {}", part.part_builder.edges.len());
+        total_bytes += part.part_builder.optional_edges.len() * 3 * 4 * 2;
+        println!("  Optional edges: {}", part.part_builder.optional_edges.len());
     }
 
     println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);

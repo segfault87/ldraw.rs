@@ -11,7 +11,7 @@ use ldraw::{
 };
 
 use crate::{
-    geometry::{BakedPart, IndexBound},
+    part::Part,
     shader::{Bindable, ProgramManager},
     state::{ProjectionData, RenderingContext, ShadingData},
     utils::cast_as_bytes,
@@ -21,8 +21,6 @@ pub struct DisplayItemBuilder {
     name: PartAlias,
     matrices: Vec<Matrix4>,
     colors: Vec<ColorReference>,
-    
-
 }
 
 impl DisplayItemBuilder {
@@ -39,7 +37,7 @@ impl DisplayItemBuilder {
 pub struct DisplayItem<GL: HasContext> {
     gl: Rc<GL>,
 
-    pub part: Option<Rc<BakedPart<GL>>>,
+    pub part: Option<Rc<Part<GL>>>,
     pub count: usize,
     pub matrices: Vec<f32>,
     pub colors: Vec<f32>,

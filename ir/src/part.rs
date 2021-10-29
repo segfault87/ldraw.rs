@@ -1,74 +1,232 @@
 use std::{
     collections::{HashMap, HashSet},
     f32,
-    hash::{BuildHasher, Hash},
-    mem::replace,
+    hash::BuildHasher,
+    mem,
     ops::Deref,
     rc::Rc,
     vec::Vec,
 };
 
 use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
-use glow::HasContext;
 use kdtree::{
     distance::squared_euclidean,
     KdTree
 };
 use ldraw::{
-    color::{ColorReference, MaterialRegistry},
+    color::ColorReference,
     document::Document,
     elements::{BfcStatement, Command, Meta},
     library::{ResolutionMap, ResolutionResult},
-    AliasType, Matrix4, PartAlias, Vector3, Winding
+    AliasType, PartAlias, Matrix4, Vector3, Vector4, Winding
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    buffer::{
-        PartBufferBuilder,
-        EdgeBufferBuilder,
-        MeshBufferBuilder,
-        OptionalEdgeBufferBuilder,
-        PartBuffer,
-    },
-    BoundingBox,
-    MeshGroup
-};
+use crate::{BoundingBox, MeshGroup};
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct IndexBound(pub usize, pub usize);
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct BufferIndex(pub HashMap<MeshGroup, IndexBound>);
 
-impl BufferIndex {
-    pub fn new() -> BufferIndex {
-        BufferIndex(HashMap::new())
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct MeshBufferBuilder {
+    pub vertices: Vec<f32>,
+    pub normals: Vec<f32>,
+}
+
+impl MeshBufferBuilder {
+    pub fn len(&self) -> usize {
+        self.vertices.len() / 3
     }
 
-    pub fn resolve(&mut self, materials: &MaterialRegistry) {
-        let mut new = HashMap::new();
-        for (k, v) in self.0.iter() {
-            new.insert(
-                MeshGroup {
-                    color_ref: ColorReference::resolve(k.color_ref.code(), materials),
-                    bfc: k.bfc,
-                },
-                v.clone(),
-            );
-        }
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
+    }
 
-        self.0.clear();
-        self.0.extend(new);
+    pub fn add(&mut self, vertex: &Vector3, normal: &Vector3) {
+        self.vertices.push(vertex.x);
+        self.vertices.push(vertex.y);
+        self.vertices.push(vertex.z);
+        self.normals.push(normal.x);
+        self.normals.push(normal.y);
+        self.normals.push(normal.z);
     }
 }
 
-impl Default for BufferIndex {
-    fn default() -> Self {
-        Self::new()
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct EdgeBufferBuilder {
+    pub vertices: Vec<f32>,
+    pub colors: Vec<f32>,
+}
+
+impl EdgeBufferBuilder {
+    pub fn add(&mut self, vec: &Vector3, color: &ColorReference, top: &ColorReference) {
+        self.vertices.push(vec.x);
+        self.vertices.push(vec.y);
+        self.vertices.push(vec.z);
+
+        if color.is_current() {
+            if let Some(c) = top.get_material() {
+                let mv: Vector4 = c.color.into();
+                self.colors.push(mv.x);
+                self.colors.push(mv.y);
+                self.colors.push(mv.z);
+            } else {
+                self.colors.push(-1.0);
+                self.colors.push(-1.0);
+                self.colors.push(-1.0);
+            }
+        } else if color.is_complement() {
+            if let Some(c) = top.get_material() {
+                let mv: Vector4 = c.edge.into();
+                self.colors.push(mv.x);
+                self.colors.push(mv.y);
+                self.colors.push(mv.z);
+            } else {
+                self.colors.push(-2.0);
+                self.colors.push(-2.0);
+                self.colors.push(-2.0);
+            }
+        } else if let Some(c) = color.get_material() {
+            let mv: Vector4 = c.color.into();
+            self.colors.push(mv.x);
+            self.colors.push(mv.y);
+            self.colors.push(mv.z);
+        } else {
+            self.colors.push(0.0);
+            self.colors.push(0.0);
+            self.colors.push(0.0);
+        }
     }
+
+    pub fn len(&self) -> usize {
+        self.vertices.len() / 3
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct OptionalEdgeBufferBuilder {
+    pub vertices: Vec<f32>,
+    pub controls: Vec<f32>,
+    pub colors: Vec<f32>,
+}
+
+impl OptionalEdgeBufferBuilder {
+    pub fn add(&mut self, v: &Vector3, c: &Vector3, color: &ColorReference, top: &ColorReference) {
+        self.vertices.push(v.x);
+        self.vertices.push(v.y);
+        self.vertices.push(v.z);
+
+        self.controls.push(c.x);
+        self.controls.push(c.y);
+        self.controls.push(c.z);
+
+        if color.is_current() {
+            if let Some(c) = top.get_material() {
+                let mv: Vector4 = c.color.into();
+                self.colors.push(mv.x);
+                self.colors.push(mv.y);
+                self.colors.push(mv.z);
+            } else {
+                self.colors.push(-1.0);
+                self.colors.push(-1.0);
+                self.colors.push(-1.0);
+            }
+        } else if color.is_complement() {
+            if let Some(c) = top.get_material() {
+                let mv: Vector4 = c.edge.into();
+                self.colors.push(mv.x);
+                self.colors.push(mv.y);
+                self.colors.push(mv.z);
+            } else {
+                self.colors.push(-2.0);
+                self.colors.push(-2.0);
+                self.colors.push(-2.0);
+            }
+        } else if let Some(c) = color.get_material() {
+            let mv: Vector4 = c.color.into();
+            self.colors.push(mv.x);
+            self.colors.push(mv.y);
+            self.colors.push(mv.z);
+        } else {
+            self.colors.push(0.0);
+            self.colors.push(0.0);
+            self.colors.push(0.0);
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.vertices.len() / 3
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SubpartIndex {
+    pub start: usize,
+    pub span: usize,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct PartBufferBuilder {
+    pub uncolored_mesh: MeshBufferBuilder,
+    pub opaque_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
+    pub semitransparent_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
+    pub edges: EdgeBufferBuilder,
+    pub optional_edges: OptionalEdgeBufferBuilder,
+}
+
+impl PartBufferBuilder {
+    pub fn query_mesh<'a>(&'a mut self, group: &MeshGroup) -> Option<&'a mut MeshBufferBuilder> {
+        match &group.color_ref {
+            ColorReference::Current => {
+                Some(&mut self.uncolored_mesh)
+            }
+            ColorReference::Material(m) => {
+                let entry = if m.is_semi_transparent() {
+                    self.semitransparent_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
+                } else {
+                    self.opaque_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
+                };
+                Some(entry)
+            }
+            _ => None
+        }
+    }
+}
+
+pub type FeatureMap = HashMap<PartAlias, Vec<(ColorReference, Matrix4)>>;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PartBuilder {
+    pub part_builder: PartBufferBuilder,
+    pub features: FeatureMap,
+    pub bounding_box: BoundingBox,
+    pub rotation_center: Vector3,
+}
+
+impl PartBuilder {
+    pub fn new(
+        part_builder: PartBufferBuilder,
+        features: FeatureMap,
+        bounding_box: BoundingBox,
+        rotation_center: &Vector3,
+    ) -> Self {
+        PartBuilder {
+            part_builder,
+            features,
+            bounding_box,
+            rotation_center: *rotation_center,
+        }
+    }
+    
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -218,50 +376,6 @@ impl<'a> Adjacency {
     }
 }
 
-pub type FeatureMap = HashMap<PartAlias, Vec<(ColorReference, Matrix4)>>;
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BakedPartBuilder {
-    pub builder: PartBufferBuilder,
-    pub features: FeatureMap,
-    pub bounding_box: BoundingBox,
-    pub rotation_center: Vector3,
-}
-
-#[derive(Debug)]
-pub struct BakedPart<GL: HasContext> {
-    pub part: PartBuffer<GL>,
-    pub features: FeatureMap,
-    pub bounding_box: BoundingBox,
-    pub rotation_center: Vector3,
-}
-
-impl BakedPartBuilder {
-    pub fn new(
-        builder: PartBufferBuilder,
-        features: FeatureMap,
-        bounding_box: BoundingBox,
-        rotation_center: &Vector3,
-    ) -> BakedPartBuilder {
-        BakedPartBuilder {
-            builder,
-            features,
-            bounding_box,
-            rotation_center: *rotation_center,
-        }
-    }
-
-    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> BakedPart<GL> {
-        BakedPart {
-            part: self.builder.build(Rc::clone(&gl)),
-            features: self.features.clone(),
-            bounding_box: self.bounding_box.clone(),
-            rotation_center: self.rotation_center.clone(),
-        }
-    }
-    
-}
-
 #[derive(Debug)]
 struct MeshBuilder {
     pub faces: HashMap<MeshGroup, Vec<Face>>,
@@ -385,7 +499,7 @@ impl MeshBuilder {
     }
 }
 
-pub struct PartBuilder<'a, T> {
+struct PartBaker<'a, T> {
     resolutions: &'a ResolutionMap<'a, T>,
     enabled_features: Option<&'a HashSet<PartAlias>>,
 
@@ -396,7 +510,7 @@ pub struct PartBuilder<'a, T> {
     bounding_box: BoundingBox,
 }
 
-impl<'a, T: AliasType> PartBuilder<'a, T> {
+impl<'a, T: AliasType> PartBaker<'a, T> {
     pub fn traverse<D: Deref<Target = Document>>(
         &mut self,
         document: &D,
@@ -577,12 +691,12 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
         }
     }
 
-    pub fn bake(&mut self) -> BakedPartBuilder {
+    pub fn bake(&mut self) -> PartBuilder {
         let mut bounding_box = BoundingBox::zero();
         self.mesh_builder.bake(&mut self.builder, &mut bounding_box);
 
-        BakedPartBuilder::new(
-            replace(&mut self.builder, PartBufferBuilder::default()),
+        PartBuilder::new(
+            mem::replace(&mut self.builder, PartBufferBuilder::default()),
             self.features.clone(),
             bounding_box,
             &Vector3::new(0.0, 0.0, 0.0),
@@ -618,8 +732,8 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
         buffer
     }
 
-    pub fn new(resolutions: &'a ResolutionMap<T>, enabled_features: Option<&'a HashSet<PartAlias>>) -> PartBuilder<'a, T> {
-        let mut mb = PartBuilder {
+    pub fn new(resolutions: &'a ResolutionMap<T>, enabled_features: Option<&'a HashSet<PartAlias>>) -> Self {
+        let mut mb = PartBaker {
             resolutions,
             enabled_features,
 
@@ -636,13 +750,14 @@ impl<'a, T: AliasType> PartBuilder<'a, T> {
     }
 }
 
-pub fn bake_model<'a, T: AliasType, S: BuildHasher>(
+pub fn bake_part<'a, T: AliasType>(
     resolution: &ResolutionMap<'a, T>,
     enabled_features: Option<&HashSet<PartAlias>>,
     document: &Document,
-) -> BakedPartBuilder {
-    let mut builder = PartBuilder::new(resolution, enabled_features);
+) -> PartBuilder {
+    let mut baker = PartBaker::new(resolution, enabled_features);
 
-    builder.traverse(&document, Matrix4::identity(), true, false);
-    builder.bake()
+    baker.traverse(&document, Matrix4::identity(), true, false);
+    baker.bake()
 }
+

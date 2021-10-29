@@ -1,192 +1,22 @@
 use std::{
     collections::HashMap,
     rc::Rc,
-    vec::Vec,
 };
 
 use glow::HasContext;
-use ldraw::{
-    color::ColorReference,
-    {Vector3, Vector4}
+use ldraw::{Vector3};
+use ldraw_ir::{
+    part::{
+        EdgeBufferBuilder, FeatureMap, MeshBufferBuilder,
+        OptionalEdgeBufferBuilder, PartBuilder, PartBufferBuilder,
+        SubpartIndex,
+    },
+    BoundingBox, MeshGroup,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::{
-    MeshGroup,
     utils::cast_as_bytes,
 };
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct EdgeBufferBuilder {
-    pub vertices: Vec<f32>,
-    pub colors: Vec<f32>,
-}
-
-impl EdgeBufferBuilder {
-    pub fn add(&mut self, vec: &Vector3, color: &ColorReference, top: &ColorReference) {
-        self.vertices.push(vec.x);
-        self.vertices.push(vec.y);
-        self.vertices.push(vec.z);
-
-        if color.is_current() {
-            if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.color.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
-            } else {
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
-            }
-        } else if color.is_complement() {
-            if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.edge.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
-            } else {
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
-            }
-        } else if let Some(c) = color.get_material() {
-            let mv: Vector4 = c.color.into();
-            self.colors.push(mv.x);
-            self.colors.push(mv.y);
-            self.colors.push(mv.z);
-        } else {
-            self.colors.push(0.0);
-            self.colors.push(0.0);
-            self.colors.push(0.0);
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.vertices.len() / 3
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.vertices.is_empty()
-    }
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct OptionalEdgeBufferBuilder {
-    pub vertices: Vec<f32>,
-    pub controls: Vec<f32>,
-    pub colors: Vec<f32>,
-}
-
-impl OptionalEdgeBufferBuilder {
-    pub fn add(&mut self, v: &Vector3, c: &Vector3, color: &ColorReference, top: &ColorReference) {
-        self.vertices.push(v.x);
-        self.vertices.push(v.y);
-        self.vertices.push(v.z);
-
-        self.controls.push(c.x);
-        self.controls.push(c.y);
-        self.controls.push(c.z);
-
-        if color.is_current() {
-            if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.color.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
-            } else {
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
-            }
-        } else if color.is_complement() {
-            if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.edge.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
-            } else {
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
-            }
-        } else if let Some(c) = color.get_material() {
-            let mv: Vector4 = c.color.into();
-            self.colors.push(mv.x);
-            self.colors.push(mv.y);
-            self.colors.push(mv.z);
-        } else {
-            self.colors.push(0.0);
-            self.colors.push(0.0);
-            self.colors.push(0.0);
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.vertices.len() / 3
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.vertices.is_empty()
-    }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct MeshBufferBuilder {
-    pub vertices: Vec<f32>,
-    pub normals: Vec<f32>,
-}
-
-impl MeshBufferBuilder {
-    pub fn len(&self) -> usize {
-        self.vertices.len() / 3
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.vertices.is_empty()
-    }
-
-    pub fn add(&mut self, vertex: &Vector3, normal: &Vector3) {
-        self.vertices.push(vertex.x);
-        self.vertices.push(vertex.y);
-        self.vertices.push(vertex.z);
-        self.normals.push(normal.x);
-        self.normals.push(normal.y);
-        self.normals.push(normal.z);
-    }
-
-    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> MeshBuffer<GL> {
-        let array: Option<GL::VertexArray>;
-        let buffer_vertices: Option<GL::Buffer>;
-        let buffer_normals: Option<GL::Buffer>;
-        unsafe {
-            array = gl.create_vertex_array().ok();
-            buffer_vertices = gl.create_buffer().ok();
-            buffer_normals = gl.create_buffer().ok();
-            gl.bind_vertex_array(array);
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(self.vertices.as_ref()),
-                glow::STATIC_DRAW
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_normals);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(self.normals.as_ref()),
-                glow::STATIC_DRAW
-            );
-        }
-
-        MeshBuffer {
-            gl: Rc::clone(&gl),
-            array,
-            buffer_vertices,
-            buffer_normals,
-            length: self.len(),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct MeshBuffer<GL: HasContext> {
@@ -199,6 +29,38 @@ pub struct MeshBuffer<GL: HasContext> {
 }
 
 impl<GL: HasContext> MeshBuffer<GL> {
+    pub fn create(builder: &MeshBufferBuilder, gl: Rc<GL>) -> Self {
+        let array: Option<GL::VertexArray>;
+        let buffer_vertices: Option<GL::Buffer>;
+        let buffer_normals: Option<GL::Buffer>;
+        unsafe {
+            array = gl.create_vertex_array().ok();
+            buffer_vertices = gl.create_buffer().ok();
+            buffer_normals = gl.create_buffer().ok();
+            gl.bind_vertex_array(array);
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
+            gl.buffer_data_u8_slice(
+                glow::ARRAY_BUFFER,
+                cast_as_bytes(builder.vertices.as_ref()),
+                glow::STATIC_DRAW
+            );
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_normals);
+            gl.buffer_data_u8_slice(
+                glow::ARRAY_BUFFER,
+                cast_as_bytes(builder.normals.as_ref()),
+                glow::STATIC_DRAW
+            );
+        }
+
+        MeshBuffer {
+            gl: Rc::clone(&gl),
+            array,
+            buffer_vertices,
+            buffer_normals,
+            length: builder.len(),
+        }
+    }
+
     pub fn bind(&self, location_position: &Option<u32>, location_normals: &Option<u32>) {
         let gl = &self.gl;
 
@@ -250,9 +112,9 @@ pub struct EdgeBuffer<GL: HasContext> {
     length: usize,
 }
 
-impl EdgeBufferBuilder {
+impl<GL: HasContext> EdgeBuffer<GL> {
 
-    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> EdgeBuffer<GL> {
+    pub fn create(builder: &EdgeBufferBuilder, gl: Rc<GL>) -> Self {
         let array: Option<GL::VertexArray>;
         let buffer_vertices: Option<GL::Buffer>;
         let buffer_colors: Option<GL::Buffer>;
@@ -264,13 +126,13 @@ impl EdgeBufferBuilder {
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(self.vertices.as_ref()),
+                cast_as_bytes(builder.vertices.as_ref()),
                 glow::STATIC_DRAW
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(self.colors.as_ref()),
+                cast_as_bytes(builder.colors.as_ref()),
                 glow::STATIC_DRAW
             );
         }
@@ -280,13 +142,9 @@ impl EdgeBufferBuilder {
             array,
             buffer_vertices,
             buffer_colors,
-            length: self.len(),
+            length: builder.len(),
         }
     }
-
-}
-
-impl<GL: HasContext> EdgeBuffer<GL> {
 
     pub fn bind(&self, location_position: &Option<u32>, location_colors: &Option<u32>) {
         let gl = &self.gl;
@@ -339,9 +197,9 @@ pub struct OptionalEdgeBuffer<GL: HasContext> {
     length: usize,
 }
 
-impl OptionalEdgeBufferBuilder {
+impl<GL: HasContext> OptionalEdgeBuffer<GL> {
 
-    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> OptionalEdgeBuffer<GL> {
+    pub fn create(builder: &OptionalEdgeBufferBuilder, gl: Rc<GL>) -> Self {
         let array: Option<GL::VertexArray>;
         let buffer_vertices: Option<GL::Buffer>;
         let buffer_controls: Option<GL::Buffer>;
@@ -355,19 +213,19 @@ impl OptionalEdgeBufferBuilder {
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(self.vertices.as_ref()),
+                cast_as_bytes(builder.vertices.as_ref()),
                 glow::STATIC_DRAW
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(self.controls.as_ref()),
+                cast_as_bytes(builder.controls.as_ref()),
                 glow::STATIC_DRAW
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(self.colors.as_ref()),
+                cast_as_bytes(builder.colors.as_ref()),
                 glow::STATIC_DRAW
             );
         }
@@ -378,13 +236,9 @@ impl OptionalEdgeBufferBuilder {
             buffer_vertices,
             buffer_controls,
             buffer_colors,
-            length: self.len(),
+            length: builder.len(),
         }
     }
-
-}
-
-impl<GL: HasContext> OptionalEdgeBuffer<GL> {
 
     pub fn bind(&self, location_position: &Option<u32>, location_colors: &Option<u32>) {
         let gl = &self.gl;
@@ -431,55 +285,82 @@ impl<GL: HasContext> Drop for OptionalEdgeBuffer<GL> {
     
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct PartBufferBuilder {
-    pub uncolored_mesh: MeshBufferBuilder,
-    pub opaque_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
-    pub semitransparent_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
-    pub edges: EdgeBufferBuilder,
-    pub optional_edges: OptionalEdgeBufferBuilder,
-}
-
 #[derive(Debug)]
 pub struct PartBuffer<GL> where GL: HasContext {
-    pub uncolored_mesh: Option<MeshBuffer<GL>>,
-    pub opaque_meshes: HashMap<MeshGroup, MeshBuffer<GL>>,
-    pub semitransparent_meshes: HashMap<MeshGroup, MeshBuffer<GL>>,
+    pub uncolored_index: Option<SubpartIndex>,
+    pub opaque_indices: HashMap<MeshGroup, SubpartIndex>,
+    pub semitransparent_indices: HashMap<MeshGroup, SubpartIndex>,
+
+    pub mesh: MeshBuffer<GL>,
     pub edges: EdgeBuffer<GL>,
     pub optional_edges: OptionalEdgeBuffer<GL>,
 }
 
-impl PartBufferBuilder {
-    pub fn query_mesh<'a>(&'a mut self, group: &MeshGroup) -> Option<&'a mut MeshBufferBuilder> {
-        match &group.color_ref {
-            ColorReference::Current => {
-                Some(&mut self.uncolored_mesh)
-            }
-            ColorReference::Material(m) => {
-                let entry = if m.is_semi_transparent() {
-                    self.semitransparent_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
-                } else {
-                    self.opaque_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
-                };
-                Some(entry)
-            }
-            _ => None
-        }
-    }
+impl<GL: HasContext> PartBuffer<GL> {
+    pub fn create(builder: &PartBufferBuilder, gl: Rc<GL>) -> Self {
+        let mut merged = MeshBufferBuilder::default();
+        let mut opaque = HashMap::new();
+        let mut semitransparent = HashMap::new();
+        let mut ptr: usize = 0;
 
-    pub fn build<GL: HasContext>(&self, gl: Rc<GL>) -> PartBuffer<GL> {
-        let uncolored = if self.uncolored_mesh.is_empty() {
+        let uncolored_index = if builder.uncolored_mesh.is_empty() {
             None
         } else {
-            Some(self.uncolored_mesh.build(Rc::clone(&gl)))
+            merged.vertices.extend(&builder.uncolored_mesh.vertices);
+            merged.normals.extend(&builder.uncolored_mesh.normals);
+            let cur = ptr;
+            ptr += builder.uncolored_mesh.len();
+
+            Some(SubpartIndex { start: cur, span: builder.uncolored_mesh.len() })
         };
 
+        for (group, mesh) in builder.opaque_meshes.iter() {
+            merged.vertices.extend(&mesh.vertices);
+            merged.normals.extend(&mesh.normals);
+            let cur = ptr;
+            ptr += mesh.len();
+
+            opaque.insert(group.clone(), SubpartIndex { start: cur, span: mesh.len() });
+        }
+
+        for (group, mesh) in builder.semitransparent_meshes.iter() {
+            merged.vertices.extend(&mesh.vertices);
+            merged.normals.extend(&mesh.normals);
+            let cur = ptr;
+            ptr += mesh.len();
+
+            semitransparent.insert(group.clone(), SubpartIndex { start: cur, span: mesh.len() });
+        }
+
         PartBuffer {
-            uncolored_mesh: uncolored,
-            opaque_meshes: self.opaque_meshes.iter().map(|(k, v)| (k.clone(), v.build(Rc::clone(&gl)))).collect(),
-            semitransparent_meshes: self.semitransparent_meshes.iter().map(|(k, v)| (k.clone(), v.build(Rc::clone(&gl)))).collect(),
-            edges: self.edges.build(Rc::clone(&gl)),
-            optional_edges: self.optional_edges.build(Rc::clone(&gl)),
+            uncolored_index,
+            opaque_indices: opaque,
+            semitransparent_indices: semitransparent,
+
+            mesh: MeshBuffer::create(&merged, Rc::clone(&gl)),
+            edges: EdgeBuffer::create(&builder.edges, Rc::clone(&gl)),
+            optional_edges: OptionalEdgeBuffer::create(&builder.optional_edges, Rc::clone(&gl)),
         }
     }
+}
+
+#[derive(Debug)]
+pub struct Part<GL: HasContext> {
+    pub part: PartBuffer<GL>,
+    pub features: FeatureMap,
+    pub bounding_box: BoundingBox,
+    pub rotation_center: Vector3,
+}
+
+impl<GL: HasContext> Part<GL> {
+
+    pub fn create(builder: &PartBuilder, gl: Rc<GL>) -> Self {
+        Part {
+            part: PartBuffer::create(&builder.part_builder, Rc::clone(&gl)),
+            features: builder.features.clone(),
+            bounding_box: builder.bounding_box.clone(),
+            rotation_center: builder.rotation_center.clone(),
+        }
+    }
+
 }

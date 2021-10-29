@@ -50,6 +50,11 @@ impl ProjectionData {
         )
     }*/
 
+    pub fn update_projection_matrix(&mut self, proj: &Matrix4) {
+        self.projection = proj.clone();
+        self.view_matrix = proj.invert().unwrap_or(Matrix4::identity());
+    }
+
     pub fn push_model_view_matrix(&mut self, m: &Matrix4) {
         let top = self.model_view.last().unwrap().clone();
         self.model_view.push(top * m);
