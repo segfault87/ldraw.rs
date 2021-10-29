@@ -177,6 +177,7 @@ pub struct SubpartIndex {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct PartBufferBuilder {
     pub uncolored_mesh: MeshBufferBuilder,
+    pub uncolored_without_bfc_mesh: MeshBufferBuilder,
     pub opaque_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
     pub semitransparent_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
     pub edges: EdgeBufferBuilder,
@@ -185,11 +186,14 @@ pub struct PartBufferBuilder {
 
 impl PartBufferBuilder {
     pub fn query_mesh<'a>(&'a mut self, group: &MeshGroup) -> Option<&'a mut MeshBufferBuilder> {
-        match &group.color_ref {
-            ColorReference::Current => {
+        match (&group.color_ref, group.bfc) {
+            (ColorReference::Current, true) => {
                 Some(&mut self.uncolored_mesh)
             }
-            ColorReference::Material(m) => {
+            (ColorReference::Current, false) => {
+                Some(&mut self.uncolored_without_bfc_mesh)
+            }
+            (ColorReference::Material(m), _) => {
                 let entry = if m.is_semi_transparent() {
                     self.semitransparent_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
                 } else {

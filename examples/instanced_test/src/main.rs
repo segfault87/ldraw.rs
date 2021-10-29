@@ -233,6 +233,10 @@ fn main() {
             total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
             println!("  Uncolored: {}", part.part_builder.uncolored_mesh.len());
         }
+        if part.part_builder.uncolored_without_bfc_mesh.len() > 0 {
+            total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
+            println!("  Uncolored without bfc: {}", part.part_builder.uncolored_mesh.len());
+        }
         for (group, mesh) in part.part_builder.opaque_meshes.iter() {
             total_bytes += mesh.len() * 3 * 4 * 2;
             println!("  Opaque color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
@@ -251,6 +255,10 @@ fn main() {
         if part.part_builder.uncolored_mesh.len() > 0 {
             total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
             println!("  Uncolored: {}", part.part_builder.uncolored_mesh.len());
+        }
+        if part.part_builder.uncolored_without_bfc_mesh.len() > 0 {
+            total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
+            println!("  Uncolored with bfc: {}", part.part_builder.uncolored_mesh.len());
         }
         for (group, mesh) in part.part_builder.opaque_meshes.iter() {
             total_bytes += mesh.len() * 3 * 4 * 2;

@@ -288,6 +288,7 @@ impl<GL: HasContext> Drop for OptionalEdgeBuffer<GL> {
 #[derive(Debug)]
 pub struct PartBuffer<GL> where GL: HasContext {
     pub uncolored_index: Option<SubpartIndex>,
+    pub uncolored_without_bfc_index: Option<SubpartIndex>,
     pub opaque_indices: HashMap<MeshGroup, SubpartIndex>,
     pub semitransparent_indices: HashMap<MeshGroup, SubpartIndex>,
 
@@ -314,6 +315,17 @@ impl<GL: HasContext> PartBuffer<GL> {
             Some(SubpartIndex { start: cur, span: builder.uncolored_mesh.len() })
         };
 
+        let uncolored_without_bfc_index = if builder.uncolored_without_bfc_mesh.is_empty() {
+            None
+        } else {
+            merged.vertices.extend(&builder.uncolored_without_bfc_mesh.vertices);
+            merged.normals.extend(&builder.uncolored_without_bfc_mesh.normals);
+            let cur = ptr;
+            ptr += builder.uncolored_without_bfc_mesh.len();
+
+            Some(SubpartIndex { start: cur, span: builder.uncolored_without_bfc_mesh.len() })
+        };
+
         for (group, mesh) in builder.opaque_meshes.iter() {
             merged.vertices.extend(&mesh.vertices);
             merged.normals.extend(&mesh.normals);
@@ -334,6 +346,7 @@ impl<GL: HasContext> PartBuffer<GL> {
 
         PartBuffer {
             uncolored_index,
+            uncolored_without_bfc_index,
             opaque_indices: opaque,
             semitransparent_indices: semitransparent,
 
