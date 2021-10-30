@@ -12,7 +12,7 @@ use ldraw::{
 
 use crate::{
     part::Part,
-    shader::{Bindable, ProgramManager},
+    shader::{ProgramManager},
     state::{ProjectionData, RenderingContext, ShadingData},
     utils::cast_as_bytes,
 };

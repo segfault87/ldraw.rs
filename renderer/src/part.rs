@@ -292,9 +292,9 @@ pub struct PartBuffer<GL> where GL: HasContext {
     pub opaque_indices: HashMap<MeshGroup, SubpartIndex>,
     pub semitransparent_indices: HashMap<MeshGroup, SubpartIndex>,
 
-    pub mesh: MeshBuffer<GL>,
-    pub edges: EdgeBuffer<GL>,
-    pub optional_edges: OptionalEdgeBuffer<GL>,
+    pub mesh: Option<MeshBuffer<GL>>,
+    pub edges: Option<EdgeBuffer<GL>>,
+    pub optional_edges: Option<OptionalEdgeBuffer<GL>>,
 }
 
 impl<GL: HasContext> PartBuffer<GL> {
@@ -344,15 +344,30 @@ impl<GL: HasContext> PartBuffer<GL> {
             semitransparent.insert(group.clone(), SubpartIndex { start: cur, span: mesh.len() });
         }
 
+        let mesh = if merged.len() > 0 {
+            Some(MeshBuffer::create(&merged, Rc::clone(&gl)))
+        } else {
+            None
+        };
+        let edges = if builder.edges.len() > 0 {
+            Some(EdgeBuffer::create(&builder.edges, Rc::clone(&gl)))
+        } else {
+            None
+        };
+        let optional_edges = if builder.optional_edges.len() > 0 {
+            Some(OptionalEdgeBuffer::create(&builder.optional_edges, Rc::clone(&gl)))
+        } else {
+            None
+        };
+
         PartBuffer {
             uncolored_index,
             uncolored_without_bfc_index,
             opaque_indices: opaque,
             semitransparent_indices: semitransparent,
-
-            mesh: MeshBuffer::create(&merged, Rc::clone(&gl)),
-            edges: EdgeBuffer::create(&builder.edges, Rc::clone(&gl)),
-            optional_edges: OptionalEdgeBuffer::create(&builder.optional_edges, Rc::clone(&gl)),
+            mesh,
+            edges,
+            optional_edges,
         }
     }
 }

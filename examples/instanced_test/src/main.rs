@@ -35,8 +35,9 @@ use ldraw_ir::{
 };
 use ldraw_renderer::{
     error::RendererError,
+    part::Part,
     state::{RenderingContext},
-    shader::{Bindable, ProgramManager},
+    shader::{ProgramManager},
 };
 
 fn bake(
@@ -131,7 +132,56 @@ fn set_up_context(gl: &Context) {
     }
 }
 
-fn main_loop(colors: &MaterialRegistry) {
+struct App<GL: HasContext> {
+    gl: Rc<GL>,
+
+    features: HashMap<PartAlias, Part<GL>>,
+    parts: HashMap<PartAlias, Part<GL>>,
+
+    context: RenderingContext<GL>,
+}
+
+impl<GL: HasContext> App<GL> {
+
+    fn new(
+        gl: Rc<GL>,
+        features: HashMap<PartAlias, Part<GL>>, parts: HashMap<PartAlias, Part<GL>>,
+        program_manager: ProgramManager<GL>
+    ) -> Self {
+        App {
+            gl: Rc::clone(&gl),
+            features,
+            parts,
+            context: RenderingContext::new(gl, program_manager)
+        }
+    }
+
+    fn set_up(&self) {
+        self.context.set_initial_state();
+        self.context.update_shading_data();
+    }
+
+    fn animate(&mut self, time: f32) {
+        self.context.update_projection_data();
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        self.context.resize(width, height);
+    }
+
+    fn render(&self) {
+        let gl = &self.gl;
+
+        unsafe {
+            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+
+            gl.flush();
+        }
+    }
+
+}
+
+fn main_loop(colors: &MaterialRegistry, features: HashMap<PartAlias, PartBuilder>, parts: HashMap<PartAlias, PartBuilder>) {
     let mut evloop = EventsLoop::new();
     let window_builder = WindowBuilder::new()
         .with_title("ldraw.rs demo")
@@ -144,34 +194,29 @@ fn main_loop(colors: &MaterialRegistry) {
         .unwrap();
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
     let gl = unsafe { Context::from_loader_function(|s| windowed_context.get_proc_address(s) as *const _) };
-    set_up_context(&gl);
-
     let gl = Rc::new(gl);
 
-    let program_manager = ProgramManager::new(Rc::clone(&gl), 1, 0);
-    match program_manager {
-        Ok(_) => println!("Yay!"),
-        Err(e) => println!("{}", e),
-    }
+    let program_manager = match ProgramManager::new(Rc::clone(&gl), 1, 0) {
+        Ok(e) => e,
+        Err(e) => panic!("{}", e),
+    };
 
-    /*let window = windowed_context.window();
+    let features = features.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
+    let parts = parts.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
+
+    let mut app = App::new(Rc::clone(&gl), features, parts, program_manager);
+
+    let window = windowed_context.window();
     let size = window.get_inner_size().unwrap();
     let (w, h) = size.to_physical(window.get_hidpi_factor()).into();
     app.resize(w, h);
 
-    println!("Bounding box: {:?}", model.bounding_box);
-
     let mut closed = false;
     let started = Instant::now();
+    app.set_up();
     while !closed {
-        set_up_context(&*gl);
-
         app.animate(started.elapsed().as_millis() as f32 / 1000.0);
         app.render();
-
-        unsafe {
-            (*gl).flush();
-        }
 
         windowed_context.swap_buffers().unwrap();
 
@@ -184,14 +229,31 @@ fn main_loop(colors: &MaterialRegistry) {
                     WindowEvent::Resized(size) => {
                         let physical = size.to_physical(window.get_hidpi_factor());
                         windowed_context.resize(physical);
-                        let (w, h) = physical.into();
+                        let (w, h): (u32, u32) = physical.into();
                         app.resize(w, h);
                     }
                     _ => (),
                 }
             }
         });
-    }*/
+    }
+}
+
+fn get_part_size(part: &PartBuilder) -> usize {
+    let mut bytes = 0;
+
+    bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
+    bytes += part.part_builder.uncolored_without_bfc_mesh.len() * 3 * 4 * 2;
+    for (group, mesh) in part.part_builder.opaque_meshes.iter() {
+        bytes += mesh.len() * 3 * 4 * 2;
+    }
+    for (group, mesh) in part.part_builder.semitransparent_meshes.iter() {
+        bytes += mesh.len() * 3 * 4 * 2;
+    }
+    bytes += part.part_builder.edges.len() * 3 * 4 * 2;
+    bytes += part.part_builder.optional_edges.len() * 3 * 4 * 2;
+
+    bytes
 }
 
 fn get_features_list() -> HashSet<PartAlias> {
@@ -227,54 +289,14 @@ fn main() {
     let (features, deps) = bake(&colors, directory, &ldrpath, &enabled_features);
 
     let mut total_bytes: usize = 0;
-    for (key, part) in features.iter() {
-        println!("Feature {}", key);
-        if part.part_builder.uncolored_mesh.len() > 0 {
-            total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
-            println!("  Uncolored: {}", part.part_builder.uncolored_mesh.len());
-        }
-        if part.part_builder.uncolored_without_bfc_mesh.len() > 0 {
-            total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
-            println!("  Uncolored without bfc: {}", part.part_builder.uncolored_mesh.len());
-        }
-        for (group, mesh) in part.part_builder.opaque_meshes.iter() {
-            total_bytes += mesh.len() * 3 * 4 * 2;
-            println!("  Opaque color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
-        }
-        for (group, mesh) in part.part_builder.semitransparent_meshes.iter() {
-            total_bytes += mesh.len() * 3 * 4 * 2;
-            println!("  Semitransparent color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
-        }
-        total_bytes += part.part_builder.edges.len() * 3 * 4 * 2;
-        println!("  Edges: {}", part.part_builder.edges.len());
-        total_bytes += part.part_builder.optional_edges.len() * 3 * 4 * 2;
-        println!("  Optional edges: {}", part.part_builder.optional_edges.len());
+    for (_, part) in features.iter() {
+        total_bytes += get_part_size(&part);
     }
-    for (key, part) in deps.iter() {
-        println!("Part {}", key);
-        if part.part_builder.uncolored_mesh.len() > 0 {
-            total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
-            println!("  Uncolored: {}", part.part_builder.uncolored_mesh.len());
-        }
-        if part.part_builder.uncolored_without_bfc_mesh.len() > 0 {
-            total_bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
-            println!("  Uncolored with bfc: {}", part.part_builder.uncolored_mesh.len());
-        }
-        for (group, mesh) in part.part_builder.opaque_meshes.iter() {
-            total_bytes += mesh.len() * 3 * 4 * 2;
-            println!("  Opaque color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
-        }
-        for (group, mesh) in part.part_builder.semitransparent_meshes.iter() {
-            total_bytes += mesh.len() * 3 * 4 * 2;
-            println!("  Semitransparent color {} / bfc {}: {}", group.color_ref.code(), group.bfc, mesh.len());
-        }
-        total_bytes += part.part_builder.edges.len() * 3 * 4 * 2;
-        println!("  Edges: {}", part.part_builder.edges.len());
-        total_bytes += part.part_builder.optional_edges.len() * 3 * 4 * 2;
-        println!("  Optional edges: {}", part.part_builder.optional_edges.len());
+    for (_, part) in deps.iter() {
+        total_bytes += get_part_size(&part);
     }
 
     println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);
 
-    main_loop(&colors);
+    main_loop(&colors, features, deps);
 }

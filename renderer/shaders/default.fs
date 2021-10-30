@@ -53,7 +53,6 @@ out vec4 fragColor;
     uniform vec3 lightProbe[9];
     
     uniform mat4 viewMatrix;
-    uniform vec3 cameraPosition;
     uniform bool isOrthographic;
 
     vec4 LinearTosRGB( in vec4 value ) {

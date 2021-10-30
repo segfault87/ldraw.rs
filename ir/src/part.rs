@@ -27,7 +27,6 @@ use crate::{BoundingBox, MeshGroup};
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
 
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MeshBufferBuilder {
     pub vertices: Vec<f32>,

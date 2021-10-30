@@ -23,18 +23,6 @@ struct Program<GL: HasContext> {
     program: GL::Program,
 }
 
-fn borrow_uniform_location<GL: HasContext>(e: &Option<GL::UniformLocation>) -> Option<&GL::UniformLocation> {
-    match e {
-        Some(e) => Some(&e),
-        None => None,
-    }
-}
-
-pub trait Bindable {
-    fn bind(&self) -> &Self;
-    fn unbind(&self);
-}
-
 #[derive(Clone)]
 struct ShaderSource {
     source: String,
@@ -216,7 +204,6 @@ pub struct DefaultProgram<GL: HasContext> {
 
     // Projection for shading
     view_matrix: Option<GL::UniformLocation>,
-    camera_position: Option<GL::UniformLocation>,
     is_orthographic: Option<GL::UniformLocation>,
 
     // Instancing
@@ -261,7 +248,6 @@ impl<GL: HasContext> DefaultProgram<GL> {
                 model_view: gl.get_uniform_location(program.program, "modelView"),
 
                 view_matrix: gl.get_uniform_location(program.program, "viewMatrix"),
-                camera_position: gl.get_uniform_location(program.program, "cameraPosition"),
                 is_orthographic: gl.get_uniform_location(program.program, "isOrthographic"),
 
                 instanced_model_view: gl.get_attrib_location(program.program, "instancedModelView"),
@@ -298,8 +284,94 @@ impl<GL: HasContext> DefaultProgram<GL> {
     }
 
     pub fn bind_projection_data(&self, projection_data: &ProjectionData) {
+        let gl = &self.gl;
         unsafe {
-            
+            gl.uniform_matrix_4_f32_slice(
+                self.projection.as_ref(),
+                false,
+                AsRef::<[f32; 16]>::as_ref(&projection_data.projection)
+            );
+            gl.uniform_matrix_4_f32_slice(
+                self.model_view.as_ref(),
+                false,
+                AsRef::<[f32; 16]>::as_ref(&projection_data.model_view.last().unwrap())
+            );
+            gl.uniform_matrix_4_f32_slice(
+                self.view_matrix.as_ref(),
+                false,
+                AsRef::<[f32; 16]>::as_ref(&projection_data.view_matrix)
+            );
+            gl.uniform_1_i32(
+                self.is_orthographic.as_ref(),
+                if projection_data.orthographic { 1 } else { 0 }
+            );
+        }
+    }
+
+    pub fn bind_shading_data(&self, shading_data: &ShadingData) {
+        let gl = &self.gl;
+        unsafe {
+            // Shading
+            gl.uniform_3_f32_slice(
+                self.diffuse.as_ref(),
+                AsRef::<[f32; 3]>::as_ref(&shading_data.diffuse)
+            );
+            gl.uniform_3_f32_slice(
+                self.emissive.as_ref(),
+                AsRef::<[f32; 3]>::as_ref(&shading_data.emissive)
+            );
+            gl.uniform_3_f32_slice(
+                self.specular.as_ref(),
+                AsRef::<[f32; 3]>::as_ref(&shading_data.specular)
+            );
+            gl.uniform_1_f32(
+                self.shininess.as_ref(),
+                shading_data.shininess
+            );
+            gl.uniform_1_f32(
+                self.opacity.as_ref(),
+                shading_data.opacity
+            );
+            gl.uniform_3_f32_slice(
+                self.ambient_light_color.as_ref(),
+                AsRef::<[f32; 3]>::as_ref(&shading_data.ambient_light_color)
+            );
+            for i in 0..9 {
+                gl.uniform_3_f32_slice(
+                    self.light_probe[i].as_ref(),
+                    AsRef::<[f32; 3]>::as_ref(&shading_data.light_probe[i])
+                );
+            }
+
+            // Lighting
+            for (shader, data) in self.directional_lights.iter().zip(&shading_data.directional_lights) {
+                gl.uniform_3_f32_slice(
+                    shader.direction.as_ref(),
+                    AsRef::<[f32; 3]>::as_ref(&data.direction)
+                );
+                gl.uniform_3_f32_slice(
+                    shader.color.as_ref(),
+                    AsRef::<[f32; 3]>::as_ref(&data.color)
+                );
+            }
+            for (shader, data) in self.point_lights.iter().zip(&shading_data.point_lights) {
+                gl.uniform_3_f32_slice(
+                    shader.position.as_ref(),
+                    AsRef::<[f32; 3]>::as_ref(&data.position)
+                );
+                gl.uniform_3_f32_slice(
+                    shader.color.as_ref(),
+                    AsRef::<[f32; 3]>::as_ref(&data.color)
+                );
+                gl.uniform_1_f32(
+                    shader.distance.as_ref(),
+                    data.distance
+                );
+                gl.uniform_1_f32(
+                    shader.decay.as_ref(),
+                    data.decay
+                );
+            }
         }
     }
 }
@@ -363,11 +435,47 @@ impl<GL: HasContext> EdgeProgram<GL> {
             })
         }
     }
+
+    pub fn use_program(&self) {
+        unsafe {
+            self.gl.use_program(Some(self.program.program));
+        }
+    }
+
+    pub fn bind_projection_data(&self, projection_data: &ProjectionData) {
+        let gl = &self.gl;
+        unsafe {
+            gl.uniform_matrix_4_f32_slice(
+                self.projection.as_ref(),
+                false,
+                AsRef::<[f32; 16]>::as_ref(&projection_data.projection)
+            );
+            gl.uniform_matrix_4_f32_slice(
+                self.model_view.as_ref(),
+                false,
+                AsRef::<[f32; 16]>::as_ref(&projection_data.model_view.last().unwrap())
+            );
+        }
+    }
+
+    pub fn bind_non_instanced_properties(&self, color: &Vector4, edge_color: &Vector4) {
+        let gl = &self.gl;
+        unsafe {
+            gl.uniform_4_f32_slice(
+                self.default_color.as_ref(),
+                AsRef::<[f32; 4]>::as_ref(&color)
+            );
+            gl.uniform_4_f32_slice(
+                self.edge_color.as_ref(),
+                AsRef::<[f32; 4]>::as_ref(&edge_color)
+            );
+        }
+    }
 }
 
 pub struct ProgramManager<GL: HasContext> {
-    num_directional_lights: usize,
-    num_point_lights: usize,
+    pub num_directional_lights: usize,
+    pub num_point_lights: usize,
 
     pub default: DefaultProgram<GL>,
     pub default_instanced: DefaultProgram<GL>,
@@ -464,6 +572,23 @@ impl<GL: HasContext> ProgramManager<GL> {
             (DefaultProgramInstancingKind::Instanced, true) => &self.default_without_bfc_instanced,
             (DefaultProgramInstancingKind::InstancedWithColors, true) => &self.default_without_bfc_instanced_with_colors,
         }
+    }
+
+    pub fn bind_projection_data(&self, projection_data: &ProjectionData) {
+        self.default.bind_projection_data(&projection_data);
+        self.default_instanced.bind_projection_data(&projection_data);
+        self.default_instanced_with_colors.bind_projection_data(&projection_data);
+        self.default_without_bfc.bind_projection_data(&projection_data);
+        self.default_without_bfc_instanced.bind_projection_data(&projection_data);
+        self.default_without_bfc_instanced_with_colors.bind_projection_data(&projection_data);
+        self.edge.bind_projection_data(&projection_data);
+        self.edge_instanced.bind_projection_data(&projection_data);
+    }
+
+    pub fn bind_shading_data(&self, shading_data: &ShadingData) {
+        self.default.bind_shading_data(&shading_data);
+        self.default_instanced.bind_shading_data(&shading_data);
+        self.default_instanced_with_colors.bind_shading_data(&shading_data);
     }
 }
 
