@@ -21,6 +21,7 @@ use ldraw::{
     color::{
         ColorReference, Material, MaterialRegistry
     },
+    document::MultipartDocument,
     library::{
         load_files, scan_ldraw_directory,
         CacheCollectionStrategy, PartCache, PartDirectoryNative,
@@ -34,6 +35,7 @@ use ldraw_ir::{
     part::{PartBuilder, bake_part},
 };
 use ldraw_renderer::{
+    display_list::DisplayList,
     error::RendererError,
     part::Part,
     state::{RenderingContext},
@@ -45,7 +47,7 @@ fn bake(
     directory: Rc<RefCell<PartDirectoryNative>>,
     path: &str,
     enabled_features: &HashSet<PartAlias>,
-) -> (HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
+) -> (MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
     println!("Parsing document...");
     let document =
         parse_multipart_document(&colors, &mut BufReader::new(File::open(path).unwrap())).unwrap();
@@ -107,7 +109,6 @@ fn bake(
     }
 
     drop(resolution);
-    drop(document);
 
     println!(
         "Collected {} entries",
@@ -116,7 +117,7 @@ fn bake(
             .collect(CacheCollectionStrategy::PartsAndPrimitives)
     );
 
-    (features, deps)
+    (document, features, deps)
 }
 
 fn set_up_context(gl: &Context) {
@@ -139,41 +140,48 @@ struct App<GL: HasContext> {
     parts: HashMap<PartAlias, Part<GL>>,
 
     context: RenderingContext<GL>,
+    display_list: DisplayList<GL>,
 }
 
 impl<GL: HasContext> App<GL> {
 
     fn new(
         gl: Rc<GL>,
-        features: HashMap<PartAlias, Part<GL>>, parts: HashMap<PartAlias, Part<GL>>,
+        display_list: DisplayList<GL>,
+        features: HashMap<PartAlias, Part<GL>>,
+        parts: HashMap<PartAlias, Part<GL>>,
         program_manager: ProgramManager<GL>
     ) -> Self {
         App {
             gl: Rc::clone(&gl),
             features,
             parts,
-            context: RenderingContext::new(gl, program_manager)
+            context: RenderingContext::new(gl, program_manager),
+            display_list,
         }
     }
 
     fn set_up(&self) {
         self.context.set_initial_state();
-        self.context.update_shading_data();
+        self.context.upload_shading_data();
     }
 
     fn animate(&mut self, time: f32) {
-        self.context.update_projection_data();
+        self.context.camera.position.x = time.sin() * 300.0;
+        self.context.update_camera();
     }
 
     fn resize(&mut self, width: u32, height: u32) {
         self.context.resize(width, height);
     }
 
-    fn render(&self) {
+    fn render(&mut self) {
         let gl = &self.gl;
 
         unsafe {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+
+            self.context.render_display_list(&self.parts, &mut self.display_list);
 
             gl.flush();
         }
@@ -181,7 +189,12 @@ impl<GL: HasContext> App<GL> {
 
 }
 
-fn main_loop(colors: &MaterialRegistry, features: HashMap<PartAlias, PartBuilder>, parts: HashMap<PartAlias, PartBuilder>) {
+fn main_loop(
+    document: MultipartDocument,
+    colors: &MaterialRegistry,
+    features: HashMap<PartAlias, PartBuilder>,
+    parts: HashMap<PartAlias, PartBuilder>
+) {
     let mut evloop = EventsLoop::new();
     let window_builder = WindowBuilder::new()
         .with_title("ldraw.rs demo")
@@ -203,8 +216,15 @@ fn main_loop(colors: &MaterialRegistry, features: HashMap<PartAlias, PartBuilder
 
     let features = features.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
     let parts = parts.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
+    let display_list = DisplayList::from_multipart_document(Rc::clone(&gl), &document);
 
-    let mut app = App::new(Rc::clone(&gl), features, parts, program_manager);
+    for (k, v) in display_list.map.iter() {
+        println!("{}:", k);
+        println!("  Opaque: {}", v.opaque.count);
+        println!("  Semitransparent: {}", v.semitransparent.count);
+    }
+
+    let mut app = App::new(Rc::clone(&gl), display_list, features, parts, program_manager);
 
     let window = windowed_context.window();
     let size = window.get_inner_size().unwrap();
@@ -286,7 +306,7 @@ fn main() {
         None => panic!("usage: loader [filename]"),
     };
 
-    let (features, deps) = bake(&colors, directory, &ldrpath, &enabled_features);
+    let (doc, features, deps) = bake(&colors, directory, &ldrpath, &enabled_features);
 
     let mut total_bytes: usize = 0;
     for (_, part) in features.iter() {
@@ -298,5 +318,5 @@ fn main() {
 
     println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);
 
-    main_loop(&colors, features, deps);
+    main_loop(doc, &colors, features, deps);
 }

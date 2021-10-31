@@ -1,5 +1,4 @@
 use std::{
-    convert::TryInto,
     fmt::{Write as FmtWrite},
     io::{BufWriter, Write as IoWrite},
     rc::Rc,
@@ -7,11 +6,13 @@ use std::{
 };
 
 use glow::HasContext;
-use ldraw::{Matrix3, Matrix4, Vector4};
+use ldraw::{Matrix3, Vector4};
 
 use crate::{
+    display_list::InstanceBuffer,
     error::ShaderError,
     state::{ProjectionData, ShadingData},
+    part::MeshBuffer,
 };
 
 #[derive(Debug)]
@@ -21,6 +22,14 @@ struct Program<GL: HasContext> {
     vertex_shader: GL::Shader,
     fragment_shader: GL::Shader,
     program: GL::Program,
+}
+
+impl<GL: HasContext> Program<GL> {
+    fn use_program(&self) {
+        unsafe {
+            self.gl.use_program(Some(self.program));
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -159,7 +168,6 @@ impl<GL: HasContext> DirectionalLightUniforms<GL> {
             }
         }
     }
-
 }
 
 struct PointLightUniforms<GL: HasContext> {
@@ -191,7 +199,6 @@ impl<GL: HasContext> PointLightUniforms<GL> {
             }
         }
     }
-
 }
 
 pub struct DefaultProgram<GL: HasContext> {
@@ -201,6 +208,10 @@ pub struct DefaultProgram<GL: HasContext> {
     // Basic projection
     projection: Option<GL::UniformLocation>,
     model_view: Option<GL::UniformLocation>,
+
+    // Geometry
+    position: Option<u32>,
+    normal: Option<u32>,
 
     // Projection for shading
     view_matrix: Option<GL::UniformLocation>,
@@ -215,6 +226,7 @@ pub struct DefaultProgram<GL: HasContext> {
 
     // Non-instancing
     normal_matrix: Option<GL::UniformLocation>,
+    color: Option<GL::UniformLocation>,
 
     // Materials
     diffuse: Option<GL::UniformLocation>,
@@ -228,6 +240,136 @@ pub struct DefaultProgram<GL: HasContext> {
     point_lights: Vec<PointLightUniforms<GL>>,
     ambient_light_color: Option<GL::UniformLocation>,
     light_probe: [Option<GL::UniformLocation>; 9],
+}
+
+pub struct DefaultProgramBinder<'a, GL: HasContext> {
+    gl: Rc<GL>,
+    program: &'a DefaultProgram<GL>,
+}
+
+impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
+    fn new(program: &'a DefaultProgram<GL>) -> Self {
+        program.program.use_program();
+
+        DefaultProgramBinder {
+            gl: Rc::clone(&program.gl),
+            program: &program
+        }
+    }
+
+    pub fn bind_geometry_data(&self, mesh: &MeshBuffer<GL>) -> bool {
+        let gl = &self.gl;
+        if mesh.buffer_vertices.is_some() && mesh.buffer_normals.is_some() {
+            unsafe {
+                gl.bind_vertex_array(mesh.array);
+
+                gl.bind_buffer(glow::ARRAY_BUFFER, mesh.buffer_vertices);
+                gl.vertex_attrib_pointer_f32(self.program.position.unwrap(), 3, glow::FLOAT, false, 0, 0);
+                gl.enable_vertex_attrib_array(self.program.position.unwrap());
+
+                gl.bind_buffer(glow::ARRAY_BUFFER, mesh.buffer_normals);
+                gl.vertex_attrib_pointer_f32(self.program.normal.unwrap(), 3, glow::FLOAT, false, 0, 0);
+                gl.enable_vertex_attrib_array(self.program.normal.unwrap());
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn bind_instanced_geometry_data(&self, instance_buffer: &mut InstanceBuffer<GL>) {
+        let gl = &self.gl;
+
+        instance_buffer.update_buffer(&gl);
+        if self.program.instanced_model_view.is_some() && self.program.instanced_normal_matrix.is_some() {
+            let instanced_model_view = self.program.instanced_model_view.unwrap();
+            let instanced_normal_matrix = self.program.instanced_normal_matrix.unwrap();
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, instance_buffer.model_view_matrices_buffer);
+                for i in 0..4 {
+                    gl.vertex_attrib_pointer_f32(instanced_model_view + i, 4, glow::FLOAT, false, 4 * 16, (16 * i) as i32);
+                    gl.enable_vertex_attrib_array(instanced_model_view + i);
+                    gl.vertex_attrib_divisor(instanced_model_view + i, 1);
+                }
+                gl.bind_buffer(glow::ARRAY_BUFFER, instance_buffer.normal_matrices_buffer);
+                for i in 0..3 {
+                    gl.vertex_attrib_pointer_f32(instanced_normal_matrix + i, 4, glow::FLOAT, false, 3 * 16, (16 * i) as i32);
+                    gl.enable_vertex_attrib_array(instanced_normal_matrix + i);
+                    gl.vertex_attrib_divisor(instanced_normal_matrix + i, 1);
+                }
+            }
+
+        }
+    }
+
+    pub fn bind_non_instanced_data(&self, normal_matrix: &Matrix3, color: &Vector4) {
+        let gl = &self.gl;
+
+        unsafe {
+            gl.uniform_matrix_4_f32_slice(
+                self.program.normal_matrix.as_ref(),
+                false,
+                AsRef::<[f32; 9]>::as_ref(&normal_matrix)
+            );
+        }
+
+        self.bind_non_instanced_color_data(&color);
+    }
+
+    pub fn bind_non_instanced_color_data(&self, color: &Vector4) {
+        let gl = &self.gl;
+
+        unsafe {
+            gl.uniform_4_f32_slice(
+                self.program.color.as_ref(),
+                AsRef::<[f32; 4]>::as_ref(&color)
+            )
+        }
+    }
+
+    pub fn bind_instanced_color_data(&self, instance_buffer: &mut InstanceBuffer<GL>) {
+        let gl = &self.gl;
+
+        instance_buffer.update_buffer(&gl);
+        if self.program.instanced_color.is_some() && self.program.instanced_color.is_some() {
+            let instanced_color = self.program.instanced_color.unwrap();
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, instance_buffer.color_buffer);
+                gl.vertex_attrib_pointer_f32(instanced_color, 4, glow::FLOAT, false, 0, 0);
+                gl.enable_vertex_attrib_array(instanced_color);
+                gl.vertex_attrib_divisor(instanced_color, 1);
+            }
+        }
+    }
+}
+
+impl<'a, GL: HasContext> Drop for DefaultProgramBinder<'a, GL> {
+    fn drop(&mut self) {
+        let gl = &self.gl;
+
+        unsafe {
+            if let Some(a) = self.program.position {
+                gl.disable_vertex_attrib_array(a);
+            }
+            if let Some(a) = self.program.normal {
+                gl.disable_vertex_attrib_array(a);
+            }
+            if let Some(a) = self.program.instanced_model_view {
+                gl.disable_vertex_attrib_array(a);
+                gl.disable_vertex_attrib_array(a + 1);
+                gl.disable_vertex_attrib_array(a + 2);
+                gl.disable_vertex_attrib_array(a + 3);
+            }
+            if let Some(a) = self.program.instanced_normal_matrix {
+                gl.disable_vertex_attrib_array(a);
+                gl.disable_vertex_attrib_array(a + 1);
+                gl.disable_vertex_attrib_array(a + 2);
+            }
+            if let Some(a) = self.program.instanced_color {
+                gl.disable_vertex_attrib_array(a);
+            }
+        }
+    }
 }
 
 impl<GL: HasContext> DefaultProgram<GL> {
@@ -247,6 +389,9 @@ impl<GL: HasContext> DefaultProgram<GL> {
                 projection: gl.get_uniform_location(program.program, "projection"),
                 model_view: gl.get_uniform_location(program.program, "modelView"),
 
+                position: gl.get_attrib_location(program.program, "position"),
+                normal: gl.get_attrib_location(program.program, "normal"),
+
                 view_matrix: gl.get_uniform_location(program.program, "viewMatrix"),
                 is_orthographic: gl.get_uniform_location(program.program, "isOrthographic"),
 
@@ -256,6 +401,7 @@ impl<GL: HasContext> DefaultProgram<GL> {
                 instanced_color: gl.get_attrib_location(program.program, "instancedColor"),
 
                 normal_matrix: gl.get_uniform_location(program.program, "normalMatrix"),
+                color: gl.get_uniform_location(program.program, "color"),
 
                 diffuse: gl.get_uniform_location(program.program, "diffuse"),
                 emissive: gl.get_uniform_location(program.program, "emissive"),
@@ -274,12 +420,6 @@ impl<GL: HasContext> DefaultProgram<GL> {
 
                 program,
             })
-        }
-    }
-
-    pub fn use_program(&self) {
-        unsafe {
-            self.gl.use_program(Some(self.program.program));
         }
     }
 
@@ -373,6 +513,10 @@ impl<GL: HasContext> DefaultProgram<GL> {
                 );
             }
         }
+    }
+
+    pub fn bind<'a>(&'a self) -> DefaultProgramBinder<'a, GL> {
+        DefaultProgramBinder::new(&self)
     }
 }
 
@@ -565,12 +709,12 @@ impl<GL: HasContext> ProgramManager<GL> {
 
     pub fn get_default_program<'a>(&'a self, instancing_kind: DefaultProgramInstancingKind, bfc: bool) -> &'a DefaultProgram<GL> {
         match (instancing_kind, bfc) {
-            (DefaultProgramInstancingKind::NonInstanced, false) => &self.default,
-            (DefaultProgramInstancingKind::Instanced, false) => &self.default_instanced,
-            (DefaultProgramInstancingKind::InstancedWithColors, false) => &self.default_instanced_with_colors,
-            (DefaultProgramInstancingKind::NonInstanced, true) => &self.default_without_bfc,
-            (DefaultProgramInstancingKind::Instanced, true) => &self.default_without_bfc_instanced,
-            (DefaultProgramInstancingKind::InstancedWithColors, true) => &self.default_without_bfc_instanced_with_colors,
+            (DefaultProgramInstancingKind::NonInstanced, true) => &self.default,
+            (DefaultProgramInstancingKind::Instanced, true) => &self.default_instanced,
+            (DefaultProgramInstancingKind::InstancedWithColors, true) => &self.default_instanced_with_colors,
+            (DefaultProgramInstancingKind::NonInstanced, false) => &self.default_without_bfc,
+            (DefaultProgramInstancingKind::Instanced, false) => &self.default_without_bfc_instanced,
+            (DefaultProgramInstancingKind::InstancedWithColors, false) => &self.default_without_bfc_instanced_with_colors,
         }
     }
 
@@ -590,5 +734,6 @@ impl<GL: HasContext> ProgramManager<GL> {
         self.default_instanced.bind_shading_data(&shading_data);
         self.default_instanced_with_colors.bind_shading_data(&shading_data);
     }
-}
 
+
+}

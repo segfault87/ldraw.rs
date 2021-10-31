@@ -4,9 +4,12 @@ use std::{
     vec::Vec,
 };
 
+use cgmath::SquareMatrix;
 use glow::HasContext;
+use itertools::izip;
 use ldraw::{
     color::{ColorReference, Material},
+    document::{Document, MultipartDocument},
     Matrix3, Matrix4, PartAlias, Vector4,
 };
 
@@ -14,7 +17,7 @@ use crate::{
     part::Part,
     shader::{ProgramManager},
     state::{ProjectionData, RenderingContext, ShadingData},
-    utils::cast_as_bytes,
+    utils::{cast_as_bytes, derive_normal_matrix},
 };
 
 pub struct DisplayItemBuilder {
@@ -34,210 +37,223 @@ impl DisplayItemBuilder {
 
 }
 
-pub struct DisplayItem<GL: HasContext> {
+pub struct InstanceBuffer<GL: HasContext> {
     gl: Rc<GL>,
 
-    pub part: Option<Rc<Part<GL>>>,
     pub count: usize,
-    pub matrices: Vec<f32>,
-    pub colors: Vec<f32>,
-    pub matrices_buffer: GL::Buffer,
-    
+
+    model_view_matrices: Vec<f32>,
+    normal_matrices: Vec<f32>,
+    colors: Vec<f32>,
+
+    pub model_view_matrices_buffer: Option<GL::Buffer>,
+    pub normal_matrices_buffer: Option<GL::Buffer>,
+    pub color_buffer: Option<GL::Buffer>,
+
+    modified: bool,
 }
 
-pub const INSTANCE_BUFFER_MESH_SIZE: usize = 16 + 9 + 4;
-pub const INSTANCE_BUFFER_EDGE_SIZE: usize = 16 + 4 + 4;
+impl<GL: HasContext> InstanceBuffer<GL> {
+    pub fn new(gl: Rc<GL>) -> Self {
+        InstanceBuffer {
+            gl,
 
-/*impl<GL: HasContext> DisplayItem<GL> {
+            count: 0,
 
-    pub fn append(&mut self, projection_data: &ProjectionData, matrix: &Matrix4, material: &Material) -> usize {
-        self.mesh_data.extend(AsRef::<[f32; 16]>::as_ref(matrix));
-        self.mesh_data.extend(AsRef::<[f32; 9]>::as_ref(&projection_data.derive_normal_matrix(matrix)));
-        self.mesh_data.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
-        self.edge_data.extend(AsRef::<[f32; 16]>::as_ref(matrix));
-        self.edge_data.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
-        self.edge_data.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.edge)));
-        self.length += 1;
-        self.needs_update = true;
-        self.length - 1
-    }
+            model_view_matrices: vec![],
+            normal_matrices: vec![],
+            colors: vec![],
 
-    pub fn remove(&mut self, index: usize) -> Result<(), ()> {
-        if index >= self.length {
-            return Err(())
+            model_view_matrices_buffer: None,
+            normal_matrices_buffer: None,
+            color_buffer: None,
+
+            modified: false,
         }
-
-        let mesh_start = index * INSTANCE_BUFFER_MESH_SIZE;
-        let edge_start = index * INSTANCE_BUFFER_EDGE_SIZE;
-        self.mesh_data.drain(mesh_start..mesh_start + INSTANCE_BUFFER_MESH_SIZE);
-        self.edge_data.drain(edge_start..edge_start + INSTANCE_BUFFER_EDGE_SIZE);
-        self.length -= 1;
-        self.needs_update = true;
-
-        Ok(())
     }
 
-    fn update_gl_buffer(&mut self) {
-        if !self.needs_update {
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    pub fn update_buffer(&mut self, gl: &GL) {
+        if !self.modified {
             return;
         }
-        
-        let gl = &self.gl;
-        unsafe {
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.mesh_buffer);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER, cast_as_bytes(self.mesh_data.as_ref()), glow::DYNAMIC_DRAW
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.edge_buffer);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER, cast_as_bytes(self.edge_data.as_ref()), glow::DYNAMIC_DRAW
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+
+        if self.model_view_matrices.is_empty() {
+            self.model_view_matrices_buffer = None;
+        } else {
+            if self.model_view_matrices_buffer.is_none() {
+                self.model_view_matrices_buffer = unsafe {
+                    gl.create_buffer().ok()
+                };
+            }
+
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.model_view_matrices_buffer);
+                gl.buffer_data_u8_slice(
+                    glow::ARRAY_BUFFER, cast_as_bytes(self.model_view_matrices.as_ref()), glow::DYNAMIC_DRAW
+                );
+            }
         }
 
-        self.needs_update = false;
+        if self.normal_matrices.is_empty() {
+            self.normal_matrices_buffer = None;
+        } else {
+            if self.normal_matrices_buffer.is_none() {
+                self.normal_matrices_buffer = unsafe {
+                    gl.create_buffer().ok()
+                };
+            }
+
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.normal_matrices_buffer);
+                gl.buffer_data_u8_slice(
+                    glow::ARRAY_BUFFER, cast_as_bytes(self.normal_matrices.as_ref()), glow::DYNAMIC_DRAW
+                );
+            }
+        }
+
+        if self.colors.is_empty() {
+            self.color_buffer = None;
+        } else {
+            if self.color_buffer.is_none() {
+                self.color_buffer = unsafe {
+                    gl.create_buffer().ok()
+                };
+            }
+
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.color_buffer);
+                gl.buffer_data_u8_slice(
+                    glow::ARRAY_BUFFER, cast_as_bytes(self.colors.as_ref()), glow::DYNAMIC_DRAW
+                );
+            }
+        }
     }
-
-    pub fn render_single(&mut self, state: &mut RenderingContext<GL>) {
-        let gl = &self.gl;
-        let program = if self.group.bfc {
-            &state.program_manager.solid
-        } else {
-            &state.program_manager.solid_flat
-        };
-        program.bind();
-        program.bind_uniforms(&state.projection_data, array_ref!(self.mesh_data, 16, 9), &state.shading_data,
-                              array_ref!(self.mesh_data, 25, 4));
-        self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
-
-        if self.group.semitransparent {
-            unsafe { gl.enable(glow::BLEND); }
-        } else {
-            unsafe { gl.disable(glow::BLEND); }
-        }
-
-        let index = &self.group.index_bound;
-
-        unsafe {
-            gl.draw_arrays(glow::TRIANGLES, index.0 as i32, (index.1 - index.0) as i32);
-        }
-
-        program.unbind();
-    }
-
-    pub fn render_instanced(&mut self, state: &mut RenderingContext<GL>) {
-        let gl = &self.gl;
-        let program = if self.group.bfc {
-            &state.program_manager.instanced_solid
-        } else {
-            &state.program_manager.instanced_solid_flat
-        };
-        program.bind();
-
-        if self.group.semitransparent {
-            unsafe { gl.enable(glow::BLEND); }
-        } else {
-            unsafe { gl.disable(glow::BLEND); }
-        }
-
-        let index = &self.group.index_bound;
-
-        program.bind_uniforms(&state.projection_data, &state.shading_data);
-        self.model.buffer.mesh.bind(&program.attrib_position, &program.attrib_normal);
-
-        if self.group.semitransparent {
-            unsafe { gl.enable(glow::BLEND); }
-        } else {
-            unsafe { gl.disable(glow::BLEND); }
-        }
-
-        let index = &self.group.index_bound;
-
-        unsafe {
-            gl.draw_arrays_instanced(glow::TRIANGLES, index.0 as i32, (index.1 - index.0) as i32, self.length as i32);
-        }
-        
-        program.unbind();
-    }
-
-    pub fn render(&mut self, state: &mut RenderingContext<GL>) {
-        self.update_gl_buffer();
-
-        match self.length {
-            0 => return,
-            1 => self.render_single(state),
-            _ => self.render_instanced(state),
-        };
-    }
-
 }
 
-impl<GL: HasContext> Drop for DisplayItem<GL> {
-
+impl<GL: HasContext> Drop for InstanceBuffer<GL> {
     fn drop(&mut self) {
         let gl = &self.gl;
+
         unsafe {
-            if let Some(e) = self.mesh_buffer {
-                gl.delete_buffer(e);
-            }
-            if let Some(e) = self.edge_buffer {
-                gl.delete_buffer(e);
+            if let Some(b) = self.model_view_matrices_buffer {
+                gl.delete_buffer(b);
             }
         }
     }
-    
 }
 
-pub struct DisplayList<GL: HasContext>(HashMap<InstanceGroup, DisplayItem<GL>>);
+pub struct DisplayItem<GL: HasContext> {
+    pub part: PartAlias,
+
+    pub opaque: InstanceBuffer<GL>,
+    pub semitransparent: InstanceBuffer<GL>,
+}
+
+impl<GL: HasContext> DisplayItem<GL> {
+
+    pub fn new(gl: Rc<GL>, alias: &PartAlias) -> Self {
+        DisplayItem {
+            part: alias.clone(),
+
+            opaque: InstanceBuffer::new(Rc::clone(&gl)),
+            semitransparent: InstanceBuffer::new(Rc::clone(&gl)),
+        }
+    }
+
+    /* TODO: This is temporary; should be superseded with sophisticated editor stuffs */
+    pub fn update_data(
+        &mut self,
+        opaque: bool,
+        model_view_matrices: &Vec<Matrix4>,
+        normal_matrices: &Vec<Matrix3>,
+        color_buffer: &Vec<Vector4>
+    ) {
+        let mut mvmr = vec![];
+        let mut nmr = vec![];
+        let mut cr = vec![];
+        for (mvm, nm, c) in izip!(model_view_matrices, normal_matrices, color_buffer) {
+            mvmr.extend(AsRef::<[f32; 16]>::as_ref(mvm));
+            nmr.extend(AsRef::<[f32; 9]>::as_ref(nm));
+            cr.extend(AsRef::<[f32; 4]>::as_ref(c));
+        }
+
+        let buffer = if opaque {
+            &mut self.opaque
+        } else {
+            &mut self.semitransparent
+        };
+
+        buffer.model_view_matrices = mvmr;
+        buffer.normal_matrices = nmr;
+        buffer.colors = cr;
+        buffer.count = model_view_matrices.len();
+        buffer.modified = true;
+    }
+
+    pub fn add(
+        &mut self,
+        matrix: &Matrix4,
+        color: &ColorReference
+    ) {
+        let material = match color {
+            ColorReference::Material(m) => m,
+            _ => return,
+        };
+
+        let buffer = if material.is_semi_transparent() {
+            &mut self.semitransparent
+        } else {
+            &mut self.opaque
+        };
+
+        buffer.model_view_matrices.extend(AsRef::<[f32; 16]>::as_ref(matrix));
+        let normal = derive_normal_matrix(matrix);
+        buffer.normal_matrices.extend(AsRef::<[f32; 9]>::as_ref(&normal));
+        buffer.colors.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
+        buffer.count += 1;
+        buffer.modified = true;
+    }
+}
+
+pub struct DisplayList<GL: HasContext> {
+    pub map: HashMap<PartAlias, DisplayItem<GL>>
+}
 
 impl<GL: HasContext> DisplayList<GL> {
-
     pub fn new() -> Self {
-        Self(HashMap::new())
+        DisplayList {
+            map: HashMap::new()
+        }
     }
-
-    pub fn query<'a>(&'a mut self, gl: Rc<GL>, part_ref: &PartAlias, model: Rc<BakedPart<GL>>,
-                     bfc: bool, semitransparent: bool, index_bound: &IndexBound) -> &'a mut DisplayItem<GL> {
-        let group = InstanceGroup {
-            part_ref: part_ref.clone(),
-            bfc,
-            semitransparent,
-            index_bound: index_bound.clone(),
-        };
-        self.0.entry(group).or_insert_with(|| {
-            let gl_ = &gl;
-
-            let mesh_buffer = unsafe {
-                gl_.create_buffer().ok()
-            };
-            let edge_buffer = unsafe {
-                gl_.create_buffer().ok()
-            };
-            
-            DisplayItem {
-                gl: Rc::clone(&gl),
-                group: InstanceGroup {
-                    part_ref: part_ref.clone(),
-                    bfc,
-                    semitransparent,
-                    index_bound: index_bound.clone(),
-                },
-                model: Rc::clone(&model),
-                length: 0,
-                mesh_data: Vec::new(),
-                mesh_buffer,
-                edge_data: Vec::new(),
-                edge_buffer,
-                needs_update: false,
-            }
-        })
-    }
-    
 }
 
-pub struct InstanceGroupA<'ft, GL: HasContext> {
-    pub part: Option<&'ft BakedPart<GL>>,
+fn build_display_list<'a, GL: HasContext>(
+    gl: Rc<GL>,
+    display_list: &mut DisplayList<GL>,
+    document: &'a Document,
+    matrix: Matrix4,
+    parent: &'a MultipartDocument
+) {
+    for e in document.iter_refs() {
+        if parent.subparts.contains_key(&e.name) {
+            build_display_list(Rc::clone(&gl), display_list, parent.subparts.get(&e.name).unwrap(), matrix * e.matrix, parent);
+        } else {
+            display_list.map.entry(e.name.clone()).or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &e.name)).add(&(matrix * e.matrix), &e.color);
+        }
+    }
+}
 
-    
-}*/
+impl<GL: HasContext> DisplayList<GL> {
+    pub fn from_multipart_document(gl: Rc<GL>, document: &MultipartDocument) -> Self {
+        let mut display_list = DisplayList::new();
 
+        build_display_list(gl, &mut display_list, &document.body, Matrix4::identity(), &document);
+
+        display_list
+    }
+}
+   

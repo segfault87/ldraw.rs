@@ -22,10 +22,10 @@ use crate::{
 pub struct MeshBuffer<GL: HasContext> {
     gl: Rc<GL>,
     
-    array: Option<GL::VertexArray>,
-    buffer_vertices: Option<GL::Buffer>,
-    buffer_normals: Option<GL::Buffer>,
-    length: usize,
+    pub array: Option<GL::VertexArray>,
+    pub buffer_vertices: Option<GL::Buffer>,
+    pub buffer_normals: Option<GL::Buffer>,
+    pub length: usize,
 }
 
 impl<GL: HasContext> MeshBuffer<GL> {

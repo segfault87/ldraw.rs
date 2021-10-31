@@ -8,6 +8,7 @@ edition = "2021"
 arrayref = "~0.3.6"
 cgmath = "~0.18.0"
 glow = "~0.11.0"
+itertools = "~0.10"
 ldraw = { path = "../ldraw" }
 ldraw_ir = { path = "../ir" }
 serde = { version = "1.0", features = ["derive"] }

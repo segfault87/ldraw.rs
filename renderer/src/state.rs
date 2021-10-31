@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     rc::Rc,
     vec::Vec,
 };
@@ -6,20 +7,22 @@ use std::{
 use cgmath::{
     Deg,
     PerspectiveFov,
+    Point3,
     Rad,
     SquareMatrix,
     prelude::*
 };
 use glow::HasContext;
 use ldraw::{
-    Matrix4, Vector3, Vector4,
+    color::ColorReference,
+    Matrix3, Matrix4, PartAlias, Vector3, Vector4
 };
 
 use crate::{
-    truncate_matrix4,
-    shader::{
-        ProgramManager
-    },
+    display_list::{DisplayList, DisplayItem},
+    part::Part,
+    shader::{DefaultProgramInstancingKind, ProgramManager},
+    utils::derive_normal_matrix,
 };
 
 pub struct ProjectionData {
@@ -41,17 +44,9 @@ impl Default for ProjectionData {
 }
 
 impl ProjectionData {
-    /*pub fn update_normal_matrix(&mut self) {
-        self.normal_matrix = truncate_matrix4(
-            (self.view_matrix * self.model_view.last().unwrap()).invert().unwrap_or(Matrix4::identity()).transpose()
-        )
+    pub fn derive_normal_matrix(&self) -> Matrix3 {
+        derive_normal_matrix(self.model_view.last().unwrap())
     }
-
-    pub fn derive_normal_matrix(&self, m: &Matrix4) -> Matrix3 {
-        truncate_matrix4(
-            (m * self.model_view.last().unwrap()).invert().unwrap_or(Matrix4::identity()).transpose()
-        )
-    }*/
 
     pub fn update_projection_matrix(&mut self, proj: &Matrix4) {
         self.projection = proj.clone();
@@ -153,15 +148,47 @@ impl ShadingData {
     }
 }
 
+pub struct Camera {
+    pub position: Point3<f32>,
+    pub look_at: Point3<f32>,
+    pub up: Vector3,
+    pub fov: Deg<f32>,
+}
+
+impl Camera {
+    pub fn new(
+        position: Point3<f32>, look_at: Point3<f32>,
+        fov: Deg<f32>
+    ) -> Self {
+        Camera {
+            position,
+            look_at,
+            up: Vector3::new(0.0, -1.0, 0.0),
+            fov
+        }
+    }
+
+    pub fn derive_projection_matrix(&self, aspect_ratio: f32) -> Matrix4 {
+        Matrix4::from(PerspectiveFov {
+            fovy: Rad::from(self.fov),
+            aspect: aspect_ratio,
+            near: 0.1,
+            far: 100000.0
+        }) * Matrix4::look_at_rh(self.position, self.look_at, self.up)
+    }
+}
+
 pub struct RenderingContext<GL: HasContext> {
     gl: Rc<GL>,
 
     pub program_manager: ProgramManager<GL>,
+    width: u32,
+    height: u32,
     
+    pub camera: Camera,
     pub projection_data: ProjectionData,
     pub shading_data: ShadingData,
 }
-
 
 impl<GL: HasContext> RenderingContext<GL> {
     pub fn new(gl: Rc<GL>, program_manager: ProgramManager<GL>) -> Self {
@@ -169,7 +196,14 @@ impl<GL: HasContext> RenderingContext<GL> {
         let num_point_lights = program_manager.num_point_lights;
         RenderingContext {
             gl: Rc::clone(&gl),
+            camera: Camera::new(
+                Point3::new(0.0, -100.0, -300.0),
+                Point3::new(0.0, 0.0, 0.0),
+                Deg(45.0),
+            ),
             program_manager,
+            width: 1,
+            height: 1,
             projection_data: ProjectionData::default(),
             shading_data: ShadingData::new(
                 num_directional_lights, num_point_lights
@@ -177,11 +211,18 @@ impl<GL: HasContext> RenderingContext<GL> {
         }
     }
 
-    pub fn update_projection_data(&self) {
+    pub fn update_camera(&mut self) {
+        self.projection_data.update_projection_matrix(
+            &self.camera.derive_projection_matrix(self.width as f32 / self.height as f32)
+        );
+        self.upload_projection_data();
+    }
+
+    fn upload_projection_data(&self) {
         self.program_manager.bind_projection_data(&self.projection_data);
     }
 
-    pub fn update_shading_data(&self) {
+    pub fn upload_shading_data(&self) {
         self.program_manager.bind_shading_data(&self.shading_data);
     }
 
@@ -200,16 +241,135 @@ impl<GL: HasContext> RenderingContext<GL> {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        let proj = Matrix4::from(PerspectiveFov {
-            fovy: Rad::from(Deg(45.0)),
-            aspect: width as f32 / height as f32,
-            near: 0.1,
-            far: 100000.0
-        }) * Matrix4::from_translation(Vector3::new(0.0, -100.0, -300.0));
-
-        self.projection_data.update_projection_matrix(&proj);
+        self.width = width;
+        self.height = height;
+        self.update_camera();
         unsafe {
             self.gl.viewport(0, 0, width as i32, height as i32);
+        }
+    }
+
+    pub fn render_instance_mesh(
+        &self, part: &Part<GL>, display_item: &mut DisplayItem<GL>,
+        semitransparent: bool
+    ) {
+        let gl = &self.gl;
+        let part_buffer = &part.part;
+
+        let mut instance_buffer = if semitransparent {
+            &mut display_item.semitransparent
+        } else {
+            &mut display_item.opaque
+        };
+
+        if instance_buffer.count == 0 {
+            return;
+        }
+
+        if let Some(uncolored_index) = &part_buffer.uncolored_index {
+            let program = self.program_manager.get_default_program(
+                DefaultProgramInstancingKind::InstancedWithColors, true
+            );
+
+            let bind = program.bind();
+            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
+            bind.bind_instanced_geometry_data(&mut instance_buffer);
+            bind.bind_instanced_color_data(&mut instance_buffer);
+
+            unsafe {
+                println!("uncolored {} {} {}", uncolored_index.start, uncolored_index.span, instance_buffer.count);
+                gl.draw_arrays_instanced(
+                    glow::TRIANGLES,
+                    uncolored_index.start as i32,
+                    uncolored_index.span as i32,
+                    instance_buffer.count as i32
+                );
+            }
+        }
+        if let Some(uncolored_without_bfc_index) = &part_buffer.uncolored_without_bfc_index {
+            let program = self.program_manager.get_default_program(
+                DefaultProgramInstancingKind::InstancedWithColors, false
+            );
+
+            let bind = program.bind();
+            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
+            bind.bind_instanced_geometry_data(&mut instance_buffer);
+            bind.bind_instanced_color_data(&mut instance_buffer);
+
+            unsafe {
+                gl.draw_arrays_instanced(
+                    glow::TRIANGLES,
+                    uncolored_without_bfc_index.start as i32,
+                    uncolored_without_bfc_index.span as i32,
+                    instance_buffer.count as i32
+                );
+            }
+        }
+        let subparts = if semitransparent {
+            &part_buffer.semitransparent_indices
+        } else {
+            &part_buffer.opaque_indices
+        };
+        for (group, indices) in subparts.iter() {
+            let program = self.program_manager.get_default_program(
+                DefaultProgramInstancingKind::Instanced, group.bfc
+            );
+
+            let bind = program.bind();
+            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
+            bind.bind_instanced_geometry_data(&mut instance_buffer);
+            let color = match &group.color_ref {
+                ColorReference::Material(m) => Vector4::from(&m.color),
+                _ => Vector4::zero(),
+            };
+            bind.bind_non_instanced_color_data(&color);
+            
+            unsafe {
+                gl.draw_arrays_instanced(
+                    glow::TRIANGLES,
+                    indices.start as i32,
+                    indices.span as i32,
+                    instance_buffer.count as i32
+                );
+            }
+        }
+
+
+    }
+
+    pub fn render_display_list(
+        &self, parts: &HashMap<PartAlias, Part<GL>>, display_list: &mut DisplayList<GL>
+    ) {
+        let gl = &self.gl;
+
+        // Render transparent objects first
+        unsafe {
+            gl.disable(glow::DEPTH_TEST);
+            gl.enable(glow::BLEND);
+        }
+
+        for (alias, mut object) in display_list.map.iter_mut() {
+            let part = match parts.get(&alias) {
+                Some(e) => e,
+                None => continue,
+            };
+
+            self.render_instance_mesh(&part, &mut object, true);
+        }
+
+        // And opaque objects later
+        unsafe {
+            gl.enable(glow::DEPTH_TEST);
+            gl.disable(glow::BLEND);
+        }
+
+        for (alias, mut object) in display_list.map.iter_mut() {
+            let part = match parts.get(&alias) {
+                Some(e) => e,
+                None => continue,
+            };
+
+            self.render_instance_mesh(&part, &mut object, false);
         }
     }
 
