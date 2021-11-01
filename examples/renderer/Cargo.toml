@@ -8,4 +8,5 @@ edition = "2018"
 cgmath = "~0.18.0"
 glow = "~0.11.0"
 ldraw = { path = "../../ldraw" }
+ldraw_ir = { path = "../../ir" }
 ldraw_renderer = { path = "../../renderer" }
