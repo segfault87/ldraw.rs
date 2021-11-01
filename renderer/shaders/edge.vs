@@ -6,24 +6,25 @@ in vec3 color;
 #ifdef USE_INSTANCING
     in vec4 instancedColor;
     in vec4 instancedEdgeColor;
-    in mat4 instancedModelView;
+    in mat4 instancedModelMatrix;
 #else
-    uniform vec4 defaultColor;
-    uniform vec4 edgeColor;
+    uniform vec3 defaultColor;
+    uniform vec3 edgeColor;
 #endif
 
+uniform mat4 modelMatrix;
 uniform mat4 projection;
 uniform mat4 modelView;
 
 out vec4 vColor;
 
 void main(void) {
-    vec4 pos4 = vec4(position, 1.0);
-    mat4 transform = projection * modelView;
+    vec4 mvPosition = vec4(position, 1.0);
     #ifdef USE_INSTANCING
-        transform *= instancedModelView;
+        mvPosition = instancedModelMatrix * mvPosition;
     #endif
-    gl_Position = transform * pos4;
+    mvPosition = modelView * mvPosition;
+    gl_Position = projection * mvPosition;
     #ifdef USE_INSTANCING
         if (color.x < -1.0) {
             vColor = instancedEdgeColor;
@@ -34,9 +35,9 @@ void main(void) {
         }
     #else
         if (color.x < -1.0) {
-            vColor = edgeColor;
+            vColor = vec4(edgeColor, 1.0);
         } else if (color.x < 0.0) {
-            vColor = defaultColor;
+            vColor = vec4(defaultColor, 1.0)    ;
         } else {
             vColor = vec4(color, 1.0);
         }

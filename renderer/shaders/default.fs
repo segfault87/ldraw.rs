@@ -6,13 +6,6 @@ precision mediump float;
 precision highp float;
 precision highp int;
 
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 0
-#endif
-#ifndef NUM_DIRECTIONAL_LIGHTS
-    #define NUM_DIRECTIONAL_LIGHTS 0
-#endif
-
 in vec4 vColor;
 
 out vec4 fragColor;
@@ -27,31 +20,12 @@ out vec4 fragColor;
 
     uniform vec3 diffuse;
     uniform vec3 emissive;
-    uniform vec3 specular;
-    uniform float shininess;
+    uniform float roughness;
+    uniform float metalness;
     uniform float opacity;
 
-    struct DirectionalLight {
-        vec3 direction;
-        vec3 color;
-    };
+    uniform sampler2D envMap;
 
-    struct PointLight {
-        vec3 position;
-        vec3 color;
-        float distance;
-        float decay;
-    };
-
-    #if NUM_POINT_LIGHTS > 0
-        uniform PointLight pointLights[NUM_POINT_LIGHTS];
-    #endif
-    #if NUM_DIRECTIONAL_LIGHTS > 0
-        uniform DirectionalLight directionalLights[NUM_DIRECTIONAL_LIGHTS];
-    #endif
-    uniform vec3 ambientLightColor;
-    uniform vec3 lightProbe[9];
-    
     uniform mat4 viewMatrix;
     uniform bool isOrthographic;
 
@@ -61,6 +35,14 @@ out vec4 fragColor;
     
     vec4 linearToOutputTexel( vec4 value ) {
         return LinearTosRGB( value );
+    }
+
+    vec4 RGBEToLinear( in vec4 value ) {
+        return vec4( value.rgb * exp2( value.a * 255.0 - 128.0 ), 1.0 );
+    }
+
+    vec4 envMapTexelToLinear( vec4 value ) {
+        return RGBEToLinear( value );
     }
 
     #define PI 3.141592653589793
@@ -116,6 +98,12 @@ out vec4 fragColor;
         vec3 normal;
         vec3 viewDir;
     };
+    struct PhysicalMaterial {
+        vec3 diffuseColor;
+        float roughness;
+        vec3 specularColor;
+        float specularF90;
+    };
     vec3 transformDirection( in vec3 dir, in mat4 matrix ) {
         return normalize( ( matrix * vec4( dir, 0.0 ) ).xyz );
     }
@@ -149,23 +137,207 @@ out vec4 fragColor;
         float gl = dotNV * sqrt( a2 + ( 1.0 - a2 ) * pow2( dotNL ) );
         return 0.5 / max( gv + gl, EPSILON );
     }
-    
-    float G_BlinnPhong_Implicit( ) {
-        return 0.25;
+    float D_GGX( const in float alpha, const in float dotNH ) {
+        float a2 = pow2( alpha );
+        float denom = pow2( dotNH ) * ( a2 - 1.0 ) + 1.0;
+        return RECIPROCAL_PI * a2 / pow2( denom );
     }
-    float D_BlinnPhong( const in float shininess, const in float dotNH ) {
-        return RECIPROCAL_PI * ( shininess * 0.5 + 1.0 ) * pow( dotNH, shininess );
-    }
-    vec3 BRDF_BlinnPhong( const in vec3 lightDir, const in vec3 viewDir, const in vec3 normal, const in vec3 specularColor, const in float shininess ) {
+    vec3 BRDF_GGX( const in vec3 lightDir, const in vec3 viewDir, const in vec3 normal, const in vec3 f0, const in float f90, const in float roughness ) {
+        float alpha = pow2( roughness );
         vec3 halfDir = normalize( lightDir + viewDir );
+        float dotNL = saturate( dot( normal, lightDir ) );
+        float dotNV = saturate( dot( normal, viewDir ) );
         float dotNH = saturate( dot( normal, halfDir ) );
         float dotVH = saturate( dot( viewDir, halfDir ) );
-        vec3 F = F_Schlick( specularColor, 1.0, dotVH );
-        float G = G_BlinnPhong_Implicit( );
-        float D = D_BlinnPhong( shininess, dotNH );
-        return F * ( G * D );
+        vec3 F = F_Schlick( f0, f90, dotVH );
+        float V = V_GGX_SmithCorrelated( alpha, dotNL, dotNV );
+        float D = D_GGX( alpha, dotNH );
+        return F * ( V * D );
+    }
+    vec2 DFGApprox( const in vec3 normal, const in vec3 viewDir, const in float roughness ) {
+        float dotNV = saturate( dot( normal, viewDir ) );
+        const vec4 c0 = vec4( - 1, - 0.0275, - 0.572, 0.022 );
+        const vec4 c1 = vec4( 1, 0.0425, 1.04, - 0.04 );
+        vec4 r = roughness * c0 + c1;
+        float a004 = min( r.x * r.x, exp2( - 9.28 * dotNV ) ) * r.x + r.y;
+        vec2 fab = vec2( - 1.04, 1.04 ) * a004 + r.zw;
+        return fab;
+    }
+    vec3 EnvironmentBRDF( const in vec3 normal, const in vec3 viewDir, const in vec3 specularColor, const in float specularF90, const in float roughness ) {
+        vec2 fab = DFGApprox( normal, viewDir, roughness );
+        return specularColor * fab.x + specularF90 * fab.y;
+    }
+    void computeMultiscattering( const in vec3 normal, const in vec3 viewDir, const in vec3 specularColor, const in float specularF90, const in float roughness, inout vec3 singleScatter, inout vec3 multiScatter ) {
+        vec2 fab = DFGApprox( normal, viewDir, roughness );
+        vec3 FssEss = specularColor * fab.x + specularF90 * fab.y;
+        float Ess = fab.x + fab.y;
+        float Ems = 1.0 - Ess;
+        vec3 Favg = specularColor + ( 1.0 - specularColor ) * 0.047619;
+        vec3 Fms = FssEss * Favg / ( 1.0 - Ems * Favg );
+        singleScatter += FssEss;
+        multiScatter += Fms * Ems;
     }
 
+    void RE_Direct_Physical( const in IncidentLight directLight, const in GeometricContext geometry, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
+        float dotNL = saturate( dot( geometry.normal, directLight.direction ) );
+        vec3 irradiance = dotNL * directLight.color;
+        reflectedLight.directSpecular += irradiance * BRDF_GGX( directLight.direction, geometry.viewDir, geometry.normal, material.specularColor, material.specularF90, material.roughness );
+        reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
+    }
+    void RE_IndirectDiffuse_Physical( const in vec3 irradiance, const in GeometricContext geometry, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
+        reflectedLight.indirectDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
+    }
+    void RE_IndirectSpecular_Physical( const in vec3 radiance, const in vec3 irradiance, const in vec3 clearcoatRadiance, const in GeometricContext geometry, const in PhysicalMaterial material, inout ReflectedLight reflectedLight) {
+        vec3 singleScattering = vec3( 0.0 );
+        vec3 multiScattering = vec3( 0.0 );
+        vec3 cosineWeightedIrradiance = irradiance * RECIPROCAL_PI;
+        computeMultiscattering( geometry.normal, geometry.viewDir, material.specularColor, material.specularF90, material.roughness, singleScattering, multiScattering );
+        vec3 diffuse = material.diffuseColor * ( 1.0 - ( singleScattering + multiScattering ) );
+        reflectedLight.indirectSpecular += radiance * singleScattering;
+        reflectedLight.indirectSpecular += multiScattering * cosineWeightedIrradiance;
+        reflectedLight.indirectDiffuse += diffuse * cosineWeightedIrradiance;
+    }
+    #define cubeUV_maxMipLevel 8.0
+    #define cubeUV_minMipLevel 4.0
+    #define cubeUV_maxTileSize 256.0
+    #define cubeUV_minTileSize 16.0
+    float getFace( vec3 direction ) {
+        vec3 absDirection = abs( direction );
+        float face = - 1.0;
+        if ( absDirection.x > absDirection.z ) {
+            if ( absDirection.x > absDirection.y )
+            face = direction.x > 0.0 ? 0.0 : 3.0;
+            else
+            face = direction.y > 0.0 ? 1.0 : 4.0;
+        }
+        else {
+            if ( absDirection.z > absDirection.y )
+            face = direction.z > 0.0 ? 2.0 : 5.0;
+            else
+            face = direction.y > 0.0 ? 1.0 : 4.0;
+        }
+        return face;
+    }
+    vec2 getUV( vec3 direction, float face ) {
+        vec2 uv;
+        if ( face == 0.0 ) {
+            uv = vec2( direction.z, direction.y ) / abs( direction.x );
+        }
+        else if ( face == 1.0 ) {
+            uv = vec2( - direction.x, - direction.z ) / abs( direction.y );
+        }
+        else if ( face == 2.0 ) {
+            uv = vec2( - direction.x, direction.y ) / abs( direction.z );
+        }
+        else if ( face == 3.0 ) {
+            uv = vec2( - direction.z, direction.y ) / abs( direction.x );
+        }
+        else if ( face == 4.0 ) {
+            uv = vec2( - direction.x, direction.z ) / abs( direction.y );
+        }
+        else {
+            uv = vec2( direction.x, direction.y ) / abs( direction.z );
+        }
+        return 0.5 * ( uv + 1.0 );
+    }
+    vec3 bilinearCubeUV( sampler2D envMap, vec3 direction, float mipInt ) {
+        float face = getFace( direction );
+        float filterInt = max( cubeUV_minMipLevel - mipInt, 0.0 );
+        mipInt = max( mipInt, cubeUV_minMipLevel );
+        float faceSize = exp2( mipInt );
+        float texelSize = 1.0 / ( 3.0 * cubeUV_maxTileSize );
+        vec2 uv = getUV( direction, face ) * ( faceSize - 1.0 );
+        vec2 f = fract( uv );
+        uv += 0.5 - f;
+        if ( face > 2.0 ) {
+            uv.y += faceSize;
+            face -= 3.0;
+        }
+        uv.x += face * faceSize;
+        if ( mipInt < cubeUV_maxMipLevel ) {
+            uv.y += 2.0 * cubeUV_maxTileSize;
+        }
+        uv.y += filterInt * 2.0 * cubeUV_minTileSize;
+        uv.x += 3.0 * max( 0.0, cubeUV_maxTileSize - 2.0 * faceSize );
+        uv *= texelSize;
+        vec3 tl = envMapTexelToLinear( texture2D( envMap, uv ) ).rgb;
+        uv.x += texelSize;
+        vec3 tr = envMapTexelToLinear( texture2D( envMap, uv ) ).rgb;
+        uv.y += texelSize;
+        vec3 br = envMapTexelToLinear( texture2D( envMap, uv ) ).rgb;
+        uv.x -= texelSize;
+        vec3 bl = envMapTexelToLinear( texture2D( envMap, uv ) ).rgb;
+        vec3 tm = mix( tl, tr, f.x );
+        vec3 bm = mix( bl, br, f.x );
+        return mix( tm, bm, f.y );
+    }
+    #define r0 1.0
+    #define v0 0.339
+    #define m0 - 2.0
+    #define r1 0.8
+    #define v1 0.276
+    #define m1 - 1.0
+    #define r4 0.4
+    #define v4 0.046
+    #define m4 2.0
+    #define r5 0.305
+    #define v5 0.016
+    #define m5 3.0
+    #define r6 0.21
+    #define v6 0.0038
+    #define m6 4.0
+    float roughnessToMip( float roughness ) {
+        float mip = 0.0;
+        if ( roughness >= r1 ) {
+            mip = ( r0 - roughness ) * ( m1 - m0 ) / ( r0 - r1 ) + m0;
+        }
+        else if ( roughness >= r4 ) {
+            mip = ( r1 - roughness ) * ( m4 - m1 ) / ( r1 - r4 ) + m1;
+        }
+        else if ( roughness >= r5 ) {
+            mip = ( r4 - roughness ) * ( m5 - m4 ) / ( r4 - r5 ) + m4;
+        }
+        else if ( roughness >= r6 ) {
+            mip = ( r5 - roughness ) * ( m6 - m5 ) / ( r5 - r6 ) + m5;
+        }
+        else {
+            mip = - 2.0 * log2( 1.16 * roughness );
+        }
+        return mip;
+    }
+    vec4 textureCubeUV( sampler2D envMap, vec3 sampleDir, float roughness ) {
+        float mip = clamp( roughnessToMip( roughness ), m0, cubeUV_maxMipLevel );
+        float mipF = fract( mip );
+        float mipInt = floor( mip );
+        vec3 color0 = bilinearCubeUV( envMap, sampleDir, mipInt );
+        if ( mipF == 0.0 ) {
+            return vec4( color0, 1.0 );
+        }
+        else {
+            vec3 color1 = bilinearCubeUV( envMap, sampleDir, mipInt + 1.0 );
+            return vec4( mix( color0, color1, mipF ), 1.0 );
+        }
+    
+    }
+    
+    const float envMapIntensity = 1.0;
+    
+    vec3 getIBLIrradiance( const in vec3 normal ) {
+        vec3 worldNormal = inverseTransformDirection( normal, viewMatrix );
+        vec4 envMapColor = textureCubeUV( envMap, worldNormal, 1.0 );
+        return PI * envMapColor.rgb * envMapIntensity;
+    }
+    vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float roughness ) {
+        vec3 reflectVec;
+        reflectVec = reflect( - viewDir, normal );
+        reflectVec = normalize( mix( reflectVec, normal, roughness * roughness) );
+        reflectVec = inverseTransformDirection( reflectVec, viewMatrix );
+        vec4 envMapColor = textureCubeUV( envMap, reflectVec, roughness );
+        return envMapColor.rgb * envMapIntensity;
+    }
+
+    vec3 ambientLightColor = vec3(0.0, 0.0, 0.0);
+    
     vec3 shGetIrradianceAt( in vec3 normal, in vec3 shCoefficients[ 9 ] ) {
         float x = normal.x, y = normal.y, z = normal.z;
         vec3 result = shCoefficients[ 0 ] * 0.886227;
@@ -179,113 +351,53 @@ out vec4 fragColor;
         result += shCoefficients[ 8 ] * 0.429043 * ( x * x - y * y );
         return result;
     }
-    vec3 getLightProbeIrradiance( const in vec3 lightProbe[ 9 ], const in vec3 normal ) {
-        vec3 worldNormal = inverseTransformDirection( normal, viewMatrix );
-        vec3 irradiance = shGetIrradianceAt( worldNormal, lightProbe );
-        return irradiance;
-    }
+    
     vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
         vec3 irradiance = ambientLightColor;
         return irradiance;
     }
-    float getDistanceAttenuation( const in float lightDistance, const in float cutoffDistance, const in float decayExponent ) {
-        if ( cutoffDistance > 0.0 && decayExponent > 0.0 ) {
-            return pow( saturate( - lightDistance / cutoffDistance + 1.0 ), decayExponent );
-        }
-        return 1.0;
-    }
-    float getSpotAttenuation( const in float coneCosine, const in float penumbraCosine, const in float angleCosine ) {
-        return smoothstep( coneCosine, penumbraCosine, angleCosine );
-    }
-    
-    void getDirectionalLightInfo( const in DirectionalLight directionalLight, const in GeometricContext geometry, out IncidentLight light ) {
-        light.color = directionalLight.color;
-        light.direction = directionalLight.direction;
-        light.visible = true;
-    }
-    
-    void getPointLightInfo( const in PointLight pointLight, const in GeometricContext geometry, out IncidentLight light ) {
-        vec3 lVector = pointLight.position - geometry.position;
-        light.direction = normalize( lVector );
-        float lightDistance = length( lVector );
-        light.color = pointLight.color;
-        light.color *= getDistanceAttenuation( lightDistance, pointLight.distance, pointLight.decay );
-        light.visible = ( light.color != vec3( 0.0 ) );
-    }
-
-    struct BlinnPhongMaterial {
-        vec3 diffuseColor;
-        vec3 specularColor;
-        float specularShininess;
-        float specularStrength;
-    };
-    void RE_Direct_BlinnPhong( const in IncidentLight directLight, const in GeometricContext geometry, const in BlinnPhongMaterial material, inout ReflectedLight reflectedLight ) {
-        float dotNL = saturate( dot( geometry.normal, directLight.direction ) );
-        vec3 irradiance = dotNL * directLight.color;
-        reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
-        reflectedLight.directSpecular += irradiance * BRDF_BlinnPhong( directLight.direction, geometry.viewDir, geometry.normal, material.specularColor, material.specularShininess ) * material.specularStrength;
-    }
-    void RE_IndirectDiffuse_BlinnPhong( const in vec3 irradiance, const in GeometricContext geometry, const in BlinnPhongMaterial material, inout ReflectedLight reflectedLight ) {
-        reflectedLight.indirectDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
-    }
-    #define RE_Direct				RE_Direct_BlinnPhong
-    #define RE_IndirectDiffuse		RE_IndirectDiffuse_BlinnPhong
+    #define RE_Direct				RE_Direct_Physical
+    #define RE_IndirectDiffuse		RE_IndirectDiffuse_Physical
+    #define RE_IndirectSpecular		RE_IndirectSpecular_Physical
 
     void main() {
         vec4 diffuseColor = vec4( diffuse, opacity );
         ReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );
         vec3 totalEmissiveRadiance = emissive;
         diffuseColor *= vColor;
-            
-        float specularStrength;
-        specularStrength = 1.0;
+        float roughnessFactor = roughness;
+        float metalnessFactor = metalness;
         float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
         vec3 normal = normalize( vNormal );
         vec3 geometryNormal = normal;
-
-        BlinnPhongMaterial material;
-        material.diffuseColor = diffuseColor.rgb;
-        material.specularColor = specular;
-        material.specularShininess = shininess;
-        material.specularStrength = specularStrength;
-
+        PhysicalMaterial material;
+        material.diffuseColor = diffuseColor.rgb * ( 1.0 - metalnessFactor );
+        vec3 dxy = max( abs( dFdx( geometryNormal ) ), abs( dFdy( geometryNormal ) ) );
+        float geometryRoughness = max( max( dxy.x, dxy.y ), dxy.z );
+        material.roughness = max( roughnessFactor, 0.0525 );
+        material.roughness += geometryRoughness;
+        material.roughness = min( material.roughness, 1.0 );
+        material.specularColor = mix( vec3( 0.04 ), diffuseColor.rgb, metalnessFactor );
+        material.specularF90 = 1.0;
+        
         GeometricContext geometry;
-        geometry.position = -vViewPosition;
+        geometry.position = - vViewPosition;
         geometry.normal = normal;
         geometry.viewDir = ( isOrthographic ) ? vec3( 0, 0, 1 ) : normalize( vViewPosition );
-        
         IncidentLight directLight;
-        PointLight pointLight;
-        
-        #if NUM_POINT_LIGHTS > 0
-            for (int i = 0; i < NUM_POINT_LIGHTS; ++i) {
-                pointLight = pointLights[ i ];
-                getPointLightInfo( pointLight, geometry, directLight );
-                RE_Direct( directLight, geometry, material, reflectedLight );
-            }
-        #endif
-        
-        #if NUM_DIRECTIONAL_LIGHTS > 0
-            for (int i = 0; i < NUM_DIRECTIONAL_LIGHTS; ++i) {
-                DirectionalLight directionalLight;
-                directionalLight = directionalLights[ 0 ];
-                getDirectionalLightInfo( directionalLight, geometry, directLight );
-                RE_Direct( directLight, geometry, material, reflectedLight );
-            }
-        #endif
-        
         vec3 iblIrradiance = vec3( 0.0 );
         vec3 irradiance = getAmbientLightIrradiance( ambientLightColor );
-        irradiance += getLightProbeIrradiance( lightProbe, geometry.normal );
-        
         vec3 radiance = vec3( 0.0 );
         vec3 clearcoatRadiance = vec3( 0.0 );
-        
+        iblIrradiance += getIBLIrradiance( geometry.normal );
+        radiance += getIBLRadiance( geometry.viewDir, geometry.normal, material.roughness );
         RE_IndirectDiffuse( irradiance, geometry, material, reflectedLight );
-        
-        vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;
-
-        fragColor = vec4( outgoingLight, diffuseColor.a );
-        fragColor = linearToOutputTexel( fragColor );
+        RE_IndirectSpecular( radiance, iblIrradiance, clearcoatRadiance, geometry, material, reflectedLight );
+        vec3 totalDiffuse = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;
+        vec3 totalSpecular = reflectedLight.directSpecular + reflectedLight.indirectSpecular;
+        vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;
+        gl_FragColor = vec4( outgoingLight, diffuseColor.a );
+        gl_FragColor = linearToOutputTexel( gl_FragColor );
     }
+
 #endif

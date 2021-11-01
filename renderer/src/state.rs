@@ -27,122 +27,84 @@ use crate::{
 
 pub struct ProjectionData {
     pub projection: Matrix4,
-    pub model_view: Vec<Matrix4>,
+    pub model_matrix: Vec<Matrix4>,
+    pub model_view: Matrix4,
+    pub normal_matrix: Matrix3,
     pub view_matrix: Matrix4,
     pub orthographic: bool,
+
+    pub needs_update: bool,
 }
 
 impl Default for ProjectionData {
     fn default() -> Self {
         ProjectionData {
             projection: Matrix4::identity(),
-            model_view: vec![Matrix4::identity()],
+            model_matrix: vec![Matrix4::identity()],
+            model_view: Matrix4::identity(),
+            normal_matrix: Matrix3::identity(),
             view_matrix: Matrix4::identity(),
             orthographic: false,
+
+            needs_update: true,
         }
     }
 }
 
 impl ProjectionData {
     pub fn derive_normal_matrix(&self) -> Matrix3 {
-        derive_normal_matrix(self.model_view.last().unwrap())
+        derive_normal_matrix(&self.model_view)
     }
 
     pub fn update_projection_matrix(&mut self, proj: &Matrix4) {
         self.projection = proj.clone();
-        self.view_matrix = proj.invert().unwrap_or(Matrix4::identity());
+
+        self.needs_update = true;
     }
 
-    pub fn push_model_view_matrix(&mut self, m: &Matrix4) {
-        let top = self.model_view.last().unwrap().clone();
-        self.model_view.push(top * m);
+    fn update_model_view_and_normal_matrix(&mut self) {
+        self.model_view = self.view_matrix * self.model_matrix.last().unwrap();
+        self.normal_matrix = derive_normal_matrix(&self.model_view);
+
+        self.needs_update = true;
     }
 
-    pub fn pop_model_view_matrix(&mut self) {
-        if self.model_view.len() > 1 {
-            self.model_view.pop();
-        }
+    pub fn update_view_matrix(&mut self, camera: &Matrix4) {
+        self.view_matrix = camera.clone();
+        self.update_model_view_and_normal_matrix();
     }
-}
 
-#[derive(Clone, Debug)]
-pub struct DirectionalLight {
-    pub direction: Vector3,
-    pub color: Vector3,
-}
-
-impl DirectionalLight {
-    pub fn new(direction: &Vector3, color: &Vector3) -> Self {
-        DirectionalLight {
-            direction: direction.clone(),
-            color: color.clone(),
-        }
+    pub fn push_model_matrix(&mut self, m: &Matrix4) {
+        let top = self.model_matrix.last().unwrap().clone();
+        let transformed = top * m;
+        self.model_matrix.push(transformed);
+        self.update_model_view_and_normal_matrix();
     }
-}
 
-impl Default for DirectionalLight {
-    fn default() -> Self {
-        DirectionalLight {
-            direction: Vector3::new(0.0, -1.0, 0.0),
-            color: Vector3::new(0.75, 0.75, 0.75),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct PointLight {
-    pub position: Vector3,
-    pub color: Vector3,
-    pub distance: f32,
-    pub decay: f32,
-}
-
-impl PointLight {
-    pub fn new(position: &Vector3, color: &Vector3, distance: f32, decay: f32) -> Self {
-        PointLight {
-            position: position.clone(),
-            color: color.clone(),
-            distance,
-            decay,
-        }
-    }
-}
-
-impl Default for PointLight {
-    fn default() -> Self {
-        PointLight {
-            position: Vector3::zero(),
-            color: Vector3::new(0.75, 0.75, 0.75),
-            distance: 100.0,
-            decay: 25.0,
+    pub fn pop_model_matrix(&mut self) {
+        if self.model_matrix.len() > 1 {
+            self.model_matrix.pop();
+            self.update_model_view_and_normal_matrix();
         }
     }
 }
 
 #[derive(Debug)]
 pub struct ShadingData {
-    pub directional_lights: Vec<DirectionalLight>,
-    pub point_lights: Vec<PointLight>,
-    pub ambient_light_color: Vector3,
-    pub light_probe: [Vector3; 9],
     pub diffuse: Vector3,
     pub emissive: Vector3,
-    pub specular: Vector3,
-    pub shininess: f32,
+    pub roughness: f32,
+    pub metalness: f32,
     pub opacity: f32,
 }
 
 impl ShadingData {
-    pub fn new(num_directional_lights: usize, num_point_lights: usize) -> Self {
+    pub fn new() -> Self {
         ShadingData {
-            directional_lights: vec![DirectionalLight::default(); num_directional_lights],
-            point_lights: vec![PointLight::default(); num_point_lights],
-            ambient_light_color: Vector3::new(0.25, 0.25, 0.25),
-            light_probe: [Vector3::zero(); 9],
-            diffuse: Vector3::new(0.5, 0.5, 0.5),
+            diffuse: Vector3::new(1.0, 1.0, 1.0),
             emissive: Vector3::zero(),
-            specular: Vector3::new(1.0, 1.0, 1.0),
-            shininess: 0.2,
+            roughness: 0.3,
+            metalness: 0.0,
             opacity: 1.0,
         }
     }
@@ -174,7 +136,11 @@ impl Camera {
             aspect: aspect_ratio,
             near: 0.1,
             far: 100000.0
-        }) * Matrix4::look_at_rh(self.position, self.look_at, self.up)
+        })
+    }
+
+    pub fn derive_view_matrix(&self) -> Matrix4 {
+        Matrix4::look_at_rh(self.position, self.look_at, self.up)
     }
 }
 
@@ -188,16 +154,33 @@ pub struct RenderingContext<GL: HasContext> {
     pub camera: Camera,
     pub projection_data: ProjectionData,
     pub shading_data: ShadingData,
+
+    envmap: Option<GL::Texture>,
 }
 
 impl<GL: HasContext> RenderingContext<GL> {
     pub fn new(gl: Rc<GL>, program_manager: ProgramManager<GL>) -> Self {
-        let num_directional_lights = program_manager.num_directional_lights;
-        let num_point_lights = program_manager.num_point_lights;
+        let envmap = unsafe {
+            let envmap = match gl.create_texture() {
+                Ok(e) => Some(e),
+                Err(msg) => {
+                    println!("Failed creating envmap texture: {}", msg);
+                    None
+                }
+            };
+            gl.bind_texture(glow::TEXTURE_2D, envmap);
+            gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA as i32, 768, 768, 0, glow::RGBA, glow::UNSIGNED_BYTE, Some(include_bytes!("../assets/cubemap.bin")));
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+
+            envmap
+        };
+
         RenderingContext {
             gl: Rc::clone(&gl),
             camera: Camera::new(
-                Point3::new(0.0, -100.0, -300.0),
+                Point3::new(0.0, -200.0, -1200.0),
                 Point3::new(0.0, 0.0, 0.0),
                 Deg(45.0),
             ),
@@ -205,9 +188,8 @@ impl<GL: HasContext> RenderingContext<GL> {
             width: 1,
             height: 1,
             projection_data: ProjectionData::default(),
-            shading_data: ShadingData::new(
-                num_directional_lights, num_point_lights
-            ),
+            shading_data: ShadingData::new(),
+            envmap,
         }
     }
 
@@ -215,26 +197,34 @@ impl<GL: HasContext> RenderingContext<GL> {
         self.projection_data.update_projection_matrix(
             &self.camera.derive_projection_matrix(self.width as f32 / self.height as f32)
         );
+        self.projection_data.update_view_matrix(
+            &self.camera.derive_view_matrix()
+        );
         self.upload_projection_data();
     }
 
-    fn upload_projection_data(&self) {
-        self.program_manager.bind_projection_data(&self.projection_data);
+    fn upload_projection_data(&mut self) {
+        if self.projection_data.needs_update {
+            self.program_manager.bind_projection_data(&self.projection_data);
+            self.projection_data.needs_update = false;
+        }
     }
 
     pub fn upload_shading_data(&self) {
         self.program_manager.bind_shading_data(&self.shading_data);
+        self.program_manager.bind_envmap(&self.envmap);
     }
 
     pub fn set_initial_state(&self) {
         let gl = &self.gl;
         unsafe {
             gl.clear_color(1.0, 1.0, 1.0, 1.0);
-            gl.line_width(1.0);
+            gl.line_width(2.0);
             gl.cull_face(glow::BACK);
             gl.enable(glow::CULL_FACE);
             gl.enable(glow::DEPTH_TEST);
             gl.enable(glow::BLEND);
+            gl.enable(glow::TEXTURE_2D);
             gl.depth_func(glow::LEQUAL);
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
         }
@@ -249,7 +239,11 @@ impl<GL: HasContext> RenderingContext<GL> {
         }
     }
 
-    pub fn render_instance_mesh(
+    pub fn start_render(&mut self) {
+        self.upload_projection_data();
+    }
+
+    pub fn render_instance(
         &self, part: &Part<GL>, display_item: &mut DisplayItem<GL>,
         semitransparent: bool
     ) {
@@ -277,7 +271,6 @@ impl<GL: HasContext> RenderingContext<GL> {
             bind.bind_instanced_color_data(&mut instance_buffer);
 
             unsafe {
-                println!("uncolored {} {} {}", uncolored_index.start, uncolored_index.span, instance_buffer.count);
                 gl.draw_arrays_instanced(
                     glow::TRIANGLES,
                     uncolored_index.start as i32,
@@ -297,12 +290,14 @@ impl<GL: HasContext> RenderingContext<GL> {
             bind.bind_instanced_color_data(&mut instance_buffer);
 
             unsafe {
+                gl.disable(glow::CULL_FACE);
                 gl.draw_arrays_instanced(
                     glow::TRIANGLES,
                     uncolored_without_bfc_index.start as i32,
                     uncolored_without_bfc_index.span as i32,
                     instance_buffer.count as i32
                 );
+                gl.enable(glow::CULL_FACE);
             }
         }
         let subparts = if semitransparent {
@@ -325,16 +320,54 @@ impl<GL: HasContext> RenderingContext<GL> {
             bind.bind_non_instanced_color_data(&color);
             
             unsafe {
+                if !group.bfc {
+                    gl.disable(glow::CULL_FACE);
+                }
                 gl.draw_arrays_instanced(
                     glow::TRIANGLES,
                     indices.start as i32,
                     indices.span as i32,
                     instance_buffer.count as i32
                 );
+                if !group.bfc {
+                    gl.enable(glow::CULL_FACE);
+                }
             }
         }
 
+        if let Some(edges) = &part_buffer.edges {
+            let program = self.program_manager.get_edge_program(true);
 
+            let bind = program.bind();
+            bind.bind_attribs(&edges);
+            bind.bind_instanced_attribs(&mut instance_buffer);
+
+            unsafe {
+                gl.draw_arrays_instanced(
+                    glow::LINES,
+                    0,
+                    edges.length as i32,
+                    instance_buffer.count as i32
+                );
+            }
+        }
+
+        if let Some(optional_edges) = &part_buffer.optional_edges {
+            let program = self.program_manager.get_optional_edge_program(true);
+
+            let bind = program.bind();
+            bind.bind_attribs(&optional_edges);
+            bind.bind_instanced_attribs(&mut instance_buffer);
+
+            unsafe {
+                gl.draw_arrays_instanced(
+                    glow::LINES,
+                    0,
+                    optional_edges.length as i32,
+                    instance_buffer.count as i32
+                );
+            }
+        }
     }
 
     pub fn render_display_list(
@@ -342,24 +375,8 @@ impl<GL: HasContext> RenderingContext<GL> {
     ) {
         let gl = &self.gl;
 
-        // Render transparent objects first
+        // Render opaque objects first
         unsafe {
-            gl.disable(glow::DEPTH_TEST);
-            gl.enable(glow::BLEND);
-        }
-
-        for (alias, mut object) in display_list.map.iter_mut() {
-            let part = match parts.get(&alias) {
-                Some(e) => e,
-                None => continue,
-            };
-
-            self.render_instance_mesh(&part, &mut object, true);
-        }
-
-        // And opaque objects later
-        unsafe {
-            gl.enable(glow::DEPTH_TEST);
             gl.disable(glow::BLEND);
         }
 
@@ -369,8 +386,32 @@ impl<GL: HasContext> RenderingContext<GL> {
                 None => continue,
             };
 
-            self.render_instance_mesh(&part, &mut object, false);
+            self.render_instance(&part, &mut object, false);
+        }
+
+        // ...and transparent objects later
+        unsafe {
+            gl.enable(glow::BLEND);
+        }
+
+        for (alias, mut object) in display_list.map.iter_mut() {
+            let part = match parts.get(&alias) {
+                Some(e) => e,
+                None => continue,
+            };
+
+            self.render_instance(&part, &mut object, true);
         }
     }
 
+}
+
+impl<GL: HasContext> Drop for RenderingContext<GL> {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(e) = self.envmap {
+                self.gl.delete_texture(e);
+            }
+        }
+    }
 }

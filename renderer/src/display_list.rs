@@ -17,7 +17,7 @@ use crate::{
     part::Part,
     shader::{ProgramManager},
     state::{ProjectionData, RenderingContext, ShadingData},
-    utils::{cast_as_bytes, derive_normal_matrix},
+    utils::cast_as_bytes,
 };
 
 pub struct DisplayItemBuilder {
@@ -43,12 +43,12 @@ pub struct InstanceBuffer<GL: HasContext> {
     pub count: usize,
 
     model_view_matrices: Vec<f32>,
-    normal_matrices: Vec<f32>,
     colors: Vec<f32>,
+    edge_colors: Vec<f32>,
 
     pub model_view_matrices_buffer: Option<GL::Buffer>,
-    pub normal_matrices_buffer: Option<GL::Buffer>,
     pub color_buffer: Option<GL::Buffer>,
+    pub edge_color_buffer: Option<GL::Buffer>,
 
     modified: bool,
 }
@@ -61,12 +61,12 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             count: 0,
 
             model_view_matrices: vec![],
-            normal_matrices: vec![],
             colors: vec![],
+            edge_colors: vec![],
 
             model_view_matrices_buffer: None,
-            normal_matrices_buffer: None,
             color_buffer: None,
+            edge_color_buffer: None,
 
             modified: false,
         }
@@ -98,23 +98,6 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             }
         }
 
-        if self.normal_matrices.is_empty() {
-            self.normal_matrices_buffer = None;
-        } else {
-            if self.normal_matrices_buffer.is_none() {
-                self.normal_matrices_buffer = unsafe {
-                    gl.create_buffer().ok()
-                };
-            }
-
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.normal_matrices_buffer);
-                gl.buffer_data_u8_slice(
-                    glow::ARRAY_BUFFER, cast_as_bytes(self.normal_matrices.as_ref()), glow::DYNAMIC_DRAW
-                );
-            }
-        }
-
         if self.colors.is_empty() {
             self.color_buffer = None;
         } else {
@@ -131,6 +114,23 @@ impl<GL: HasContext> InstanceBuffer<GL> {
                 );
             }
         }
+
+        if self.edge_colors.is_empty() {
+            self.edge_color_buffer = None;
+        } else {
+            if self.edge_color_buffer.is_none() {
+                self.edge_color_buffer = unsafe {
+                    gl.create_buffer().ok()
+                };
+            }
+
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.edge_color_buffer);
+                gl.buffer_data_u8_slice(
+                    glow::ARRAY_BUFFER, cast_as_bytes(self.edge_colors.as_ref()), glow::DYNAMIC_DRAW
+                );
+            }
+        }
     }
 }
 
@@ -140,6 +140,12 @@ impl<GL: HasContext> Drop for InstanceBuffer<GL> {
 
         unsafe {
             if let Some(b) = self.model_view_matrices_buffer {
+                gl.delete_buffer(b);
+            }
+            if let Some(b) = self.color_buffer {
+                gl.delete_buffer(b);
+            }
+            if let Some(b) = self.edge_color_buffer {
                 gl.delete_buffer(b);
             }
         }
@@ -169,16 +175,16 @@ impl<GL: HasContext> DisplayItem<GL> {
         &mut self,
         opaque: bool,
         model_view_matrices: &Vec<Matrix4>,
-        normal_matrices: &Vec<Matrix3>,
-        color_buffer: &Vec<Vector4>
+        color_buffer: &Vec<Vector4>,
+        edge_color_buffer: &Vec<Vector4>,
     ) {
         let mut mvmr = vec![];
-        let mut nmr = vec![];
         let mut cr = vec![];
-        for (mvm, nm, c) in izip!(model_view_matrices, normal_matrices, color_buffer) {
+        let mut ecr = vec![];
+        for (mvm, c, ec) in izip!(model_view_matrices, color_buffer, edge_color_buffer) {
             mvmr.extend(AsRef::<[f32; 16]>::as_ref(mvm));
-            nmr.extend(AsRef::<[f32; 9]>::as_ref(nm));
             cr.extend(AsRef::<[f32; 4]>::as_ref(c));
+            ecr.extend(AsRef::<[f32; 4]>::as_ref(ec));
         }
 
         let buffer = if opaque {
@@ -188,8 +194,8 @@ impl<GL: HasContext> DisplayItem<GL> {
         };
 
         buffer.model_view_matrices = mvmr;
-        buffer.normal_matrices = nmr;
         buffer.colors = cr;
+        buffer.edge_colors = ecr;
         buffer.count = model_view_matrices.len();
         buffer.modified = true;
     }
@@ -211,8 +217,6 @@ impl<GL: HasContext> DisplayItem<GL> {
         };
 
         buffer.model_view_matrices.extend(AsRef::<[f32; 16]>::as_ref(matrix));
-        let normal = derive_normal_matrix(matrix);
-        buffer.normal_matrices.extend(AsRef::<[f32; 9]>::as_ref(&normal));
         buffer.colors.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
         buffer.count += 1;
         buffer.modified = true;

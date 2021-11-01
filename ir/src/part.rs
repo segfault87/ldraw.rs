@@ -14,7 +14,7 @@ use kdtree::{
     KdTree
 };
 use ldraw::{
-    color::ColorReference,
+    color::{ColorReference, Material},
     document::Document,
     elements::{BfcStatement, Command, Meta},
     library::{ResolutionMap, ResolutionResult},
@@ -110,51 +110,40 @@ impl EdgeBufferBuilder {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OptionalEdgeBufferBuilder {
     pub vertices: Vec<f32>,
-    pub controls: Vec<f32>,
+    pub controls_1: Vec<f32>,
+    pub controls_2: Vec<f32>,
+    pub direction: Vec<f32>,
     pub colors: Vec<f32>,
 }
 
 impl OptionalEdgeBufferBuilder {
-    pub fn add(&mut self, v: &Vector3, c: &Vector3, color: &ColorReference, top: &ColorReference) {
-        self.vertices.push(v.x);
-        self.vertices.push(v.y);
-        self.vertices.push(v.z);
+    pub fn add(&mut self, v1: &Vector3, v2: &Vector3, c1: &Vector3, c2: &Vector3, color: &ColorReference, top: &ColorReference) {
+        let d = v2 - v1;
 
-        self.controls.push(c.x);
-        self.controls.push(c.y);
-        self.controls.push(c.z);
+        self.vertices.extend(&[v1.x, v1.y, v1.z, v2.x, v2.y, v2.z]);
+        self.controls_1.extend(&[c1.x, c1.y, c1.z, c1.x, c1.y, c1.z]);
+        self.controls_2.extend(&[c2.x, c2.y, c2.z, c2.x, c2.y, c2.z]);
+        self.direction.extend(&[d.x, d.y, d.z, d.x, d.y, d.z]);
 
         if color.is_current() {
             if let Some(c) = top.get_material() {
                 let mv: Vector4 = c.color.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
+                self.colors.extend(&[mv.x, mv.y, mv.z, mv.x, mv.y, mv.z]);
             } else {
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
+                self.colors.extend(&[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]);
             }
         } else if color.is_complement() {
             if let Some(c) = top.get_material() {
                 let mv: Vector4 = c.edge.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
+                self.colors.extend(&[mv.x, mv.y, mv.z, mv.x, mv.y, mv.z]);
             } else {
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
+                self.colors.extend(&[-2.0, -2.0, -2.0, -2.0, -2.0, -2.0]);
             }
         } else if let Some(c) = color.get_material() {
             let mv: Vector4 = c.color.into();
-            self.colors.push(mv.x);
-            self.colors.push(mv.y);
-            self.colors.push(mv.z);
+            self.colors.extend(&[mv.x, mv.y, mv.z, mv.x, mv.y, mv.z]);
         } else {
-            self.colors.push(0.0);
-            self.colors.push(0.0);
-            self.colors.push(0.0);
+            self.colors.extend(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
         }
     }
 
@@ -589,10 +578,11 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
                 Command::OptionalLine(cmd) => {
                     let top = self.color_stack.last().unwrap();
 
-                    self.builder.optional_edges
-                        .add(&(matrix * cmd.a).truncate(), &(matrix * cmd.c).truncate(), &cmd.color, top);
-                    self.builder.optional_edges
-                        .add(&(matrix * cmd.b).truncate(), &(matrix * cmd.d).truncate(), &cmd.color, top);
+                    /*self.builder.optional_edges.add(
+                        &(matrix * cmd.a).truncate(), &(matrix * cmd.b).truncate(),
+                        &(matrix * cmd.c).truncate(), &(matrix * cmd.d).truncate(),
+                        &cmd.color, top
+                    );*/
                 }
                 Command::Triangle(cmd) => {
                     let color = match &cmd.color {

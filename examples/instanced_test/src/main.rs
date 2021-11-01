@@ -120,19 +120,6 @@ fn bake(
     (document, features, deps)
 }
 
-fn set_up_context(gl: &Context) {
-    unsafe {
-        gl.clear_color(1.0, 1.0, 1.0, 1.0);
-        gl.line_width(1.0);
-        gl.cull_face(glow::BACK);
-        gl.enable(glow::CULL_FACE);
-        gl.enable(glow::DEPTH_TEST);
-        gl.enable(glow::BLEND);
-        gl.depth_func(glow::LEQUAL);
-        gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
-    }
-}
-
 struct App<GL: HasContext> {
     gl: Rc<GL>,
 
@@ -167,7 +154,8 @@ impl<GL: HasContext> App<GL> {
     }
 
     fn animate(&mut self, time: f32) {
-        self.context.camera.position.x = time.sin() * 300.0;
+        self.context.camera.position.x = time.sin() * 500.0;
+        self.context.camera.position.z = time.cos() * 500.0;
         self.context.update_camera();
     }
 
@@ -177,6 +165,8 @@ impl<GL: HasContext> App<GL> {
 
     fn render(&mut self) {
         let gl = &self.gl;
+
+        self.context.start_render();
 
         unsafe {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
@@ -209,7 +199,7 @@ fn main_loop(
     let gl = unsafe { Context::from_loader_function(|s| windowed_context.get_proc_address(s) as *const _) };
     let gl = Rc::new(gl);
 
-    let program_manager = match ProgramManager::new(Rc::clone(&gl), 1, 0) {
+    let program_manager = match ProgramManager::new(Rc::clone(&gl)) {
         Ok(e) => e,
         Err(e) => panic!("{}", e),
     };
@@ -278,7 +268,7 @@ fn get_part_size(part: &PartBuilder) -> usize {
 
 fn get_features_list() -> HashSet<PartAlias> {
     let mut features = HashSet::new();
-    features.insert(PartAlias::from(String::from("stud.dat")));
+    //features.insert(PartAlias::from(String::from("stud.dat")));
 
     features
 }

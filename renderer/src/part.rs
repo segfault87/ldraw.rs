@@ -106,10 +106,10 @@ impl<GL: HasContext> Drop for MeshBuffer<GL> {
 pub struct EdgeBuffer<GL: HasContext> {
     gl: Rc<GL>,
     
-    array: Option<GL::VertexArray>,
-    buffer_vertices: Option<GL::Buffer>,
-    buffer_colors: Option<GL::Buffer>,
-    length: usize,
+    pub array: Option<GL::VertexArray>,
+    pub buffer_vertices: Option<GL::Buffer>,
+    pub buffer_colors: Option<GL::Buffer>,
+    pub length: usize,
 }
 
 impl<GL: HasContext> EdgeBuffer<GL> {
@@ -190,11 +190,13 @@ impl<GL: HasContext> Drop for EdgeBuffer<GL> {
 pub struct OptionalEdgeBuffer<GL: HasContext> {
     gl: Rc<GL>,
     
-    array: Option<GL::VertexArray>,
-    buffer_vertices: Option<GL::Buffer>,
-    buffer_controls: Option<GL::Buffer>,
-    buffer_colors: Option<GL::Buffer>,
-    length: usize,
+    pub array: Option<GL::VertexArray>,
+    pub buffer_vertices: Option<GL::Buffer>,
+    pub buffer_controls_1: Option<GL::Buffer>,
+    pub buffer_controls_2: Option<GL::Buffer>,
+    pub buffer_directions: Option<GL::Buffer>,
+    pub buffer_colors: Option<GL::Buffer>,
+    pub length: usize,
 }
 
 impl<GL: HasContext> OptionalEdgeBuffer<GL> {
@@ -202,12 +204,16 @@ impl<GL: HasContext> OptionalEdgeBuffer<GL> {
     pub fn create(builder: &OptionalEdgeBufferBuilder, gl: Rc<GL>) -> Self {
         let array: Option<GL::VertexArray>;
         let buffer_vertices: Option<GL::Buffer>;
-        let buffer_controls: Option<GL::Buffer>;
+        let buffer_controls_1: Option<GL::Buffer>;
+        let buffer_controls_2: Option<GL::Buffer>;
+        let buffer_directions: Option<GL::Buffer>;
         let buffer_colors: Option<GL::Buffer>;
         unsafe {
             array = gl.create_vertex_array().ok();
             buffer_vertices = gl.create_buffer().ok();
-            buffer_controls = gl.create_buffer().ok();
+            buffer_controls_1 = gl.create_buffer().ok();
+            buffer_controls_2 = gl.create_buffer().ok();
+            buffer_directions = gl.create_buffer().ok();
             buffer_colors = gl.create_buffer().ok();
             gl.bind_vertex_array(array);
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
@@ -216,10 +222,22 @@ impl<GL: HasContext> OptionalEdgeBuffer<GL> {
                 cast_as_bytes(builder.vertices.as_ref()),
                 glow::STATIC_DRAW
             );
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls);
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls_1);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.controls.as_ref()),
+                cast_as_bytes(builder.controls_1.as_ref()),
+                glow::STATIC_DRAW
+            );
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls_2);
+            gl.buffer_data_u8_slice(
+                glow::ARRAY_BUFFER,
+                cast_as_bytes(builder.controls_2.as_ref()),
+                glow::STATIC_DRAW
+            );
+            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_directions);
+            gl.buffer_data_u8_slice(
+                glow::ARRAY_BUFFER,
+                cast_as_bytes(builder.direction.as_ref()),
                 glow::STATIC_DRAW
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
@@ -234,13 +252,20 @@ impl<GL: HasContext> OptionalEdgeBuffer<GL> {
             gl: Rc::clone(&gl),
             array,
             buffer_vertices,
-            buffer_controls,
+            buffer_controls_1,
+            buffer_controls_2,
+            buffer_directions,
             buffer_colors,
             length: builder.len(),
         }
     }
 
-    pub fn bind(&self, location_position: &Option<u32>, location_colors: &Option<u32>) {
+    pub fn bind(
+        &self,
+        location_position: &Option<u32>, location_colors: &Option<u32>,
+        location_controls_1: &Option<u32>, location_controls_2: &Option<u32>,
+        location_direction: &Option<u32>
+    ) {
         let gl = &self.gl;
 
         unsafe {
@@ -259,6 +284,24 @@ impl<GL: HasContext> OptionalEdgeBuffer<GL> {
                 gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
             }
         }
+        if let Some(e) = location_controls_1 {
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_controls_1);
+                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
+            }
+        }
+        if let Some(e) = location_controls_2 {
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_controls_2);
+                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
+            }
+        }
+        if let Some(e) = location_direction {
+            unsafe {
+                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_directions);
+                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
+            }
+        }
     }
     
 }
@@ -274,7 +317,13 @@ impl<GL: HasContext> Drop for OptionalEdgeBuffer<GL> {
             if let Some(e) = self.buffer_vertices {
                 gl.delete_buffer(e);
             }
-            if let Some(e) = self.buffer_controls {
+            if let Some(e) = self.buffer_controls_1 {
+                gl.delete_buffer(e);
+            }
+            if let Some(e) = self.buffer_controls_2 {
+                gl.delete_buffer(e);
+            }
+            if let Some(e) = self.buffer_directions {
                 gl.delete_buffer(e);
             }
             if let Some(e) = self.buffer_colors {
