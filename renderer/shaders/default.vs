@@ -21,7 +21,6 @@ in vec3 normal;
     #endif
 #else
     uniform vec4 color;
-    
 #endif
 
 out vec3 vViewPosition;
