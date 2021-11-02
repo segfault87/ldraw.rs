@@ -218,6 +218,7 @@ impl<GL: HasContext> DisplayItem<GL> {
 
         buffer.model_view_matrices.extend(AsRef::<[f32; 16]>::as_ref(matrix));
         buffer.colors.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
+        buffer.edge_colors.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.edge)));
         buffer.count += 1;
         buffer.modified = true;
     }

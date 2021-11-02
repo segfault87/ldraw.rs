@@ -29,12 +29,58 @@ out vec4 fragColor;
     uniform mat4 viewMatrix;
     uniform bool isOrthographic;
 
+    #ifndef saturate
+        #define saturate( a ) clamp( a, 0.0, 1.0 )
+    #endif
+
+    const float toneMappingExposure = 1.0;
+    vec3 LinearToneMapping( vec3 color ) {
+        return toneMappingExposure * color;
+    }
+    vec3 ReinhardToneMapping( vec3 color ) {
+        color *= toneMappingExposure;
+        return saturate( color / ( vec3( 1.0 ) + color ) );
+    }
+    vec3 OptimizedCineonToneMapping( vec3 color ) {
+        color *= toneMappingExposure;
+        color = max( vec3( 0.0 ), color - 0.004 );
+        return pow( ( color * ( 6.2 * color + 0.5 ) ) / ( color * ( 6.2 * color + 1.7 ) + 0.06 ), vec3( 2.2 ) );
+    }
+    vec3 RRTAndODTFit( vec3 v ) {
+        vec3 a = v * ( v + 0.0245786 ) - 0.000090537;
+        vec3 b = v * ( 0.983729 * v + 0.4329510 ) + 0.238081;
+        return a / b;
+    }
+    vec3 ACESFilmicToneMapping( vec3 color ) {
+        const mat3 ACESInputMat = mat3(
+        vec3( 0.59719, 0.07600, 0.02840 ), vec3( 0.35458, 0.90834, 0.13383 ), vec3( 0.04823, 0.01566, 0.83777 )
+        );
+        const mat3 ACESOutputMat = mat3(
+        vec3(  1.60475, -0.10208, -0.00327 ), vec3( -0.53108, 1.10813, -0.07276 ), vec3( -0.07367, -0.00605, 1.07602 )
+        );
+        color *= toneMappingExposure / 0.6;
+        color = ACESInputMat * color;
+        color = RRTAndODTFit( color );
+        color = ACESOutputMat * color;
+        return saturate( color );
+    }
+    vec3 CustomToneMapping( vec3 color ) {
+        return color;
+    }
+    vec3 toneMapping( vec3 color ) {
+        return ACESFilmicToneMapping( color );
+    }
+
     vec4 LinearTosRGB( in vec4 value ) {
         return vec4( mix( pow( value.rgb, vec3( 0.41666 ) ) * 1.055 - vec3( 0.055 ), value.rgb * 12.92, vec3( lessThanEqual( value.rgb, vec3( 0.0031308 ) ) ) ), value.a );
     }
+
+    vec4 LinearToLinear( in vec4 value ) {
+        return value;
+    }
     
     vec4 linearToOutputTexel( vec4 value ) {
-        return LinearTosRGB( value );
+        return LinearToLinear( value );
     }
 
     vec4 RGBEToLinear( in vec4 value ) {
@@ -260,13 +306,13 @@ out vec4 fragColor;
         uv.y += filterInt * 2.0 * cubeUV_minTileSize;
         uv.x += 3.0 * max( 0.0, cubeUV_maxTileSize - 2.0 * faceSize );
         uv *= texelSize;
-        vec3 tl = envMapTexelToLinear( texture2D( envMap, uv ) ).rgb;
+        vec3 tl = envMapTexelToLinear( texture( envMap, uv ) ).rgb;
         uv.x += texelSize;
-        vec3 tr = envMapTexelToLinear( texture2D( envMap, uv ) ).rgb;
+        vec3 tr = envMapTexelToLinear( texture( envMap, uv ) ).rgb;
         uv.y += texelSize;
-        vec3 br = envMapTexelToLinear( texture2D( envMap, uv ) ).rgb;
+        vec3 br = envMapTexelToLinear( texture( envMap, uv ) ).rgb;
         uv.x -= texelSize;
-        vec3 bl = envMapTexelToLinear( texture2D( envMap, uv ) ).rgb;
+        vec3 bl = envMapTexelToLinear( texture( envMap, uv ) ).rgb;
         vec3 tm = mix( tl, tr, f.x );
         vec3 bm = mix( bl, br, f.x );
         return mix( tm, bm, f.y );
@@ -320,7 +366,7 @@ out vec4 fragColor;
     
     }
     
-    const float envMapIntensity = 1.0;
+    const float envMapIntensity = 1.25;
     
     vec3 getIBLIrradiance( const in vec3 normal ) {
         vec3 worldNormal = inverseTransformDirection( normal, viewMatrix );
@@ -396,8 +442,9 @@ out vec4 fragColor;
         vec3 totalDiffuse = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;
         vec3 totalSpecular = reflectedLight.directSpecular + reflectedLight.indirectSpecular;
         vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;
-        gl_FragColor = vec4( outgoingLight, diffuseColor.a );
-        gl_FragColor = linearToOutputTexel( gl_FragColor );
+        fragColor = vec4( outgoingLight, diffuseColor.a );
+        fragColor.rgb = toneMapping( fragColor.rgb );
+        fragColor = linearToOutputTexel( fragColor );
     }
 
 #endif

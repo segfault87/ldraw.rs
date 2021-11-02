@@ -143,8 +143,8 @@ impl<GL: HasContext> App<GL> {
     }
 
     pub fn animate(&mut self, time: f32) {
-        self.context.camera.position.x = time.sin() * 500.0;
-        self.context.camera.position.z = time.cos() * 500.0;
+        self.context.camera.position.x = time.sin() * 1000.0;
+        self.context.camera.position.z = time.cos() * 1000.0;
         self.context.update_camera();
 
         if self.playing {

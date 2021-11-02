@@ -128,6 +128,7 @@ fn main_loop(
     let windowed_context = ContextBuilder::new()
         .with_gl_profile(GlProfile::Core)
         .with_gl(GlRequest::Latest)
+        .with_multisampling(4)
         .with_vsync(true)
         .build_windowed(window_builder, &evloop)
         .unwrap();
