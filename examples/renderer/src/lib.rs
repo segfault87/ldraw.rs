@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    f32,
     rc::Rc,
     vec::Vec,
 };
@@ -20,13 +21,16 @@ use ldraw_renderer::{
     shader::{ProgramManager},
 };
 
+#[derive(Clone, Debug)]
+struct RenderingOrderItem {
+    name: PartAlias,
+    matrix: Matrix4,
+    color: ColorReference,
+}
+
 #[derive(Debug)]
 enum RenderingOrder {
-    Item {
-        name: PartAlias,
-        matrix: Matrix4,
-        color: ColorReference,
-    },
+    Item(RenderingOrderItem),
     Step,
 }
 
@@ -51,11 +55,11 @@ fn traverse<'a, GL: HasContext>(
                 if parent.subparts.contains_key(&r.name) {
                     traverse(Rc::clone(&gl), orders, parent.subparts.get(&r.name).unwrap(), matrix * r.matrix, parent);
                 } else {
-                    orders.push(RenderingOrder::Item {
+                    orders.push(RenderingOrder::Item(RenderingOrderItem {
                         name: r.name.clone(),
                         matrix: matrix * r.matrix,
                         color: r.color.clone(),
-                    })
+                    }))
                 }
             },
             _ => (),
@@ -80,10 +84,15 @@ pub struct App<GL: HasContext> {
     context: RenderingContext<GL>,
     display_list: DisplayList<GL>,
     rendering_order: Vec<RenderingOrder>,
+    animating: Vec<(RenderingOrderItem, f32, Matrix4, f32, f32)>,
     playing: bool,
     pointer: Option<usize>,
     last_time: Option<f32>,
+    frames: usize,
 }
+
+const FALL_INTERVAL: f32 = 0.2;
+const FALL_DURATION: f32 = 0.5;
 
 impl<GL: HasContext> App<GL> {
 
@@ -103,9 +112,11 @@ impl<GL: HasContext> App<GL> {
             context: RenderingContext::new(gl, program_manager),
             display_list: DisplayList::new(),
             rendering_order,
+            animating: vec![],
             playing: true,
             pointer: None,
             last_time: None,
+            frames: 0,
         }
     }
 
@@ -117,7 +128,7 @@ impl<GL: HasContext> App<GL> {
     pub fn advance(&mut self, time: f32) {
         let next = if self.pointer.is_none() && self.last_time.is_none()  {
             0
-        } else if time - self.last_time.unwrap() >= 0.1 {
+        } else if time - self.last_time.unwrap() >= FALL_INTERVAL {
             self.pointer.unwrap() + 1
         } else {
             return
@@ -130,26 +141,45 @@ impl<GL: HasContext> App<GL> {
 
         self.pointer = Some(next);
         match &self.rendering_order[next] {
-            RenderingOrder::Item { name, matrix, color } => {
-                self.display_list.add(Rc::clone(&self.gl), &name, &matrix, &color);
+            RenderingOrder::Item(item) => {
+                println!("Add {:?}", item);
+                self.animating.push((item.clone(), time, item.matrix.clone(), 0.0, 0.0));
                 self.playing = true;
                 self.last_time = Some(time);
             },
             RenderingOrder::Step => {
                 self.playing = false;
-                return;
             }
         };
     }
 
     pub fn animate(&mut self, time: f32) {
-        self.context.camera.position.x = time.sin() * 1000.0;
-        self.context.camera.position.z = time.cos() * 1000.0;
+        self.context.camera.position.x = time.sin() * 500.0;
+        self.context.camera.position.z = time.cos() * 500.0;
         self.context.update_camera();
 
         if self.playing {
             self.advance(time);
         }
+
+        for (order, started_at, mat, opacity, progress) in self.animating.iter_mut() {
+            let elapsed = (time - started_at.clone()).clamp(0.0, FALL_DURATION) / FALL_DURATION;
+            let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
+            mat[3][1] = -(1.0 - ease) * 300.0 + order.matrix[3][1];
+            *opacity = ease;
+            *progress = elapsed;
+
+            if progress >= &mut 1.0 {
+                self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.color.clone());
+            }
+        }
+
+        self.animating.retain(|(i, _, _, _, progress)| {
+            if progress >= &1.0 {   
+                println!("Remove one");
+            }
+            progress < &1.0
+        });
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -159,13 +189,30 @@ impl<GL: HasContext> App<GL> {
     pub fn render(&mut self) {
         let gl = &self.gl;
 
-        self.context.start_render();
-
         unsafe {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-            self.context.render_display_list(&self.parts, &mut self.display_list);
+
+            self.context.render_display_list(&self.parts, &mut self.display_list, false);
+            self.context.render_display_list(&self.parts, &mut self.display_list, true);
+
+            for (item, _, matrix, opacity, _) in self.animating.iter() {
+                if let Some(part) = self.parts.get(&item.name) {
+                    self.context.shading_data.opacity = opacity.clone();
+                    self.context.projection_data.push_model_matrix(&matrix);
+                    self.context.render_single_part(&part, &item.color, false);
+                    self.context.render_single_part(&part, &item.color, true);
+                    self.context.projection_data.pop_model_matrix();
+                }
+            }
+            self.context.shading_data.opacity = 1.0;
+
+            self.frames += 1;
+            println!("Frames: {}", self.frames);
+
             gl.flush();
         }
+
+
     }
 
 }

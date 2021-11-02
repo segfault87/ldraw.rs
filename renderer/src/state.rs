@@ -68,9 +68,11 @@ impl ProjectionData {
 
     pub fn push_model_matrix(&mut self, m: &Matrix4) {
         let top = self.model_matrix.last().unwrap().clone();
-        let transformed = top * m;
+        let transformed = m * top;
         self.model_matrix.push(transformed);
+        println!("m: {:?}\ntop:\n{:?} transformed: {:?}\npre: {:?}", m, top, transformed, self.model_view);
         self.update_model_view_and_normal_matrix();
+        println!("post: {:?}\n", self.model_view);
     }
 
     pub fn pop_model_matrix(&mut self) {
@@ -207,7 +209,6 @@ impl<GL: HasContext> RenderingContext<GL> {
             gl.enable(glow::CULL_FACE);
             gl.enable(glow::DEPTH_TEST);
             gl.enable(glow::BLEND);
-            gl.enable(glow::TEXTURE_2D);
             gl.depth_func(glow::LEQUAL);
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
         }
@@ -350,52 +351,57 @@ impl<GL: HasContext> RenderingContext<GL> {
 
     pub fn render_single_part(
         &mut self,
-        part: &Part<GL>, matrix: &Matrix4, color: &ColorReference, semitransparent: bool
+        part: &Part<GL>, color: &ColorReference, semitransparent: bool
     ) {
         let gl = &self.gl;
         let part_buffer = &part.part;
 
-        let color = match color {
-            ColorReference::Material(m) => m.color.into(),
-            _ => Vector4::zero(),
+        let material = match color {
+            ColorReference::Material(m) => m,
+            _ => return,
         };
+        let default_color: Vector4 = material.color.into();
+        let edge_color: Vector4 = material.edge.into();
 
-        if let Some(uncolored_index) = &part_buffer.uncolored_index {
-            let program = self.program_manager.get_default_program(
-                DefaultProgramInstancingKind::NonInstanced, true
-            );
-
-            let bind = program.bind(&self.projection_data, &self.shading_data);
-            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
-            bind.bind_non_instanced_color_data(&color);
-
-            unsafe {
-                gl.draw_arrays(
-                    glow::TRIANGLES,
-                    uncolored_index.start as i32,
-                    uncolored_index.span as i32
+        if material.is_semi_transparent() == semitransparent {
+            if let Some(uncolored_index) = &part_buffer.uncolored_index {
+                let program = self.program_manager.get_default_program(
+                    DefaultProgramInstancingKind::NonInstanced, true
                 );
+
+                let bind = program.bind(&self.projection_data, &self.shading_data);
+                bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
+                bind.bind_non_instanced_color_data(&default_color);
+
+                unsafe {
+                    gl.draw_arrays(
+                        glow::TRIANGLES,
+                        uncolored_index.start as i32,
+                        uncolored_index.span as i32
+                    );
+                }
+            }
+            if let Some(uncolored_without_bfc_index) = &part_buffer.uncolored_without_bfc_index {
+                let program = self.program_manager.get_default_program(
+                    DefaultProgramInstancingKind::NonInstanced, false
+                );
+
+                let bind = program.bind(&self.projection_data, &self.shading_data);
+                bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
+                bind.bind_non_instanced_color_data(&default_color);
+
+                unsafe {
+                    gl.disable(glow::CULL_FACE);
+                    gl.draw_arrays(
+                        glow::TRIANGLES,
+                        uncolored_without_bfc_index.start as i32,
+                        uncolored_without_bfc_index.span as i32
+                    );
+                    gl.enable(glow::CULL_FACE);
+                }
             }
         }
-        if let Some(uncolored_without_bfc_index) = &part_buffer.uncolored_without_bfc_index {
-            let program = self.program_manager.get_default_program(
-                DefaultProgramInstancingKind::NonInstanced, false
-            );
 
-            let bind = program.bind(&self.projection_data, &self.shading_data);
-            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
-            bind.bind_non_instanced_color_data(&color);
-
-            unsafe {
-                gl.disable(glow::CULL_FACE);
-                gl.draw_arrays(
-                    glow::TRIANGLES,
-                    uncolored_without_bfc_index.start as i32,
-                    uncolored_without_bfc_index.span as i32
-                );
-                gl.enable(glow::CULL_FACE);
-            }
-        }
         let subparts = if semitransparent {
             &part_buffer.semitransparent_indices
         } else {
@@ -408,11 +414,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
             bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
-            let color = match &group.color_ref {
-                ColorReference::Material(m) => Vector4::from(&m.color),
-                _ => Vector4::zero(),
-            };
-            bind.bind_non_instanced_color_data(&color);
+            bind.bind_non_instanced_color_data(&default_color);
             
             unsafe {
                 if !group.bfc {
@@ -434,6 +436,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data);
             bind.bind_attribs(&edges);
+            bind.bind_non_instanced_properties(&default_color, &edge_color);
 
             unsafe {
                 gl.draw_arrays(
@@ -449,6 +452,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data);
             bind.bind_attribs(&optional_edges);
+            bind.bind_non_instanced_properties(&default_color, &edge_color);
 
             unsafe {
                 gl.draw_arrays(

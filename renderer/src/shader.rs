@@ -427,6 +427,7 @@ impl<'a, GL: HasContext> Drop for DefaultProgramBinder<'a, GL> {
         let gl = &self.gl;
 
         unsafe {
+            gl.use_program(None);
             if let Some(a) = self.program.position {
                 gl.disable_vertex_attrib_array(a);
             }
@@ -545,8 +546,6 @@ pub struct EdgeProgramBinder<'a, GL: HasContext> {
 
 impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
     fn new(program: &'a EdgeProgram<GL>) -> Self {
-        program.program.use_program();
-
         EdgeProgramBinder {
             gl: Rc::clone(&program.gl),
             program: &program
@@ -608,7 +607,6 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
 
     pub fn bind_non_instanced_properties(&self, color: &Vector4, edge_color: &Vector4) {
         let gl = &self.gl;
-        self.program.program.use_program();
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.default_color.as_ref(),
@@ -627,6 +625,7 @@ impl<'a, GL: HasContext> Drop for EdgeProgramBinder<'a, GL> {
         let gl = &self.gl;
 
         unsafe {
+            gl.use_program(None);
             if let Some(a) = self.program.position {
                 gl.disable_vertex_attrib_array(a);
             }
@@ -837,6 +836,7 @@ impl<'a, GL: HasContext> Drop for OptionalEdgeProgramBinder<'a, GL> {
         let gl = &self.gl;
 
         unsafe {
+            gl.use_program(None);
             if let Some(a) = self.program.position {
                 gl.disable_vertex_attrib_array(a);
             }

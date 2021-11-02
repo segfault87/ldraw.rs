@@ -1,5 +1,5 @@
 use std::{
-    collections::hash_map::{Entry, HashMap},
+    collections::hash_map::HashMap,
     rc::Rc,
     vec::Vec,
 };
@@ -8,15 +8,12 @@ use cgmath::SquareMatrix;
 use glow::HasContext;
 use itertools::izip;
 use ldraw::{
-    color::{ColorReference, Material},
+    color::{ColorReference},
     document::{Document, MultipartDocument},
-    Matrix3, Matrix4, PartAlias, Vector4,
+    Matrix4, PartAlias, Vector4,
 };
 
 use crate::{
-    part::Part,
-    shader::{ProgramManager},
-    state::{ProjectionData, RenderingContext, ShadingData},
     utils::cast_as_bytes,
 };
 
@@ -81,6 +78,8 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             return;
         }
 
+        println!("Update buffer: {}", self.count);
+
         if self.model_view_matrices.is_empty() {
             self.model_view_matrices_buffer = None;
         } else {
@@ -131,6 +130,8 @@ impl<GL: HasContext> InstanceBuffer<GL> {
                 );
             }
         }
+
+        self.modified = false;
     }
 }
 
@@ -234,6 +235,16 @@ impl<GL: HasContext> DisplayList<GL> {
             map: HashMap::new()
         }
     }
+
+    pub fn count(&self) -> usize {
+        let mut count = 0;
+
+        for v in self.map.values() {
+            count += v.opaque.count + v.semitransparent.count;
+        }
+
+        count
+    }
 }
 
 fn build_display_list<'a, GL: HasContext>(
@@ -247,7 +258,7 @@ fn build_display_list<'a, GL: HasContext>(
         if parent.subparts.contains_key(&e.name) {
             build_display_list(Rc::clone(&gl), display_list, parent.subparts.get(&e.name).unwrap(), matrix * e.matrix, parent);
         } else {
-            display_list.add(Rc::clone(&gl), &e.name, &(matrix * e.matrix), &e.color);
+            display_list.add(Rc::clone(&gl), e.name.clone(), matrix * e.matrix, e.color.clone());
         }
     }
 }
@@ -261,7 +272,7 @@ impl<GL: HasContext> DisplayList<GL> {
         display_list
     }
 
-    pub fn add(&mut self, gl: Rc<GL>, name: &PartAlias, matrix: &Matrix4, color: &ColorReference) {
+    pub fn add(&mut self, gl: Rc<GL>, name: PartAlias, matrix: Matrix4, color: ColorReference) {
         self.map.entry(name.clone()).or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name)).add(&matrix, &color);
     }
 

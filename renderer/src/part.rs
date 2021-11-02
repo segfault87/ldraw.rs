@@ -419,6 +419,14 @@ impl<GL: HasContext> PartBuffer<GL> {
             optional_edges,
         }
     }
+
+    pub fn has_opaque_parts(&self) -> bool {
+        self.opaque_indices.len() > 0
+    }
+
+    pub fn has_semitransparent_parts(&self) -> bool {
+        self.semitransparent_indices.len() > 0
+    }
 }
 
 #[derive(Debug)]
