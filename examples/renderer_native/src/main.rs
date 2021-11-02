@@ -14,8 +14,8 @@ use cgmath::SquareMatrix;
 use glow::{self, Context, HasContext};
 use glutin::{
     dpi::LogicalSize,
-    ContextBuilder, Event, EventsLoop, GlProfile, GlRequest,
-    WindowBuilder, WindowEvent
+    ContextBuilder, ElementState, Event, EventsLoop, GlProfile, GlRequest,
+    KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent
 };
 use ldraw::{
     color::MaterialRegistry,
@@ -160,19 +160,27 @@ fn main_loop(
         windowed_context.swap_buffers().unwrap();
 
         evloop.poll_events(|event| {
-            if let Event::WindowEvent { event, .. } = event {
-                match event {
-                    WindowEvent::CloseRequested => {
-                        closed = true;
+            match event {
+                Event::WindowEvent { event, .. } => {
+                    match event {
+                        WindowEvent::CloseRequested => {
+                            closed = true;
+                        }
+                        WindowEvent::Resized(size) => {
+                            let physical = size.to_physical(window.get_hidpi_factor());
+                            windowed_context.resize(physical);
+                            let (w, h): (u32, u32) = physical.into();
+                            app.resize(w, h);
+                        }
+                        WindowEvent::KeyboardInput { input, .. } => {
+                            if input.virtual_keycode == Some(VirtualKeyCode::Space) && input.state == ElementState::Pressed {
+                                app.advance(started.elapsed().as_millis() as f32 / 1000.0);
+                            }
+                        }
+                        _ => (),
                     }
-                    WindowEvent::Resized(size) => {
-                        let physical = size.to_physical(window.get_hidpi_factor());
-                        windowed_context.resize(physical);
-                        let (w, h): (u32, u32) = physical.into();
-                        app.resize(w, h);
-                    }
-                    _ => (),
-                }
+                },
+                _ => (),
             }
         });
     }

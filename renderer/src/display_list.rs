@@ -246,7 +246,7 @@ fn build_display_list<'a, GL: HasContext>(
         if parent.subparts.contains_key(&e.name) {
             build_display_list(Rc::clone(&gl), display_list, parent.subparts.get(&e.name).unwrap(), matrix * e.matrix, parent);
         } else {
-            display_list.map.entry(e.name.clone()).or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &e.name)).add(&(matrix * e.matrix), &e.color);
+            display_list.add(Rc::clone(&gl), &e.name, &(matrix * e.matrix), &e.color);
         }
     }
 }
@@ -258,6 +258,14 @@ impl<GL: HasContext> DisplayList<GL> {
         build_display_list(gl, &mut display_list, &document.body, Matrix4::identity(), &document);
 
         display_list
+    }
+
+    pub fn add(&mut self, gl: Rc<GL>, name: &PartAlias, matrix: &Matrix4, color: &ColorReference) {
+        self.map.entry(name.clone()).or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name)).add(&matrix, &color);
+    }
+
+    pub fn clear(&mut self) {
+        self.map.clear();
     }
 }
    
