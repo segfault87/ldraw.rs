@@ -5,6 +5,7 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+async-trait = "~0.1.51"
 cgmath = "~0.18.0"
 glow = "~0.11.0"
 ldraw = { path = "../../ldraw" }

@@ -1,10 +1,11 @@
 use std::{
-    collections::HashMap,
+    collections::{HashSet, HashMap},
     f32,
     rc::Rc,
     vec::Vec,
 };
 
+use async_trait::async_trait;
 use cgmath::{Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3, SquareMatrix};
 use glow::HasContext;
 use ldraw::{
@@ -13,6 +14,7 @@ use ldraw::{
     document::{Document, MultipartDocument},
     Matrix3, Matrix4, PartAlias, Vector3, Vector4,
 };
+use ldraw_ir::part::PartBuilder;
 use ldraw_renderer::{
     display_list::DisplayList,
     error::RendererError,
@@ -20,6 +22,13 @@ use ldraw_renderer::{
     state::RenderingContext,
     shader::{ProgramManager},
 };
+
+#[async_trait]
+pub trait ResourceLoader {
+    async fn load(
+        &mut self, locator: &String, loaded: &HashSet<&PartAlias>
+    ) -> Result<(MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>), &'static str>;
+}
 
 #[derive(Clone, Debug)]
 struct RenderingOrderItem {
@@ -92,6 +101,7 @@ pub struct App<GL: HasContext> {
     display_list: DisplayList<GL>,
     rendering_order: Vec<RenderingOrder>,
     animating: Vec<(RenderingOrderItem, f32, Matrix4, f32, f32)>,
+
     state: State,
     pointer: Option<usize>,
     last_time: Option<f32>,
@@ -105,28 +115,46 @@ impl<GL: HasContext> App<GL> {
 
     pub fn new(
         gl: Rc<GL>,
-        document: MultipartDocument,
-        features: HashMap<PartAlias, Part<GL>>,
-        parts: HashMap<PartAlias, Part<GL>>,
         program_manager: ProgramManager<GL>
     ) -> Self {
-        let rendering_order = create_rendering_list(Rc::clone(&gl), &document);
         let context = RenderingContext::new(Rc::clone(&gl), program_manager);
         context.upload_shading_data();
 
         App {
             gl,
-            features,
-            parts,
+            features: HashMap::new(),
+            parts: HashMap::new(),
             context,
             display_list: DisplayList::new(),
-            rendering_order,
-            animating: vec![],
-            state: State::Playing,
+            rendering_order: Vec::new(),
+            animating: Vec::new(),
+            state: State::Finished,
             pointer: None,
             last_time: None,
             frames: 0,
         }
+    }
+
+    pub async fn set_document<RL: ResourceLoader>(&mut self, loader: &mut RL, locator: &String) -> Result<(), &'static str> {
+        let mut cache = HashSet::new();
+        cache.extend(self.features.keys());
+        cache.extend(self.parts.keys());
+
+        let (document, features, parts) = loader.load(locator, &cache).await?;
+
+        let features = features.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&self.gl)))).collect::<HashMap<_, _>>();
+        let parts = parts.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&self.gl)))).collect::<HashMap<_, _>>();
+
+        self.features.extend(features);
+        self.parts.extend(parts);
+        self.state = State::Playing;
+        self.animating = Vec::new();
+        self.display_list = DisplayList::new();
+        self.pointer = None;
+        self.last_time = None;
+        self.rendering_order = create_rendering_list(Rc::clone(&self.gl), &document);
+
+        Ok(())
     }
 
     pub fn set_up(&self) {
@@ -171,46 +199,52 @@ impl<GL: HasContext> App<GL> {
 
         let mut clear = true;
         for (order, started_at, mat, opacity, progress) in self.animating.iter_mut() {
-            let elapsed = (time - started_at.clone()).clamp(0.0, FALL_DURATION) / FALL_DURATION;
-            let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
-            mat[3][1] = -(1.0 - ease) * 300.0 + order.matrix[3][1];
-            *opacity = ease;
-            *progress = elapsed;
+            if *progress < 1.0 {
+                let elapsed = (time - started_at.clone()).clamp(0.0, FALL_DURATION) / FALL_DURATION;
+                let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
+                mat[3][1] = -(1.0 - ease) * 300.0 + order.matrix[3][1];
+                *opacity = ease;
+                *progress = elapsed;
 
-            if elapsed < 1.0 {
                 clear = false;
             }
         }
 
-        if clear {
+        /*if clear {
             for (order, _, _, _, _) in self.animating.iter() {
                 self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.color.clone());
             }
             self.animating.clear();
-        }
+        }*/
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.context.resize(width, height);
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self, max: Option<usize>) {
         let gl = &self.gl;
 
         unsafe {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
         }
 
-        self.context.render_display_list(&self.parts, &mut self.display_list, false);
-        self.context.render_display_list(&self.parts, &mut self.display_list, true);
+        //self.context.render_display_list(&self.parts, &mut self.display_list, false);
+        //self.context.render_display_list(&self.parts, &mut self.display_list, true);
 
-        for (item, _, matrix, opacity, _) in self.animating.iter() {
+        for (i, (item, _, matrix, opacity, _)) in self.animating.iter().enumerate() {
             if let Some(part) = self.parts.get(&item.name) {
                 self.context.shading_data.opacity = opacity.clone();
                 self.context.projection_data.push_model_matrix(&matrix);
                 self.context.render_single_part(&part, &item.color, false);
                 self.context.render_single_part(&part, &item.color, true);
                 self.context.projection_data.pop_model_matrix();
+            }
+
+            if let Some(max) = max {
+                if max == i {
+                    break;
+                }
             }
         }
         self.context.shading_data.opacity = 1.0;

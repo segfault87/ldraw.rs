@@ -10,6 +10,7 @@ use std::{
     time::Instant,
 };
 
+use async_trait::async_trait;
 use cgmath::SquareMatrix;
 use glow::{self, Context, HasContext};
 use glutin::{
@@ -35,92 +36,135 @@ use ldraw_renderer::{
     part::Part,
     shader::ProgramManager,
 };
-use test_renderer::App;
+use test_renderer::{App, ResourceLoader};
+use tokio::runtime::Runtime;
 
-fn bake(
-    colors: &MaterialRegistry,
-    directory: Rc<RefCell<PartDirectoryNative>>,
-    path: &str,
-    enabled_features: &HashSet<PartAlias>,
-) -> (MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
-    println!("Parsing document...");
-    let document =
-        parse_multipart_document(&colors, &mut BufReader::new(File::open(path).unwrap())).unwrap();
+struct NativeLoader {
+    ldrawdir: String,
+    colors: MaterialRegistry,
+    enabled_features: HashSet<PartAlias>,
+}
 
-    println!("Resolving dependencies...");
-    let cache = Rc::new(RefCell::new(PartCache::default()));
-    let mut resolution = ResolutionMap::new(directory, Rc::clone(&cache));
-    resolution.resolve(&&document.body, Some(&document));
-    loop {
-        let files = match load_files(&colors, Rc::clone(&cache), resolution.get_pending()) {
-            Some(e) => e,
-            None => break,
-        };
-        for key in files {
-            let doc = cache.borrow().query(&key).unwrap();
-            
-            resolution.update(&key, doc);
-        }
+fn get_part_size(part: &PartBuilder) -> usize {
+    let mut bytes = 0;
+
+    bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
+    bytes += part.part_builder.uncolored_without_bfc_mesh.len() * 3 * 4 * 2;
+    for (group, mesh) in part.part_builder.opaque_meshes.iter() {
+        bytes += mesh.len() * 3 * 4 * 2;
     }
+    for (group, mesh) in part.part_builder.semitransparent_meshes.iter() {
+        bytes += mesh.len() * 3 * 4 * 2;
+    }
+    bytes += part.part_builder.edges.len() * 3 * 4 * 2;
+    bytes += part.part_builder.optional_edges.len() * 3 * 4 * 2;
 
-    println!("Baking model...");
+    bytes
+}
 
-    let mut features = HashMap::new();
-    let mut deps = HashMap::new();
-    for feature in enabled_features.iter() {
-        let part = resolution.map.get(&feature);
-        if part.is_none() {
-            println!("Dependency {} has not been found", feature);
-            continue;
-        }
-        let part = part.unwrap();
-        let element = match part {
-            ResolutionResult::Associated(e) => {
-                e
+#[async_trait]
+impl ResourceLoader for NativeLoader {
+
+    async fn load(
+        &mut self, locator: &String, loaded: &HashSet<&PartAlias>
+    ) -> Result<(MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>), &'static str> {
+        println!("Scanning LDraw directory...");
+        let directory = Rc::new(RefCell::new(scan_ldraw_directory(&self.ldrawdir).unwrap()));
+
+        println!("Parsing document...");
+        let document =
+            parse_multipart_document(&self.colors, &mut BufReader::new(File::open(&locator).unwrap())).unwrap();
+
+        println!("Resolving dependencies...");
+        let cache = Rc::new(RefCell::new(PartCache::default()));
+        let mut resolution = ResolutionMap::new(directory, Rc::clone(&cache));
+        resolution.resolve(&&document.body, Some(&document));
+        loop {
+            let files = match load_files(&self.colors, Rc::clone(&cache), resolution.get_pending()) {
+                Some(e) => e,
+                None => break,
+            };
+            for key in files {
+                let doc = cache.borrow().query(&key).unwrap();
+                
+                resolution.update(&key, doc);
             }
-            _ => {
-                println!("Could not bake dependency {}", feature);
+        }
+
+        println!("Baking model...");
+
+        let mut features = HashMap::new();
+        let mut deps = HashMap::new();
+        for feature in self.enabled_features.iter() {
+            if loaded.contains(&feature) {
                 continue;
             }
-        };
-        features.insert(feature.clone(), bake_part(&resolution, None, &element));
-    }
-    for dep in document.list_dependencies() {
-        let part = resolution.map.get(&dep);
-        if part.is_none() {
-            println!("Dependency {} has not been found", dep);
-            continue;
-        }
-        let part = part.unwrap();
-        let element = match part {
-            ResolutionResult::Associated(e) => {
-                e
-            }
-            _ => {
-                println!("Could not bake dependency {}", dep);
+            let part = resolution.map.get(&feature);
+            if part.is_none() {
+                println!("Dependency {} has not been found", feature);
                 continue;
             }
-        };
-        deps.insert(dep.clone(), bake_part(&resolution, Some(&enabled_features), &element));
+            let part = part.unwrap();
+            let element = match part {
+                ResolutionResult::Associated(e) => {
+                    e
+                }
+                _ => {
+                    println!("Could not bake dependency {}", feature);
+                    continue;
+                }
+            };
+            features.insert(feature.clone(), bake_part(&resolution, None, &element));
+        }
+        for dep in document.list_dependencies() {
+            if loaded.contains(&dep) {
+                continue;
+            }
+            let part = resolution.map.get(&dep);
+            if part.is_none() {
+                println!("Dependency {} has not been found", dep);
+                continue;
+            }
+            let part = part.unwrap();
+            let element = match part {
+                ResolutionResult::Associated(e) => {
+                    e
+                }
+                _ => {
+                    println!("Could not bake dependency {}", dep);
+                    continue;
+                }
+            };
+            deps.insert(dep.clone(), bake_part(&resolution, Some(&self.enabled_features), &element));
+        }
+
+        drop(resolution);
+
+        println!(
+            "Collected {} entries",
+            cache
+                .borrow_mut()
+                .collect(CacheCollectionStrategy::PartsAndPrimitives)
+        );
+
+        let mut total_bytes: usize = 0;
+        for (_, part) in features.iter() {
+            total_bytes += get_part_size(&part);
+        }
+        for (_, part) in deps.iter() {
+            total_bytes += get_part_size(&part);
+        }
+
+        println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);
+
+        Ok((document, features, deps))
     }
 
-    drop(resolution);
-
-    println!(
-        "Collected {} entries",
-        cache
-            .borrow_mut()
-            .collect(CacheCollectionStrategy::PartsAndPrimitives)
-    );
-
-    (document, features, deps)
 }
 
 fn main_loop(
-    document: MultipartDocument,
-    colors: &MaterialRegistry,
-    features: HashMap<PartAlias, PartBuilder>,
-    parts: HashMap<PartAlias, PartBuilder>
+    locator: &String,
+    mut resource_loader: NativeLoader
 ) {
     let mut evloop = EventsLoop::new();
     let window_builder = WindowBuilder::new()
@@ -142,10 +186,14 @@ fn main_loop(
         Err(e) => panic!("{}", e),
     };
 
-    let features = features.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
-    let parts = parts.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
+    let mut app = App::new(Rc::clone(&gl), program_manager);
 
-    let mut app = App::new(Rc::clone(&gl), document, features, parts, program_manager);
+    let mut rt = Runtime::new().unwrap();
+
+    match rt.block_on(app.set_document(&mut resource_loader, locator)) {
+        Ok(()) => {},
+        Err(e) => panic!("{}", e),
+    };
 
     let window = windowed_context.window();
     let size = window.get_inner_size().unwrap();
@@ -157,7 +205,7 @@ fn main_loop(
     app.set_up();
     while !closed {
         app.animate(started.elapsed().as_millis() as f32 / 1000.0);
-        app.render();
+        app.render(None);
 
         windowed_context.swap_buffers().unwrap();
 
@@ -188,23 +236,6 @@ fn main_loop(
     }
 }
 
-fn get_part_size(part: &PartBuilder) -> usize {
-    let mut bytes = 0;
-
-    bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
-    bytes += part.part_builder.uncolored_without_bfc_mesh.len() * 3 * 4 * 2;
-    for (group, mesh) in part.part_builder.opaque_meshes.iter() {
-        bytes += mesh.len() * 3 * 4 * 2;
-    }
-    for (group, mesh) in part.part_builder.semitransparent_meshes.iter() {
-        bytes += mesh.len() * 3 * 4 * 2;
-    }
-    bytes += part.part_builder.edges.len() * 3 * 4 * 2;
-    bytes += part.part_builder.optional_edges.len() * 3 * 4 * 2;
-
-    bytes
-}
-
 fn get_features_list() -> HashSet<PartAlias> {
     let mut features = HashSet::new();
     //features.insert(PartAlias::from(String::from("stud.dat")));
@@ -213,16 +244,11 @@ fn get_features_list() -> HashSet<PartAlias> {
 }
 
 fn main() {
-    let enabled_features = get_features_list();
-
     let ldrawdir = match env::var("LDRAWDIR") {
         Ok(val) => val,
         Err(e) => panic!("{}", e),
     };
     let ldrawpath = Path::new(&ldrawdir);
-
-    println!("Scanning LDraw directory...");
-    let directory = Rc::new(RefCell::new(scan_ldraw_directory(&ldrawdir).unwrap()));
 
     println!("Loading color definition...");
     let colors = parse_color_definition(&mut BufReader::new(
@@ -235,17 +261,10 @@ fn main() {
         None => panic!("usage: loader [filename]"),
     };
 
-    let (doc, features, deps) = bake(&colors, directory, &ldrpath, &enabled_features);
+    let enabled_features = get_features_list();
+    let mut resource_loader = NativeLoader {
+        ldrawdir, colors, enabled_features
+    };
 
-    let mut total_bytes: usize = 0;
-    for (_, part) in features.iter() {
-        total_bytes += get_part_size(&part);
-    }
-    for (_, part) in deps.iter() {
-        total_bytes += get_part_size(&part);
-    }
-
-    println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);
-
-    main_loop(doc, &colors, features, deps);
+    main_loop(&ldrpath, resource_loader);
 }
