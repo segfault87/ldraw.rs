@@ -104,12 +104,14 @@ impl<GL: HasContext> App<GL> {
         program_manager: ProgramManager<GL>
     ) -> Self {
         let rendering_order = create_rendering_list(Rc::clone(&gl), &document);
+        let context = RenderingContext::new(Rc::clone(&gl), program_manager);
+        context.upload_shading_data();
 
         App {
-            gl: Rc::clone(&gl),
+            gl,
             features,
             parts,
-            context: RenderingContext::new(gl, program_manager),
+            context,
             display_list: DisplayList::new(),
             rendering_order,
             animating: vec![],
@@ -122,7 +124,6 @@ impl<GL: HasContext> App<GL> {
 
     pub fn set_up(&self) {
         self.context.set_initial_state();
-        self.context.upload_shading_data();
     }
 
     pub fn advance(&mut self, time: f32) {

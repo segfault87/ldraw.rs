@@ -1,18 +1,33 @@
-use futures::future::join_all;
-use std::cell::RefCell;
-use std::io::BufReader;
-use std::rc::Rc;
-use std::vec::Vec;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    io::BufReader,
+    rc::Rc,
+    vec::Vec,
+};
 
 use cgmath::SquareMatrix;
+use futures::future::join_all;
 use glow::Context;
-use ldraw::color::MaterialRegistry;
-use ldraw::document::{Document, MultipartDocument};
-use ldraw::library::{PartCache, PartDirectory, ResolutionMap};
-use ldraw::parser::{parse_color_definition, parse_multipart_document, parse_single_document};
-use ldraw::Matrix4;
-use ldraw_renderer::geometry::{ModelBuilder, NativeBakedModel};
-use test_renderer::TestRenderer;
+use ldraw::{
+    color::MaterialRegistry,
+    document::{Document, MultipartDocument},
+    library::{
+        CacheCollectionStrategy, PartCache, PartDirectory,
+        ResolutionMap, ResolutionResult
+    },
+    parser::{parse_color_definition, parse_multipart_document, parse_single_document},
+    Matrix4, PartAlias,
+};
+use ldraw_ir::{
+    MeshGroup,
+    part::{PartBuilder, bake_part},
+};
+use ldraw_renderer::{
+    part::Part,
+    shader::ProgramManager,
+};
+use test_renderer::App;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
@@ -129,11 +144,12 @@ async fn fetch_document(path: &String, colors: &MaterialRegistry) -> Result<Docu
     }
 }
 
-async fn bake(
+async fn bake_parts(
     document: &MultipartDocument,
     directory: Rc<RefCell<WebPartDirectory>>,
     colors: &MaterialRegistry,
-) -> NativeBakedModel {
+    enabled_features: &HashSet<PartAlias>,
+) -> (HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
     let cache = Rc::new(RefCell::new(PartCache::default()));
     let mut resolution = ResolutionMap::new(directory, Rc::clone(&cache));
     resolution.resolve(&&document.body, Some(&document));
@@ -167,10 +183,58 @@ async fn bake(
 
     console_log!("Loading done.");
 
-    let mut builder = ModelBuilder::new(&resolution);
-    builder.traverse(&&document.body, Matrix4::identity(), true, false);
+    let mut features = HashMap::new();
+    let mut deps = HashMap::new();
 
-    builder.bake()
+    for feature in enabled_features.iter() {
+        let part = resolution.map.get(&feature);
+        if part.is_none() {
+            println!("Dependency {} has not been found", feature);
+            continue;
+        }
+        let part = part.unwrap();
+        let element = match part {
+            ResolutionResult::Associated(e) => {
+                e
+            }
+            _ => {
+                console_log!("Could not bake dependency {}", feature);
+                continue;
+            }
+        };
+        console_log!("Processed feature {}.", feature);
+        features.insert(feature.clone(), bake_part(&resolution, None, &element));
+    }
+    for dep in document.list_dependencies() {
+        let part = resolution.map.get(&dep);
+        if part.is_none() {
+            println!("Dependency {} has not been found", dep);
+            continue;
+        }
+        let part = part.unwrap();
+        let element = match part {
+            ResolutionResult::Associated(e) => {
+                e
+            }
+            _ => {
+                println!("Could not bake dependency {}", dep);
+                continue;
+            }
+        };
+        console_log!("Processed dependent part {}.", dep);
+        deps.insert(dep.clone(), bake_part(&resolution, Some(&enabled_features), &element));
+    }
+
+    drop(resolution);
+
+    println!(
+        "Collected {} entries",
+        cache
+            .borrow_mut()
+            .collect(CacheCollectionStrategy::PartsAndPrimitives)
+    );
+
+    (features, deps)    
 }
 
 fn request_animation_frame(f: &Closure<dyn FnMut()>) {
@@ -179,6 +243,13 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
     window
         .request_animation_frame(f.as_ref().unchecked_ref())
         .expect("should register `requestAnimationFrame` OK");
+}
+
+fn get_features_list() -> HashSet<PartAlias> {
+    let mut features = HashSet::new();
+    //features.insert(PartAlias::from(String::from("stud.dat")));
+
+    features
 }
 
 #[wasm_bindgen]
@@ -244,29 +315,56 @@ pub async fn run(path: JsValue) -> JsValue {
             return JsValue::undefined();
         }
     };
-    let model = bake(&document, Rc::clone(&directory), &colors).await;
-    console_log!("Reticulated splines.");
 
-    let mut app = match TestRenderer::new(&model, &colors, Rc::clone(&gl)) {
-        Ok(v) => v,
+    let (features, parts) = bake_parts(&document, Rc::clone(&directory), &colors, &get_features_list()).await;
+
+    console_log!("All parts built.");
+
+    let features = features.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
+    let parts = parts.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
+
+    let program_manager = match ProgramManager::new(Rc::clone(&gl)) {
+        Ok(e) => e,
         Err(e) => {
             console_log!("{}", e);
             return JsValue::undefined();
-        }
+        },
     };
+
+    let mut app = Rc::new(RefCell::new(App::new(Rc::clone(&gl), document, features, parts, program_manager)));
     console_log!("Rendering context initialization done.");
 
-    app.resize(canvas.width(), canvas.height());
+    app.borrow_mut().resize(canvas.width(), canvas.height());
     console_log!("Ready to go.");
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
 
-    let mut x = 0.0;
+    let window = web_sys::window().unwrap();
+    let perf = window.performance().unwrap();
+    let start_time = perf.now();
+
+    let a = Rc::clone(&app);
+    let on_mouse_down = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let window = web_sys::window().unwrap();
+        let perf = window.performance().unwrap();
+
+        let mut m = a.borrow_mut();
+
+        m.advance(((perf.now() - start_time) / 1000.0) as f32);
+    }) as Box<dyn FnMut(_)>);
+    canvas.add_event_listener_with_callback("mousedown", on_mouse_down.as_ref().unchecked_ref()).unwrap();
+    on_mouse_down.forget();
+
+    let a = Rc::clone(&app);
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        x += 1.0 / 60.0;
-        app.animate(x);
-        app.render();
+        let window = web_sys::window().unwrap();
+        let perf = window.performance().unwrap();
+
+        let mut m = a.borrow_mut();
+        m.set_up();
+        m.animate(((perf.now() - start_time) / 1000.0) as f32);
+        m.render();
 
         request_animation_frame(f.borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));

@@ -9,25 +9,28 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cgmath = "~0.17.0"
-futures = { version = "~0.3.5", features = ["async-await"] }
-glow = { version = "~0.5.0", features = ["web-sys"] } 
+futures = { version = "~0.3.17", features = ["async-await"] }
+glow = { version = "~0.11.0" } 
 ldraw = { path = "../../ldraw" }
+ldraw_ir = { path = "../../ir" } 
 ldraw_renderer = { path = "../../renderer" }
-wasm-bindgen = { version = "~0.2.67", features = ["serde-serialize"] }
-js-sys = "~0.3.44"
-wasm-bindgen-futures = "~0.4.17"
+wasm-bindgen = { version = "~0.2.78", features = ["serde-serialize"] }
+js-sys = "~0.3.55"
+wasm-bindgen-futures = "~0.4.28"
 serde = { version = "1.0.80", features = ["derive"] }
 serde_derive = "^1.0.59"
 test_renderer = { path = "../renderer" }
 
 [dependencies.web-sys]
-version = "~0.3.28"
+version = "~0.3.55"
 features = [
          'Document',
          'Element',
          'Headers',
          'HtmlCanvasElement',
+         'MouseEvent',
          'Node',
+         'Performance',
          'Request',
          'RequestInit',
          'RequestMode',
