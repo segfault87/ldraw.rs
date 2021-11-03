@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use cgmath::{Deg, PerspectiveFov, Point3, Quaternion, Rad, Rotation3, SquareMatrix};
+use cgmath::{SquareMatrix, Zero};
 use glow::HasContext;
 use ldraw::{
     color::{ColorReference, Material, MaterialRegistry},
@@ -14,7 +14,10 @@ use ldraw::{
     document::{Document, MultipartDocument},
     Matrix3, Matrix4, PartAlias, Vector3, Vector4,
 };
-use ldraw_ir::part::PartBuilder;
+use ldraw_ir::{
+    part::PartBuilder,
+    BoundingBox
+};
 use ldraw_renderer::{
     display_list::DisplayList,
     error::RendererError,
@@ -46,6 +49,7 @@ enum RenderingOrder {
 fn traverse<'a, GL: HasContext>(
     gl: Rc<GL>,
     orders: &mut Vec<RenderingOrder>,
+    bb: &mut BoundingBox,
     document: &'a Document,
     matrix: Matrix4,
     parent: &'a MultipartDocument
@@ -62,11 +66,15 @@ fn traverse<'a, GL: HasContext>(
             },
             Command::PartReference(r) => {
                 if parent.subparts.contains_key(&r.name) {
-                    traverse(Rc::clone(&gl), orders, parent.subparts.get(&r.name).unwrap(), matrix * r.matrix, parent);
+                    traverse(Rc::clone(&gl), orders, bb, parent.subparts.get(&r.name).unwrap(), matrix * r.matrix, parent);
                 } else {
+                    let matrix = matrix * r.matrix;
+                    // FIXME: unsimplify
+                    let center = Vector3::new(matrix[3][0], matrix[3][1], matrix[3][2]);
+                    bb.update_point(&center);
                     orders.push(RenderingOrder::Item(RenderingOrderItem {
                         name: r.name.clone(),
-                        matrix: matrix * r.matrix,
+                        matrix,
                         color: r.color.clone(),
                     }))
                 }
@@ -76,12 +84,13 @@ fn traverse<'a, GL: HasContext>(
     }
 }
 
-fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocument) -> Vec<RenderingOrder> {
+fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocument) -> (Vec<RenderingOrder>, BoundingBox) {
     let mut order = Vec::new();
+    let mut bb = BoundingBox::zero();
 
-    traverse(gl, &mut order, &document.body, Matrix4::identity(), document);
+    traverse(gl, &mut order, &mut bb, &document.body, Matrix4::identity(), document);
 
-    order
+    (order, bb)
 }
 
 #[derive(Eq, PartialEq)]
@@ -101,6 +110,8 @@ pub struct App<GL: HasContext> {
     display_list: DisplayList<GL>,
     rendering_order: Vec<RenderingOrder>,
     animating: Vec<(RenderingOrderItem, f32, Matrix4, f32, f32)>,
+    center: Vector3,
+    radius: f32,
 
     state: State,
     pointer: Option<usize>,
@@ -128,6 +139,8 @@ impl<GL: HasContext> App<GL> {
             display_list: DisplayList::new(),
             rendering_order: Vec::new(),
             animating: Vec::new(),
+            center: Vector3::zero(),
+            radius: 500.0,
             state: State::Finished,
             pointer: None,
             last_time: None,
@@ -152,7 +165,14 @@ impl<GL: HasContext> App<GL> {
         self.display_list = DisplayList::new();
         self.pointer = None;
         self.last_time = None;
-        self.rendering_order = create_rendering_list(Rc::clone(&self.gl), &document);
+        let (rendering_order, bounding_box) = create_rendering_list(Rc::clone(&self.gl), &document);
+        self.rendering_order = rendering_order;
+        self.center = bounding_box.center();
+        self.radius = (
+            bounding_box.len_x() * bounding_box.len_x() +
+            bounding_box.len_y() * bounding_box.len_y() +
+            bounding_box.len_z() * bounding_box.len_z()
+        ).sqrt() * 2.0;
 
         Ok(())
     }
@@ -189,8 +209,12 @@ impl<GL: HasContext> App<GL> {
     }
 
     pub fn animate(&mut self, time: f32) {
-        self.context.camera.position.x = time.sin() * 500.0;
-        self.context.camera.position.z = time.cos() * 500.0;
+        self.context.camera.position.x = time.sin() * self.radius + self.center.x;
+        self.context.camera.position.y = self.center.y - (self.radius * 0.5);
+        self.context.camera.position.z = time.cos() * self.radius + self.center.z;
+        self.context.camera.look_at.x = self.center.x;
+        self.context.camera.look_at.y = self.center.y;
+        self.context.camera.look_at.z = self.center.z;
         self.context.update_camera();
 
         if self.state == State::Playing {

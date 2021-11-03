@@ -11,29 +11,26 @@ use std::{
 };
 
 use async_trait::async_trait;
-use cgmath::SquareMatrix;
-use glow::{self, Context, HasContext};
+use glow::{self, Context};
 use glutin::{
     dpi::LogicalSize,
     ContextBuilder, ElementState, Event, EventsLoop, GlProfile, GlRequest,
-    KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent
+    VirtualKeyCode, WindowBuilder, WindowEvent
 };
 use ldraw::{
     color::MaterialRegistry,
     document::MultipartDocument,
     library::{
         load_files, scan_ldraw_directory, CacheCollectionStrategy, PartCache,
-        PartDirectoryNative, ResolutionMap, ResolutionResult,
+        ResolutionMap, ResolutionResult,
     },
     parser::{parse_color_definition, parse_multipart_document},
-    Matrix4, PartAlias
+    PartAlias
 };
 use ldraw_ir::{
-    MeshGroup,
     part::{PartBuilder, bake_part},
 };
 use ldraw_renderer::{
-    part::Part,
     shader::ProgramManager,
 };
 use test_renderer::{App, ResourceLoader};
@@ -50,10 +47,10 @@ fn get_part_size(part: &PartBuilder) -> usize {
 
     bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
     bytes += part.part_builder.uncolored_without_bfc_mesh.len() * 3 * 4 * 2;
-    for (group, mesh) in part.part_builder.opaque_meshes.iter() {
+    for (_, mesh) in part.part_builder.opaque_meshes.iter() {
         bytes += mesh.len() * 3 * 4 * 2;
     }
-    for (group, mesh) in part.part_builder.semitransparent_meshes.iter() {
+    for (_, mesh) in part.part_builder.semitransparent_meshes.iter() {
         bytes += mesh.len() * 3 * 4 * 2;
     }
     bytes += part.part_builder.edges.len() * 3 * 4 * 2;
@@ -188,8 +185,7 @@ fn main_loop(
 
     let mut app = App::new(Rc::clone(&gl), program_manager);
 
-    let mut rt = Runtime::new().unwrap();
-
+    let rt = Runtime::new().unwrap();
     match rt.block_on(app.set_document(&mut resource_loader, locator)) {
         Ok(()) => {},
         Err(e) => panic!("{}", e),
@@ -237,10 +233,12 @@ fn main_loop(
 }
 
 fn get_features_list() -> HashSet<PartAlias> {
-    let mut features = HashSet::new();
+    //let mut features = HashSet::new();
     //features.insert(PartAlias::from(String::from("stud.dat")));
 
-    features
+    //features
+
+    HashSet::new()
 }
 
 fn main() {
@@ -262,7 +260,7 @@ fn main() {
     };
 
     let enabled_features = get_features_list();
-    let mut resource_loader = NativeLoader {
+    let resource_loader = NativeLoader {
         ldrawdir, colors, enabled_features
     };
 

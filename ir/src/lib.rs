@@ -137,4 +137,8 @@ impl BoundingBox {
         self.update_point(&bb.min);
         self.update_point(&bb.max);
     }
+
+    pub fn center(&self) -> Vector3 {
+        (self.min + self.max) * 0.5
+    }
 }
