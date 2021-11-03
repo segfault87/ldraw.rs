@@ -70,9 +70,7 @@ impl ProjectionData {
         let top = self.model_matrix.last().unwrap().clone();
         let transformed = m * top;
         self.model_matrix.push(transformed);
-        println!("m: {:?}\ntop:\n{:?} transformed: {:?}\npre: {:?}", m, top, transformed, self.model_view);
         self.update_model_view_and_normal_matrix();
-        println!("post: {:?}\n", self.model_view);
     }
 
     pub fn pop_model_matrix(&mut self) {
@@ -287,14 +285,14 @@ impl<GL: HasContext> RenderingContext<GL> {
         };
         for (group, indices) in subparts.iter() {
             let program = self.program_manager.get_default_program(
-                DefaultProgramInstancingKind::Instanced, true
+                DefaultProgramInstancingKind::Instanced, group.bfc
             );
             let bind = program.bind(&self.projection_data, &self.shading_data);
             bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
             bind.bind_instanced_geometry_data(&mut instance_buffer);
             let color = match &group.color_ref {
-                ColorReference::Material(m) => Vector4::from(&m.color),
-                _ => Vector4::zero(),
+                ColorReference::Material(m) => m.color.into(),
+                _ => continue,
             };
             bind.bind_non_instanced_color_data(&color);
             
@@ -408,13 +406,18 @@ impl<GL: HasContext> RenderingContext<GL> {
             &part_buffer.opaque_indices
         };
         for (group, indices) in subparts.iter() {
+            let color = match &group.color_ref {
+                ColorReference::Material(m) => m.color.into(),
+                _ => continue,
+            };
+
             let program = self.program_manager.get_default_program(
                 DefaultProgramInstancingKind::NonInstanced, group.bfc
             );
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
             bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
-            bind.bind_non_instanced_color_data(&default_color);
+            bind.bind_non_instanced_color_data(&color);
             
             unsafe {
                 if !group.bfc {
@@ -431,35 +434,37 @@ impl<GL: HasContext> RenderingContext<GL> {
             }
         }
 
-        if let Some(edges) = &part_buffer.edges {
-            let program = self.program_manager.get_edge_program(false);
+        if !semitransparent {
+            if let Some(edges) = &part_buffer.edges {
+                let program = self.program_manager.get_edge_program(false);
 
-            let bind = program.bind(&self.projection_data);
-            bind.bind_attribs(&edges);
-            bind.bind_non_instanced_properties(&default_color, &edge_color);
+                let bind = program.bind(&self.projection_data);
+                bind.bind_attribs(&edges);
+                bind.bind_non_instanced_properties(&default_color, &edge_color);
 
-            unsafe {
-                gl.draw_arrays(
-                    glow::LINES,
-                    0,
-                    edges.length as i32
-                );
+                unsafe {
+                    gl.draw_arrays(
+                        glow::LINES,
+                        0,
+                        edges.length as i32
+                    );
+                }
             }
-        }
 
-        if let Some(optional_edges) = &part_buffer.optional_edges {
-            let program = self.program_manager.get_optional_edge_program(false);
+            if let Some(optional_edges) = &part_buffer.optional_edges {
+                let program = self.program_manager.get_optional_edge_program(false);
 
-            let bind = program.bind(&self.projection_data);
-            bind.bind_attribs(&optional_edges);
-            bind.bind_non_instanced_properties(&default_color, &edge_color);
+                let bind = program.bind(&self.projection_data);
+                bind.bind_attribs(&optional_edges);
+                bind.bind_non_instanced_properties(&default_color, &edge_color);
 
-            unsafe {
-                gl.draw_arrays(
-                    glow::LINES,
-                    0,
-                    optional_edges.length as i32
-                );
+                unsafe {
+                    gl.draw_arrays(
+                        glow::LINES,
+                        0,
+                        optional_edges.length as i32
+                    );
+                }
             }
         }
     }

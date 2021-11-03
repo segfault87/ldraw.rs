@@ -360,7 +360,7 @@ pub async fn run(path: JsValue) -> JsValue {
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         let window = web_sys::window().unwrap();
         let perf = window.performance().unwrap();
-
+        
         let mut m = a.borrow_mut();
         m.set_up();
         m.animate(((perf.now() - start_time) / 1000.0) as f32);

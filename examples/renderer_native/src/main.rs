@@ -58,6 +58,7 @@ fn bake(
         };
         for key in files {
             let doc = cache.borrow().query(&key).unwrap();
+            
             resolution.update(&key, doc);
         }
     }

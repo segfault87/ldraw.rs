@@ -75,6 +75,13 @@ fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocumen
     order
 }
 
+#[derive(Eq, PartialEq)]
+pub enum State {
+    Playing,
+    Step,
+    Finished,
+}
+
 pub struct App<GL: HasContext> {
     gl: Rc<GL>,
 
@@ -85,7 +92,7 @@ pub struct App<GL: HasContext> {
     display_list: DisplayList<GL>,
     rendering_order: Vec<RenderingOrder>,
     animating: Vec<(RenderingOrderItem, f32, Matrix4, f32, f32)>,
-    playing: bool,
+    state: State,
     pointer: Option<usize>,
     last_time: Option<f32>,
     frames: usize,
@@ -115,7 +122,7 @@ impl<GL: HasContext> App<GL> {
             display_list: DisplayList::new(),
             rendering_order,
             animating: vec![],
-            playing: true,
+            state: State::Playing,
             pointer: None,
             last_time: None,
             frames: 0,
@@ -136,20 +143,19 @@ impl<GL: HasContext> App<GL> {
         };
 
         if next >= self.rendering_order.len() {
-            self.playing = false;
+            self.state = State::Finished;
             return;
         }
 
         self.pointer = Some(next);
         match &self.rendering_order[next] {
             RenderingOrder::Item(item) => {
-                println!("Add {:?}", item);
                 self.animating.push((item.clone(), time, item.matrix.clone(), 0.0, 0.0));
-                self.playing = true;
+                self.state = State::Playing;
                 self.last_time = Some(time);
             },
             RenderingOrder::Step => {
-                self.playing = false;
+                self.state = State::Step;
             }
         };
     }
@@ -159,10 +165,11 @@ impl<GL: HasContext> App<GL> {
         self.context.camera.position.z = time.cos() * 500.0;
         self.context.update_camera();
 
-        if self.playing {
+        if self.state == State::Playing {
             self.advance(time);
         }
 
+        let mut clear = true;
         for (order, started_at, mat, opacity, progress) in self.animating.iter_mut() {
             let elapsed = (time - started_at.clone()).clamp(0.0, FALL_DURATION) / FALL_DURATION;
             let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
@@ -170,17 +177,17 @@ impl<GL: HasContext> App<GL> {
             *opacity = ease;
             *progress = elapsed;
 
-            if progress >= &mut 1.0 {
-                self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.color.clone());
+            if elapsed < 1.0 {
+                clear = false;
             }
         }
 
-        self.animating.retain(|(i, _, _, _, progress)| {
-            if progress >= &1.0 {   
-                println!("Remove one");
+        if clear {
+            for (order, _, _, _, _) in self.animating.iter() {
+                self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.color.clone());
             }
-            progress < &1.0
-        });
+            self.animating.clear();
+        }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -192,24 +199,25 @@ impl<GL: HasContext> App<GL> {
 
         unsafe {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+        }
 
-            self.context.render_display_list(&self.parts, &mut self.display_list, false);
-            self.context.render_display_list(&self.parts, &mut self.display_list, true);
+        self.context.render_display_list(&self.parts, &mut self.display_list, false);
+        self.context.render_display_list(&self.parts, &mut self.display_list, true);
 
-            for (item, _, matrix, opacity, _) in self.animating.iter() {
-                if let Some(part) = self.parts.get(&item.name) {
-                    self.context.shading_data.opacity = opacity.clone();
-                    self.context.projection_data.push_model_matrix(&matrix);
-                    self.context.render_single_part(&part, &item.color, false);
-                    self.context.render_single_part(&part, &item.color, true);
-                    self.context.projection_data.pop_model_matrix();
-                }
+        for (item, _, matrix, opacity, _) in self.animating.iter() {
+            if let Some(part) = self.parts.get(&item.name) {
+                self.context.shading_data.opacity = opacity.clone();
+                self.context.projection_data.push_model_matrix(&matrix);
+                self.context.render_single_part(&part, &item.color, false);
+                self.context.render_single_part(&part, &item.color, true);
+                self.context.projection_data.pop_model_matrix();
             }
-            self.context.shading_data.opacity = 1.0;
+        }
+        self.context.shading_data.opacity = 1.0;
 
-            self.frames += 1;
-            println!("Frames: {}", self.frames);
+        self.frames += 1;
 
+        unsafe {
             gl.flush();
         }
 

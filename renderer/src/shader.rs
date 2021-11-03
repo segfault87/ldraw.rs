@@ -420,31 +420,7 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
             }
         }
     }
-}
 
-impl<'a, GL: HasContext> Drop for DefaultProgramBinder<'a, GL> {
-    fn drop(&mut self) {
-        let gl = &self.gl;
-
-        unsafe {
-            gl.use_program(None);
-            if let Some(a) = self.program.position {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.normal {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.instanced_model_matrix {
-                gl.disable_vertex_attrib_array(a);
-                gl.disable_vertex_attrib_array(a + 1);
-                gl.disable_vertex_attrib_array(a + 2);
-                gl.disable_vertex_attrib_array(a + 3);
-            }
-            if let Some(a) = self.program.instanced_color {
-                gl.disable_vertex_attrib_array(a);
-            }
-        }
-    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -616,34 +592,6 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
                 self.program.edge_color.as_ref(),
                 AsRef::<[f32; 4]>::as_ref(&edge_color)
             );
-        }
-    }
-}
-
-impl<'a, GL: HasContext> Drop for EdgeProgramBinder<'a, GL> {
-    fn drop(&mut self) {
-        let gl = &self.gl;
-
-        unsafe {
-            gl.use_program(None);
-            if let Some(a) = self.program.position {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.color {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.instanced_model_matrix {
-                gl.disable_vertex_attrib_array(a);
-                gl.disable_vertex_attrib_array(a + 1);
-                gl.disable_vertex_attrib_array(a + 2);
-                gl.disable_vertex_attrib_array(a + 3);
-            }
-            if let Some(a) = self.program.instanced_color {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.instanced_edge_color {
-                gl.disable_vertex_attrib_array(a);
-            }
         }
     }
 }
@@ -827,43 +775,6 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
                 self.program.edge_color.as_ref(),
                 AsRef::<[f32; 4]>::as_ref(&edge_color)
             );
-        }
-    }
-}
-
-impl<'a, GL: HasContext> Drop for OptionalEdgeProgramBinder<'a, GL> {
-    fn drop(&mut self) {
-        let gl = &self.gl;
-
-        unsafe {
-            gl.use_program(None);
-            if let Some(a) = self.program.position {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.color {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.control1 {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.control2 {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.direction {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.instanced_model_matrix {
-                gl.disable_vertex_attrib_array(a);
-                gl.disable_vertex_attrib_array(a + 1);
-                gl.disable_vertex_attrib_array(a + 2);
-                gl.disable_vertex_attrib_array(a + 3);
-            }
-            if let Some(a) = self.program.instanced_color {
-                gl.disable_vertex_attrib_array(a);
-            }
-            if let Some(a) = self.program.instanced_edge_color {
-                gl.disable_vertex_attrib_array(a);
-            }
         }
     }
 }
