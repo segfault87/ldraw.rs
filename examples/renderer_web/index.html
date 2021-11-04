@@ -3,10 +3,19 @@
   <head>
     <meta charset="utf-8">
     <title>ldraw.rs demo</title>
+    <!-- Global site tag (gtag.js) - Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-HKFX597XPG"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-HKFX597XPG');
+    </script>
     <style type="text/css">
       body {
           font-family: sans-serif;
-          background-color: #eee;
+          background-color: #fff;
       }
       html, body, canvas {
           margin: 0;
@@ -14,16 +23,6 @@
           width: 100%;
           height: 100%;
           overflow: hidden;
-      }
-      #console {
-          padding: 8px;
-          position: fixed;
-          top: 30px;
-          left: 30px;
-          width: 400px;
-          height: 400px;
-          background-color: rgba(0, 0, 0, 0.1);
-          overflow-y: auto;
       }
       #console p {
           line-height: 0.8;
@@ -33,6 +32,7 @@
       #footer {
           position: fixed;
           bottom: 0;
+          left: 80px;
           width: 100%;
       }
       #footer-right {
@@ -49,6 +49,8 @@
         display: flex;
         justify-content: center;
         align-items: center;
+        pointer-events: none;
+        flex-direction: column;
       }
       #controls > #next-button {
         width: 200px;
@@ -57,9 +59,91 @@
         border-radius: 16px;
         cursor: pointer;
         text-align: center;
+        height: 0;
+        opacity: 0;
+        transition: opacity 0.3s ease-out;
+        overflow: hidden;
+        pointer-events: all;
       }
-      #left-pane {
-
+      #controls > #next-button.active {
+        opacity: 1;
+        display: block;
+        height: auto;
+        transition: opacity 0.3s ease-out;
+      }
+      #controls > #slider {
+        width: 50%;
+        pointer-events: all;
+        display: none;
+      }
+      #sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 32px;
+        height: 100%;
+        background: black;
+      }
+      #sidebar > ul {
+        text-align: right;
+        transform: rotate(-90deg) translate(-100%, 0);
+        transform-origin: left top;
+        height: 32px;
+        width: 300px;
+        color: white;
+        margin: 0;
+        padding: 0;
+        font-size: 16px;
+        list-style: none;
+      }
+      #sidebar > ul > li {
+        height: 32px;
+        display: inline-block;
+        text-transform: uppercase;
+        font-weight: 700;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        padding-left: 16px;
+        padding-right: 16px;
+        text-align: center;
+        cursor: pointer;
+      }
+      #sidebar > ul > li.selected {
+        background: #ddd;
+        color: black;
+      }
+      #console-pane {
+        position: fixed;
+        padding: 8px;
+        top: 0;
+        left: 32px;
+        width: 320px;
+        height: 100%;
+        font-family: monospace;
+        overflow-y: auto;
+        background: #ddd;
+        display: none;
+      }
+      #model-pane {
+        position: fixed;
+        padding: 8px;
+        top: 0;
+        left: 32px;
+        width: 480px;
+        height: 100%;
+        font-family: monospace;
+        overflow-y: auto;
+        background: #ddd;
+        display: none;
+      }
+      #model-pane > textarea {
+        width: 480px;
+        height: calc(100% - 48px);
+        background: none;
+        border: 1px solid #777;
+      }
+      #model-pane > button {
+        width: 100%;
       }
     </style>
   </head>
@@ -67,9 +151,42 @@
     <canvas id="main_canvas"></canvas>
     <div id="controls">
       <div id="next-button">➜</div>
+      <input type="range" id="slider" min="0" max="0" value="0" />
     </div>
-    <div id="console"></div>
-    <div id="footer">Getting This is an early work in progress. Built with <a href="https://www.rust-lang.org">Rust</a> + <a href="https://webassembly.org">WebAssembly</a></div>
-    <div id="footer-right"><a href="https://github.com/segfault87/ldraw.rs">Getting interested in?</a></div>
+    <div id="sidebar">
+      <ul>
+        <li id="menu-model" onClick="toggleMenu(0)">Model</li>
+        <li id="menu-console" onClick="toggleMenu(1)">Messages</li>
+      </ul>
+      <div id="console-pane"></div>
+      <div id="model-pane">
+        <textarea id="document">
+        </textarea>
+        <button id="submit">Load</button>
+      </div>
+    </div>
+    <div id="footer-right">This is a proof-of-concept technical demo. Built with <a href="https://www.rust-lang.org">Rust</a> + <a href="https://webassembly.org">WebAssembly</a>. <a href="https://github.com/segfault87/ldraw.rs">GitHub</a></div>
+    <script type="text/javascript">
+      const menus = [
+        ['menu-model', 'model-pane'],
+        ['menu-console', 'console-pane'],
+      ];
+      let selected = null;
+      function toggleMenu(idx) {
+        if (idx === selected) {
+          document.getElementById(menus[idx][0]).className = '';
+          document.getElementById(menus[idx][1]).style.display = 'none';
+          selected = null;
+        } else {
+          if (selected !== null) {
+            document.getElementById(menus[selected][0]).className = '';
+            document.getElementById(menus[selected][1]).style.display = 'none';
+          }
+          document.getElementById(menus[idx][0]).className = 'selected';
+          document.getElementById(menus[idx][1]).style.display = 'block';
+          selected = idx;
+        }
+      }
+    </script>
   </body>
 </html>

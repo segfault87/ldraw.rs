@@ -13,7 +13,7 @@ use glow::{self, Context};
 use glutin::{
     dpi::LogicalSize,
     ContextBuilder, ElementState, Event, EventsLoop, GlProfile, GlRequest,
-    VirtualKeyCode, WindowBuilder, WindowEvent
+    MouseButton, VirtualKeyCode, WindowBuilder, WindowEvent
 };
 use ldraw::{
     color::MaterialRegistry,
@@ -216,7 +216,15 @@ fn main_loop(
                                 app.advance(started.elapsed().as_millis() as f32 / 1000.0);
                             }
                         }
-                        _ => (),
+                        WindowEvent::MouseInput { state, button, .. } => {
+                            if button == MouseButton::Left {
+                                app.orbit.on_mouse_press(state == ElementState::Pressed);
+                            }
+                        }
+                        WindowEvent::CursorMoved { position, .. } => {
+                            app.orbit.on_mouse_move(started.elapsed().as_millis() as f32 / 1000.0, position.x as f32, position.y as f32)
+                        }
+                        _ => ()
                     }
                 },
                 _ => (),

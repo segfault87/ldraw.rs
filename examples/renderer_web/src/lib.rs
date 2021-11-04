@@ -1,15 +1,18 @@
+extern crate console_error_panic_hook;
+
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     io::BufReader,
+    panic,
     rc::Rc,
     sync::Arc,
     vec::Vec,
 };
 
-use async_trait::async_trait;
 use cgmath::SquareMatrix;
 use futures::future::join_all;
+use gloo::events::EventListener;
 use glow::Context;
 use ldraw::{
     color::MaterialRegistry,
@@ -29,11 +32,17 @@ use ldraw_renderer::{
     part::Part,
     shader::ProgramManager,
 };
-use test_renderer::App;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
-use web_sys::{HtmlCanvasElement, Request, RequestInit, Response, WebGl2RenderingContext};
+use test_renderer::{App, State};
+use wasm_bindgen::{
+    prelude::*,
+    JsCast
+};
+use wasm_bindgen_futures::{JsFuture, spawn_local};
+use web_sys::{
+    HtmlButtonElement, HtmlCanvasElement, HtmlDivElement, HtmlInputElement, HtmlTextAreaElement,
+    Request, RequestInit, Response,
+    WebGl2RenderingContext
+};
 
 const COLOR_DEFINITION_PATH: &'static str = "LDConfig.ldr";
 const PART_DIRECTORY_PATH: &'static str = "directory.json";
@@ -43,7 +52,7 @@ type WebPartDirectory = PartDirectory<String>;
 fn log(s: &str, error: bool) {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
-    let console = document.get_element_by_id("console").unwrap();
+    let console = document.get_element_by_id("console-pane").unwrap();
     let node = document.create_element("p").unwrap();
     node.set_attribute(
         "class",
@@ -286,16 +295,16 @@ fn get_features_list() -> HashSet<PartAlias> {
 
 #[wasm_bindgen]
 pub async fn run(path: JsValue) -> JsValue {
-    let path = path.as_string().unwrap();
+    panic::set_hook(Box::new(console_error_panic_hook::hook));
 
     let window = web_sys::window().expect("No window exists.");
-    let document = window.document().expect("No document exists.");
-    let canvas = document
+    let web_document = window.document().expect("No document exists.");
+    let canvas = web_document
         .get_element_by_id("main_canvas")
         .unwrap()
         .dyn_into::<HtmlCanvasElement>()
         .unwrap();
-    let body = document.get_element_by_id("body").unwrap();
+    let body = web_document.get_element_by_id("body").unwrap();
     canvas.set_width(body.client_width() as u32);
     canvas.set_height(body.client_height() as u32);
     let gl = match canvas
@@ -320,10 +329,16 @@ pub async fn run(path: JsValue) -> JsValue {
         },
     };
 
+    let document_view = web_document.get_element_by_id("document").unwrap().dyn_into::<HtmlTextAreaElement>().unwrap();
+
     let app = Rc::new(RefCell::new(App::new(Rc::clone(&gl), program_manager)));
     console_log!("Rendering context initialization done.");
 
     app.borrow_mut().resize(canvas.width(), canvas.height());
+
+    let slider = web_document.get_element_by_id("slider").unwrap();
+    let slider = JsCast::dyn_ref::<HtmlInputElement>(&slider).unwrap();
+    let max_items = Rc::new(Cell::new(None));
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
@@ -332,45 +347,169 @@ pub async fn run(path: JsValue) -> JsValue {
     let perf = window.performance().unwrap();
     let start_time = perf.now();
 
-    let document = match fetch_raw_data(&path).await {
-        Ok(v) => v,
-        Err(_) => {
-            console_error!("Could not load url {}", path);
-            return JsValue::undefined();
+    {
+        let document_view = document_view.clone();
+        if path.is_string() {
+            let path = path.as_string().unwrap();
+            let document_text = match fetch_raw_data(&path).await {
+                Ok(v) => v,
+                Err(_) => {
+                    console_error!("Could not load url {}", path);
+                    return JsValue::undefined();
+                }
+            };
+
+            let (document, features, parts) = match load_document(
+                &document_text, &app.borrow().loaded_parts()
+            ).await {
+                Ok(v) => v,
+                Err(e) => {
+                    console_error!("{}", e);
+                    return JsValue::undefined();
+                }
+            };
+
+            app.borrow_mut().set_document(&document, &features, &parts);
+
+            document_view.set_value(&document_text);
+
+            let part_count = &app.borrow().part_count();
+            slider.set_max(&part_count.to_string());
+            slider.set_value(&part_count.to_string());
         }
-    };
+    }
 
-    let (document, features, parts) = match load_document(
-        &document, &app.borrow().loaded_parts()
-    ).await {
-        Ok(v) => v,
-        Err(e) => {
-            console_error!("{}", e);
-            return JsValue::undefined();
-        }
-    };
+    let new_doc = Rc::new(RefCell::new(None));
+    {
+        let app = Rc::clone(&app);
+        let document_view = document_view.clone();
+        let slider = slider.clone();
+        let new_doc = Rc::clone(&new_doc);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+            let document_view = document_view.clone();
+            let app = Rc::clone(&app);
+            let slider = slider.clone();
+            let new_doc = Rc::clone(&new_doc);
+            spawn_local(async move {
+                let (document, features, parts) = match load_document(
+                    &document_view.value(), &app.borrow().loaded_parts()
+                ).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        console_error!("{}", e);
+                        return;
+                    }
+                };
 
-    app.borrow_mut().set_document(&document, &features, &parts);
+                *new_doc.borrow_mut() = Some((document, features, parts));
+            });
+        }) as Box<dyn FnMut(_)>);
+        let submit_button = web_document.get_element_by_id("submit").unwrap();
+        let submit_button = JsCast::dyn_ref::<HtmlButtonElement>(&submit_button).unwrap();
+        submit_button.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
 
-    let app_cloned = Rc::clone(&app);
-    let on_mouse_down = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-        let window = web_sys::window().unwrap();
-        let perf = window.performance().unwrap();
+    {
+        let app = Rc::clone(&app);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+            if let Ok(mut a) = app.try_borrow_mut() {
+                a.orbit.on_mouse_move(event.offset_x() as f32, event.offset_y() as f32);
+            }
+        }) as Box<dyn FnMut(_)>);
+        canvas.add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
+    {
+        let app = Rc::clone(&app);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+            app.borrow_mut().orbit.on_mouse_press(true);
+        }) as Box<dyn FnMut(_)>);
+        canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
+    {
+        let app = Rc::clone(&app);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+            app.borrow_mut().orbit.on_mouse_press(false);
+        }) as Box<dyn FnMut(_)>);
+        canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
+    {
+        let app = Rc::clone(&app);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
+            let app = &mut app.borrow_mut();
+            app.orbit.radius = (app.orbit.radius + event.delta_y() as f32).clamp(100.0, 10000.0);
+        }) as Box<dyn FnMut(_)>);
+        canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
 
-        app_cloned.borrow_mut().advance(((perf.now() - start_time) / 1000.0) as f32);
-    }) as Box<dyn FnMut(_)>);
-    canvas.add_event_listener_with_callback("mousedown", on_mouse_down.as_ref().unchecked_ref()).unwrap();
-    on_mouse_down.forget();
+    {
+        let next_button = web_document.get_element_by_id("next-button").unwrap();
+        let next_button = JsCast::dyn_ref::<HtmlDivElement>(&next_button).unwrap();
+        let a = Rc::clone(&app);
+        let closure = EventListener::new(&next_button, "click", move |event| {
+            let window = web_sys::window().unwrap();
+            let perf = window.performance().unwrap();
 
-    let a = Rc::clone(&app);
+            a.borrow_mut().advance(((perf.now() - start_time) / 1000.0) as f32);
+        });
+        closure.forget();
+    }
+    {
+        let a = Rc::clone(&app);
+        let slider_ = slider.clone();
+        let max_items = Rc::clone(&max_items);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+            let value = slider_.value().parse::<usize>().unwrap_or(0);
+            &max_items.set(Some(value));
+        }) as Box<dyn FnMut(_)>);
+        slider.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
+
+    let app = Rc::clone(&app);
+    let mut state = State::Finished;
+    let slider_ = slider.clone();
+    let new_doc = Rc::clone(&new_doc);
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         let window = web_sys::window().unwrap();
         let perf = window.performance().unwrap();
-        
-        let mut m = a.borrow_mut();
-        m.set_up();
-        m.animate(((perf.now() - start_time) / 1000.0) as f32);
-        m.render(None);
+
+        if let Ok(mut m) = app.try_borrow_mut() {
+            if let Some((document, features, parts)) = &*new_doc.borrow() {
+                m.set_document(&document, &features, &parts);
+                max_items.set(None);
+
+                let part_count = m.part_count();
+                slider_.set_max(&part_count.to_string());
+                slider_.set_value(&part_count.to_string());
+                slider_.style().set_property("display", "none");
+            }
+            *new_doc.borrow_mut() = None;
+            
+            m.set_up();
+            m.animate(((perf.now() - start_time) / 1000.0) as f32);
+            m.render(max_items.get());
+
+            if m.state != state {
+                let next_button = web_document.get_element_by_id("next-button").unwrap();
+                let next_button = JsCast::dyn_ref::<HtmlDivElement>(&next_button).unwrap();
+                if m.state == State::Step {
+                    next_button.set_class_name("active");
+                } else {
+                    next_button.set_class_name("");
+                }
+
+                if m.state == State::Finished {
+                    slider_.style().set_property("display", "block");
+                }
+
+                state = m.state;
+            }
+        }
 
         request_animation_frame(f.borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));

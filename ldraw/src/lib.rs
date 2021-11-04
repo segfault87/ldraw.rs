@@ -5,7 +5,10 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::hash::{Hash, Hasher};
 use std::ops::BitXor;
 
-use cgmath::{Matrix3 as Matrix3_, Matrix4 as Matrix4_, Vector3 as Vector3_, Vector4 as Vector4_};
+use cgmath::{
+    Matrix3 as Matrix3_, Matrix4 as Matrix4_,
+    Point2 as Point2_, Point3 as Point3_,
+    Vector2 as Vector2_, Vector3 as Vector3_, Vector4 as Vector4_};
 use serde::de::{Error as DeserializeError, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -21,8 +24,11 @@ pub mod writer;
 
 pub type Matrix3 = Matrix3_<f32>;
 pub type Matrix4 = Matrix4_<f32>;
+pub type Vector2 = Vector2_<f32>;
 pub type Vector3 = Vector3_<f32>;
 pub type Vector4 = Vector4_<f32>;
+pub type Point2 = Point2_<f32>;
+pub type Point3 = Point3_<f32>;
 
 pub trait AliasType = Clone + Debug;
 

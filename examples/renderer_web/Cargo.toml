@@ -8,9 +8,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-async-trait = "~0.1.51"
 cgmath = "~0.17.0"
+console_error_panic_hook = "~0.1.7"
 futures = { version = "~0.3.17", features = ["async-await"] }
+gloo = "~0.4.0"
 glow = { version = "~0.11.0" } 
 ldraw = { path = "../../ldraw" }
 ldraw_ir = { path = "../../ir" } 
@@ -25,18 +26,24 @@ test_renderer = { path = "../renderer" }
 [dependencies.web-sys]
 version = "~0.3.55"
 features = [
-         'Document',
-         'Element',
-         'Headers',
-         'HtmlCanvasElement',
-         'MouseEvent',
-         'Node',
-         'Performance',
-         'Request',
-         'RequestInit',
-         'RequestMode',
-         'Response',
-         'WebGlRenderingContext',
-         'Window'
+    'CssStyleDeclaration',
+    'Document',
+    'Element',
+    'Headers',
+    'HtmlButtonElement',
+    'HtmlCanvasElement',
+    'HtmlDivElement',
+    'HtmlInputElement',
+    'HtmlTextAreaElement',
+    'MouseEvent',
+    'Node',
+    'Performance',
+    'Request',
+    'RequestInit',
+    'RequestMode',
+    'Response',
+    'WebGlRenderingContext',
+    'WheelEvent',
+    'Window'
 ]
 

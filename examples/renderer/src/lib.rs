@@ -12,7 +12,7 @@ use ldraw::{
     color::{ColorReference, Material, MaterialRegistry},
     elements::{Command, Meta},
     document::{Document, MultipartDocument},
-    Matrix3, Matrix4, PartAlias, Vector3, Vector4,
+    Matrix3, Matrix4, PartAlias, Point2, Point3, Vector2, Vector3, Vector4,
 };
 use ldraw_ir::{
     part::PartBuilder,
@@ -31,6 +31,83 @@ struct RenderingOrderItem {
     name: PartAlias,
     matrix: Matrix4,
     color: ColorReference,
+}
+
+pub struct OrbitController {
+    last_pos: Option<Point2>,
+    pressed_at: f32,
+    pressed_position: Point2,
+    released_at: f32,
+    released_position: Point2,
+    pressing: bool,
+
+    latitude: f32,
+    longitude: f32,
+
+    pub radius: f32,
+    pub center: Point3,
+
+    tick: Option<f32>,
+    velocity: Vector2,
+}
+
+impl OrbitController {
+
+    pub fn new() -> Self {
+        OrbitController {
+            last_pos: None,
+            pressed_at: 0.0,
+            pressed_position: Point2::new(0.0, 0.0),
+            released_at: 0.0,
+            released_position: Point2::new(0.0, 0.0),
+            pressing: false,
+
+            latitude: 0.785,
+            longitude: 0.262,
+            radius: 300.0,
+            center: Point3::new(0.0, 0.0, 0.0),
+
+            velocity: Vector2::new(0.1, 0.0),
+            tick: None,
+        }
+    }
+
+    pub fn on_mouse_press(&mut self, pressed: bool) {
+        self.pressing = pressed;
+
+        if !pressed {
+            self.last_pos = None;
+        }
+    }
+
+    pub fn on_mouse_move(&mut self, x: f32, y: f32) {
+        if self.pressing {
+            if let Some(last_pos) = self.last_pos {
+                self.latitude -= (x - last_pos.x) * 0.01;
+                self.longitude = (self.longitude + (y - last_pos.y) * 0.01).clamp(-f32::consts::FRAC_PI_2 + 0.017, f32::consts::FRAC_PI_2 - 0.017);
+            }
+            self.last_pos = Some(Point2::new(x, y));
+        }
+    }
+
+    pub fn update(&mut self, tick: f32) {
+        if let Some(t) = self.tick {
+            let delta = tick - t;
+
+            self.latitude += self.velocity.x * delta;
+            self.longitude = (self.longitude + self.velocity.y * delta).clamp(-f32::consts::FRAC_PI_2 + 0.017, f32::consts::FRAC_PI_2 - 0.017);
+        }
+
+        self.tick = Some(tick);
+    }
+
+    pub fn derive_coordinate(&self) -> Point3 {
+        let x = self.latitude.sin() * self.longitude.cos() * self.radius + self.center.x;
+        let y = -self.longitude.sin() * self.radius + self.center.y;
+        let z = -self.latitude.cos() * self.longitude.cos() * self.radius + self.center.z;
+
+        Point3::new(x, y, z)
+    }
 }
 
 #[derive(Debug)]
@@ -86,7 +163,7 @@ fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocumen
     (order, bb)
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum State {
     Playing,
     Step,
@@ -103,10 +180,9 @@ pub struct App<GL: HasContext> {
     display_list: DisplayList<GL>,
     rendering_order: Vec<RenderingOrder>,
     animating: Vec<(RenderingOrderItem, f32, Matrix4, f32, f32)>,
-    center: Vector3,
-    radius: f32,
+    pub orbit: OrbitController,
 
-    state: State,
+    pub state: State,
     pointer: Option<usize>,
     last_time: Option<f32>,
     frames: usize,
@@ -132,13 +208,24 @@ impl<GL: HasContext> App<GL> {
             display_list: DisplayList::new(),
             rendering_order: Vec::new(),
             animating: Vec::new(),
-            center: Vector3::zero(),
-            radius: 500.0,
+            orbit: OrbitController::new(),
             state: State::Finished,
             pointer: None,
             last_time: None,
             frames: 0,
         }
+    }
+
+    pub fn part_count(&self) -> usize {
+        let mut len = 0;
+
+        for i in self.rendering_order.iter() {
+            if let RenderingOrder::Item(_) = i {
+                len += 1;
+            }
+        }
+
+        len
     }
 
     pub fn loaded_parts(&self) -> HashSet<&PartAlias> {
@@ -172,8 +259,9 @@ impl<GL: HasContext> App<GL> {
         self.last_time = None;
         let (rendering_order, bounding_box) = create_rendering_list(Rc::clone(&self.gl), &document);
         self.rendering_order = rendering_order;
-        self.center = bounding_box.center();
-        self.radius = (
+        let center = bounding_box.center();
+        self.orbit.center = Point3::new(center.x, center.y, center.z);
+        self.orbit.radius = (
             bounding_box.len_x() * bounding_box.len_x() +
             bounding_box.len_y() * bounding_box.len_y() +
             bounding_box.len_z() * bounding_box.len_z()
@@ -212,12 +300,10 @@ impl<GL: HasContext> App<GL> {
     }
 
     pub fn animate(&mut self, time: f32) {
-        self.context.camera.position.x = time.sin() * self.radius + self.center.x;
-        self.context.camera.position.y = self.center.y - (self.radius * 0.5);
-        self.context.camera.position.z = time.cos() * self.radius + self.center.z;
-        self.context.camera.look_at.x = self.center.x;
-        self.context.camera.look_at.y = self.center.y;
-        self.context.camera.look_at.z = self.center.z;
+        self.orbit.update(time);
+
+        self.context.camera.position = self.orbit.derive_coordinate();
+        self.context.camera.look_at = self.orbit.center;
         self.context.update_camera();
 
         if self.state == State::Playing {
