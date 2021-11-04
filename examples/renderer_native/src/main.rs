@@ -6,11 +6,9 @@ use std::{
     io::BufReader,
     path::Path,
     rc::Rc,
-    str,
     time::Instant,
 };
 
-use async_trait::async_trait;
 use glow::{self, Context};
 use glutin::{
     dpi::LogicalSize,
@@ -33,8 +31,7 @@ use ldraw_ir::{
 use ldraw_renderer::{
     shader::ProgramManager,
 };
-use test_renderer::{App, ResourceLoader};
-use tokio::runtime::Runtime;
+use test_renderer::App;
 
 struct NativeLoader {
     ldrawdir: String,
@@ -59,12 +56,11 @@ fn get_part_size(part: &PartBuilder) -> usize {
     bytes
 }
 
-#[async_trait]
-impl ResourceLoader for NativeLoader {
+impl NativeLoader {
 
-    async fn load(
+    fn load(
         &mut self, locator: &String, loaded: &HashSet<&PartAlias>
-    ) -> Result<(MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>), &'static str> {
+    ) -> (MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
         println!("Scanning LDraw directory...");
         let directory = Rc::new(RefCell::new(scan_ldraw_directory(&self.ldrawdir).unwrap()));
 
@@ -154,7 +150,7 @@ impl ResourceLoader for NativeLoader {
 
         println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);
 
-        Ok((document, features, deps))
+        (document, features, deps)
     }
 
 }
@@ -185,11 +181,8 @@ fn main_loop(
 
     let mut app = App::new(Rc::clone(&gl), program_manager);
 
-    let rt = Runtime::new().unwrap();
-    match rt.block_on(app.set_document(&mut resource_loader, locator)) {
-        Ok(()) => {},
-        Err(e) => panic!("{}", e),
-    };
+    let (document, features, parts) = resource_loader.load(&locator, &HashSet::new());
+    app.set_document(&document, &features, &parts);
 
     let window = windowed_context.window();
     let size = window.get_inner_size().unwrap();

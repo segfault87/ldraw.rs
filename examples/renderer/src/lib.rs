@@ -1,11 +1,11 @@
 use std::{
     collections::{HashSet, HashMap},
     f32,
+    future::Future,
     rc::Rc,
     vec::Vec,
 };
 
-use async_trait::async_trait;
 use cgmath::{SquareMatrix, Zero};
 use glow::HasContext;
 use ldraw::{
@@ -25,13 +25,6 @@ use ldraw_renderer::{
     state::RenderingContext,
     shader::{ProgramManager},
 };
-
-#[async_trait]
-pub trait ResourceLoader {
-    async fn load(
-        &mut self, locator: &String, loaded: &HashSet<&PartAlias>
-    ) -> Result<(MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>), &'static str>;
-}
 
 #[derive(Clone, Debug)]
 struct RenderingOrderItem {
@@ -148,12 +141,24 @@ impl<GL: HasContext> App<GL> {
         }
     }
 
-    pub async fn set_document<RL: ResourceLoader>(&mut self, loader: &mut RL, locator: &String) -> Result<(), &'static str> {
+    pub fn loaded_parts(&self) -> HashSet<&PartAlias> {
+        let mut result = HashSet::new();
+
+        result.extend(self.features.keys());
+        result.extend(self.parts.keys());
+
+        result
+    }
+
+    pub fn set_document(
+        &mut self,
+        document: &MultipartDocument,
+        features: &HashMap<PartAlias, PartBuilder>,
+        parts: &HashMap<PartAlias, PartBuilder>,
+    ) {
         let mut cache = HashSet::new();
         cache.extend(self.features.keys());
         cache.extend(self.parts.keys());
-
-        let (document, features, parts) = loader.load(locator, &cache).await?;
 
         let features = features.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&self.gl)))).collect::<HashMap<_, _>>();
         let parts = parts.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&self.gl)))).collect::<HashMap<_, _>>();
@@ -173,8 +178,6 @@ impl<GL: HasContext> App<GL> {
             bounding_box.len_y() * bounding_box.len_y() +
             bounding_box.len_z() * bounding_box.len_z()
         ).sqrt() * 2.0;
-
-        Ok(())
     }
 
     pub fn set_up(&self) {

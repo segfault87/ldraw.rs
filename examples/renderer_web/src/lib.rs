@@ -3,9 +3,11 @@ use std::{
     collections::{HashMap, HashSet},
     io::BufReader,
     rc::Rc,
+    sync::Arc,
     vec::Vec,
 };
 
+use async_trait::async_trait;
 use cgmath::SquareMatrix;
 use futures::future::join_all;
 use glow::Context;
@@ -55,103 +57,58 @@ fn log(s: &str, error: bool) {
     console.prepend_with_node_1(&node).unwrap();
 }
 
+fn alert(s: &str) {
+    let window = web_sys::window().unwrap();
+    window.alert_with_message(s);
+}
+
 macro_rules! console_log {
     ($($t:tt)*) => (log(&format_args!($($t)*).to_string(), false))
 }
 
 macro_rules! console_error {
-    ($($t:tt)*) => (log(&format_args!($($t)*).to_string(), true))
+    ($($t:tt)*) => (alert(&format_args!($($t)*).to_string()))
 }
 
-async fn do_request(url: &str) -> Result<Response, ()> {
-    let window = web_sys::window().unwrap();
-    let mut opts = RequestInit::new();
-    opts.method("GET");
+async fn load_document(
+    resource: &String, loaded: &HashSet<&PartAlias>
+) -> Result<(MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>), &'static str> {
+    let enabled_features = get_features_list();
+    let directory = fetch_directory();
+    let colors = fetch_color_definition();
 
-    let request = match Request::new_with_str_and_init(url, &opts) {
-        Ok(v) => v,
-        Err(_) => return Err(()),
+    let (directory, colors) = futures::join!(directory, colors);
+    let directory = match directory {
+        Ok(v) => {
+            console_log!("Loaded part directory.");
+            v
+        }
+        Err(_) => {
+            return Err("Couldn't load part directory.");
+        }
     };
-    let response_value = match JsFuture::from(window.fetch_with_request(&request)).await {
-        Ok(v) => v,
-        Err(_) => return Err(()),
-    };
-
-    match response_value.dyn_into() {
-        Ok(v) => Ok(v),
-        Err(_) => Err(()),
-    }
-}
-
-async fn fetch_raw_data(url: &str) -> Result<String, ()> {
-    let response = match do_request(url).await {
-        Ok(v) => v,
-        Err(_) => return Err(()),
-    };
-    match JsFuture::from(response.text().unwrap()).await {
-        Ok(v) => Ok(v.as_string().unwrap()),
-        Err(_) => Err(()),
-    }
-}
-
-async fn fetch_directory() -> Result<WebPartDirectory, ()> {
-    let response = match do_request(PART_DIRECTORY_PATH).await {
-        Ok(v) => v,
-        Err(_) => return Err(()),
-    };
-    let json = JsFuture::from(response.json().unwrap()).await.unwrap();
-    let directory: WebPartDirectory = json.into_serde().unwrap();
-
-    Ok(directory)
-}
-
-async fn fetch_color_definition() -> Result<MaterialRegistry, ()> {
-    let data = match fetch_raw_data(COLOR_DEFINITION_PATH).await {
-        Ok(v) => v,
-        Err(_) => return Err(()),
+    let colors = match colors {
+        Ok(v) => {
+            console_log!("Loaded color definition.");
+            v
+        }
+        Err(_) => {
+            return Err("Couldn't load color definition.");
+        }
     };
 
-    match parse_color_definition(&mut BufReader::new(data.as_bytes())) {
-        Ok(v) => Ok(v),
-        Err(_) => Err(()),
-    }
-}
-
-async fn fetch_multipart_document(
-    path: &String,
-    colors: &MaterialRegistry,
-) -> Result<MultipartDocument, ()> {
-    let data = match fetch_raw_data(path).await {
-        Ok(v) => v,
-        Err(_) => return Err(()),
+    let document = match parse_multipart_document(&colors, &mut BufReader::new(resource.as_bytes())) {
+        Ok(v) => {
+            console_log!("Loaded model.");
+            v
+        }
+        Err(_) => {
+            return Err("Could not parse document. (maybe corrupt?)");
+        }
     };
 
-    match parse_multipart_document(&colors, &mut BufReader::new(data.as_bytes())) {
-        Ok(v) => Ok(v),
-        Err(_) => Err(()),
-    }
-}
-
-async fn fetch_document(path: &String, colors: &MaterialRegistry) -> Result<Document, ()> {
-    let data = match fetch_raw_data(path).await {
-        Ok(v) => v,
-        Err(_) => return Err(()),
-    };
-
-    match parse_single_document(&colors, &mut BufReader::new(data.as_bytes())) {
-        Ok(v) => Ok(v),
-        Err(_) => Err(()),
-    }
-}
-
-async fn bake_parts(
-    document: &MultipartDocument,
-    directory: Rc<RefCell<WebPartDirectory>>,
-    colors: &MaterialRegistry,
-    enabled_features: &HashSet<PartAlias>,
-) -> (HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
     let cache = Rc::new(RefCell::new(PartCache::default()));
-    let mut resolution = ResolutionMap::new(directory, Rc::clone(&cache));
+    let mut resolution = ResolutionMap::new(Rc::new(RefCell::new(directory)), Rc::clone(&cache));
     resolution.resolve(&&document.body, Some(&document));
 
     loop {
@@ -187,6 +144,9 @@ async fn bake_parts(
     let mut deps = HashMap::new();
 
     for feature in enabled_features.iter() {
+        if loaded.contains(&feature) {
+            continue;
+        }
         let part = resolution.map.get(&feature);
         if part.is_none() {
             println!("Dependency {} has not been found", feature);
@@ -206,6 +166,9 @@ async fn bake_parts(
         features.insert(feature.clone(), bake_part(&resolution, None, &element));
     }
     for dep in document.list_dependencies() {
+        if loaded.contains(&dep) {
+            continue;
+        }
         let part = resolution.map.get(&dep);
         if part.is_none() {
             println!("Dependency {} has not been found", dep);
@@ -227,14 +190,83 @@ async fn bake_parts(
 
     drop(resolution);
 
-    println!(
+    console_log!(
         "Collected {} entries",
         cache
             .borrow_mut()
             .collect(CacheCollectionStrategy::PartsAndPrimitives)
     );
 
-    (features, deps)    
+    console_log!("All parts built.");
+
+    Ok((document, features, deps))
+}
+
+async fn do_request(url: &str) -> Result<Response, ()> {
+    let window = web_sys::window().unwrap();
+    let mut opts = RequestInit::new();
+    opts.method("GET");
+
+    let request = match Request::new_with_str_and_init(url, &opts) {
+        Ok(v) => v,
+        Err(_) => return Err(()),
+    };
+    let response_value = match JsFuture::from(window.fetch_with_request(&request)).await {
+        Ok(v) => v,
+        Err(_) => return Err(()),
+    };
+
+    match response_value.dyn_into() {
+        Ok(v) => Ok(v),
+        Err(_) => Err(()),
+    }
+}
+
+async fn fetch_raw_data(url: &str) -> Result<String, ()> {
+    let response = match do_request(url).await {
+        Ok(v) => v,
+        Err(_) => return Err(()),
+    };
+    let text = response.text().unwrap();
+    match JsFuture::from(text).await {
+        Ok(v) => Ok(v.as_string().unwrap()),
+        Err(_) => Err(()),
+    }
+}
+
+async fn fetch_directory() -> Result<WebPartDirectory, ()> {
+    let response = match do_request(PART_DIRECTORY_PATH).await {
+        Ok(v) => v,
+        Err(_) => return Err(()),
+    };
+    let json = JsFuture::from(response.json().unwrap()).await.unwrap();
+    let directory: WebPartDirectory = json.into_serde().unwrap();
+
+    Ok(directory)
+}
+
+async fn fetch_color_definition() -> Result<MaterialRegistry, ()> {
+    let data = match fetch_raw_data(COLOR_DEFINITION_PATH).await {
+        Ok(v) => v,
+        Err(_) => return Err(()),
+    };
+
+    match parse_color_definition(&mut BufReader::new(data.as_bytes())) {
+        Ok(v) => Ok(v),
+        Err(_) => Err(()),
+    }
+}
+
+async fn fetch_document(path: &String, colors: &MaterialRegistry) -> Result<Document, ()> {
+    let data = match fetch_raw_data(path).await {
+        Ok(v) => v,
+        Err(_) => return Err(()),
+    };
+
+    match parse_single_document(&colors, &mut BufReader::new(data.as_bytes())) {
+        Ok(v) => Ok(v),
+        Err(_) => Err(()),
+    }
 }
 
 fn request_animation_frame(f: &Closure<dyn FnMut()>) {
@@ -280,49 +312,6 @@ pub async fn run(path: JsValue) -> JsValue {
     };
     let gl = Rc::new(Context::from_webgl2_context(gl));
 
-    let directory = fetch_directory();
-    let colors = fetch_color_definition();
-
-    let (directory, colors) = futures::join!(directory, colors);
-    let directory = match directory {
-        Ok(v) => {
-            console_log!("Loaded part directory.");
-            Rc::new(RefCell::new(v))
-        }
-        Err(_) => {
-            console_error!("Couldn't load part directory.");
-            return JsValue::undefined();
-        }
-    };
-    let colors = match colors {
-        Ok(v) => {
-            console_log!("Loaded color definition.");
-            v
-        }
-        Err(_) => {
-            console_error!("Couldn't load color definition.");
-            return JsValue::undefined();
-        }
-    };
-
-    let document = match fetch_multipart_document(&path, &colors).await {
-        Ok(v) => {
-            console_log!("Loaded model {}.", &path);
-            v
-        }
-        Err(_) => {
-            console_error!("Could not load model {}.", &path);
-            return JsValue::undefined();
-        }
-    };
-
-    let (features, parts) = bake_parts(&document, Rc::clone(&directory), &colors, &get_features_list()).await;
-
-    console_log!("All parts built.");
-
-    let features = features.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
-    let parts = parts.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&gl)))).collect::<HashMap<_, _>>();
-
     let program_manager = match ProgramManager::new(Rc::clone(&gl)) {
         Ok(e) => e,
         Err(e) => {
@@ -331,11 +320,10 @@ pub async fn run(path: JsValue) -> JsValue {
         },
     };
 
-    let mut app = Rc::new(RefCell::new(App::new(Rc::clone(&gl), document, features, parts, program_manager)));
+    let app = Rc::new(RefCell::new(App::new(Rc::clone(&gl), program_manager)));
     console_log!("Rendering context initialization done.");
 
     app.borrow_mut().resize(canvas.width(), canvas.height());
-    console_log!("Ready to go.");
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
@@ -344,14 +332,32 @@ pub async fn run(path: JsValue) -> JsValue {
     let perf = window.performance().unwrap();
     let start_time = perf.now();
 
-    let a = Rc::clone(&app);
+    let document = match fetch_raw_data(&path).await {
+        Ok(v) => v,
+        Err(_) => {
+            console_error!("Could not load url {}", path);
+            return JsValue::undefined();
+        }
+    };
+
+    let (document, features, parts) = match load_document(
+        &document, &app.borrow().loaded_parts()
+    ).await {
+        Ok(v) => v,
+        Err(e) => {
+            console_error!("{}", e);
+            return JsValue::undefined();
+        }
+    };
+
+    app.borrow_mut().set_document(&document, &features, &parts);
+
+    let app_cloned = Rc::clone(&app);
     let on_mouse_down = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
         let window = web_sys::window().unwrap();
         let perf = window.performance().unwrap();
 
-        let mut m = a.borrow_mut();
-
-        m.advance(((perf.now() - start_time) / 1000.0) as f32);
+        app_cloned.borrow_mut().advance(((perf.now() - start_time) / 1000.0) as f32);
     }) as Box<dyn FnMut(_)>);
     canvas.add_event_listener_with_callback("mousedown", on_mouse_down.as_ref().unchecked_ref()).unwrap();
     on_mouse_down.forget();
@@ -364,7 +370,7 @@ pub async fn run(path: JsValue) -> JsValue {
         let mut m = a.borrow_mut();
         m.set_up();
         m.animate(((perf.now() - start_time) / 1000.0) as f32);
-        m.render();
+        m.render(None);
 
         request_animation_frame(f.borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));

@@ -35,11 +35,41 @@
           bottom: 0;
           width: 100%;
       }
+      #footer-right {
+        position: fixed;
+        bottom: 0;
+        right: 0;
+      }
+      #controls {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        height: 50%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      #controls > #next-button {
+        width: 200px;
+        font-size: 120px;
+        background-color: rgba(255, 255, 255, 0.5);
+        border-radius: 16px;
+        cursor: pointer;
+        text-align: center;
+      }
+      #left-pane {
+
+      }
     </style>
   </head>
   <body id="body">
     <canvas id="main_canvas"></canvas>
+    <div id="controls">
+      <div id="next-button">➜</div>
+    </div>
     <div id="console"></div>
-    <div id="footer">This is an early work in progress. Built with <a href="https://www.rust-lang.org">Rust</a> + <a href="https://webassembly.org">WebAssembly</a></div>
+    <div id="footer">Getting This is an early work in progress. Built with <a href="https://www.rust-lang.org">Rust</a> + <a href="https://webassembly.org">WebAssembly</a></div>
+    <div id="footer-right"><a href="https://github.com/segfault87/ldraw.rs">Getting interested in?</a></div>
   </body>
 </html>
