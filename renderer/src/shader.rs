@@ -11,8 +11,8 @@ use ldraw::{Vector3, Vector4};
 use crate::{
     display_list::InstanceBuffer,
     error::ShaderError,
+    part::{EdgeBuffer, MeshBuffer, OptionalEdgeBuffer},
     state::{ProjectionData, ShadingData},
-    part::{EdgeBuffer, OptionalEdgeBuffer, MeshBuffer},
 };
 
 #[derive(Debug)]
@@ -60,23 +60,23 @@ impl ShaderSource {
         let mut buf = BufWriter::new(Vec::new());
 
         if cfg!(target_arch = "wasm32") {
-            writeln!(buf, "#version 300 es");
+            writeln!(buf, "#version 300 es").unwrap();
         } else {
-            writeln!(buf, "#version 330");
+            writeln!(buf, "#version 330").unwrap();
         }
 
         for (flag, value) in &self.flags {
             match value {
                 Some(v) => {
-                    writeln!(buf, "#define {} {}", flag, v);
+                    writeln!(buf, "#define {} {}", flag, v).unwrap();
                 }
                 None => {
-                    writeln!(buf, "#define {}", flag);
+                    writeln!(buf, "#define {}", flag).unwrap();
                 }
             };
         }
 
-        write!(buf, "{}", self.source);
+        write!(buf, "{}", self.source).unwrap();
 
         String::from_utf8(buf.into_inner().unwrap()).unwrap()
     }
@@ -109,8 +109,8 @@ impl<GL: HasContext> Program<GL> {
         vertex_shader: &ShaderSource,
         fragment_shader: &ShaderSource,
     ) -> Result<Program<GL>, ShaderError> {
-        let vs = Self::compile_shader(&gl, &vertex_shader, glow::VERTEX_SHADER)?;
-        let fs = Self::compile_shader(&gl, &fragment_shader, glow::FRAGMENT_SHADER)?;
+        let vs = Self::compile_shader(&gl, vertex_shader, glow::VERTEX_SHADER)?;
+        let fs = Self::compile_shader(&gl, fragment_shader, glow::FRAGMENT_SHADER)?;
 
         unsafe {
             let program = match gl.create_program() {
@@ -167,7 +167,7 @@ pub struct DefaultProgram<GL: HasContext> {
 
     // Instancing
     instanced_model_matrix: Option<u32>,
-    
+
     // Instanced colors
     instanced_color: Option<u32>,
 
@@ -188,7 +188,9 @@ pub struct DefaultProgram<GL: HasContext> {
 
 impl<GL: HasContext> DefaultProgram<GL> {
     fn new(
-        gl: Rc<GL>, vertex_shader: &ShaderSource, fragment_shader: &ShaderSource
+        gl: Rc<GL>,
+        vertex_shader: &ShaderSource,
+        fragment_shader: &ShaderSource,
     ) -> Result<Self, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), vertex_shader, fragment_shader)?;
 
@@ -209,7 +211,8 @@ impl<GL: HasContext> DefaultProgram<GL> {
                 view_matrix: gl.get_uniform_location(program.program, "viewMatrix"),
                 is_orthographic: gl.get_uniform_location(program.program, "isOrthographic"),
 
-                instanced_model_matrix: gl.get_attrib_location(program.program, "instancedModelMatrix"),
+                instanced_model_matrix: gl
+                    .get_attrib_location(program.program, "instancedModelMatrix"),
 
                 instanced_color: gl.get_attrib_location(program.program, "instancedColor"),
 
@@ -243,38 +246,38 @@ impl<GL: HasContext> DefaultProgram<GL> {
                 gl.uniform_matrix_4_f32_slice(
                     self.projection.as_ref(),
                     false,
-                    AsRef::<[f32; 16]>::as_ref(&projection_data.projection)
+                    AsRef::<[f32; 16]>::as_ref(&projection_data.projection),
                 );
-                self.local_projection_state.projection = projection_data.projection.clone();
+                self.local_projection_state.projection = projection_data.projection;
             }
             if projection_data.model_view != self.local_projection_state.model_view {
                 gl.uniform_matrix_4_f32_slice(
                     self.model_view.as_ref(),
                     false,
-                    AsRef::<[f32; 16]>::as_ref(&projection_data.model_view)
+                    AsRef::<[f32; 16]>::as_ref(&projection_data.model_view),
                 );
-                self.local_projection_state.model_view = projection_data.model_view.clone();
+                self.local_projection_state.model_view = projection_data.model_view;
             }
             if projection_data.normal_matrix != self.local_projection_state.normal_matrix {
                 gl.uniform_matrix_3_f32_slice(
                     self.normal_matrix.as_ref(),
                     false,
-                    AsRef::<[f32; 9]>::as_ref(&projection_data.normal_matrix)
+                    AsRef::<[f32; 9]>::as_ref(&projection_data.normal_matrix),
                 );
-                self.local_projection_state.normal_matrix = projection_data.normal_matrix.clone();
+                self.local_projection_state.normal_matrix = projection_data.normal_matrix;
             }
             if projection_data.view_matrix != self.local_projection_state.view_matrix {
                 gl.uniform_matrix_4_f32_slice(
                     self.view_matrix.as_ref(),
                     false,
-                    AsRef::<[f32; 16]>::as_ref(&projection_data.view_matrix)
+                    AsRef::<[f32; 16]>::as_ref(&projection_data.view_matrix),
                 );
-                self.local_projection_state.view_matrix = projection_data.view_matrix.clone();
+                self.local_projection_state.view_matrix = projection_data.view_matrix;
             }
             if projection_data.orthographic != self.local_projection_state.orthographic {
                 gl.uniform_1_i32(
                     self.is_orthographic.as_ref(),
-                    if projection_data.orthographic { 1 } else { 0 }
+                    if projection_data.orthographic { 1 } else { 0 },
                 );
                 self.local_projection_state.orthographic = projection_data.orthographic;
             }
@@ -287,36 +290,27 @@ impl<GL: HasContext> DefaultProgram<GL> {
             if shading_data.diffuse != self.local_shading_state.diffuse {
                 gl.uniform_3_f32_slice(
                     self.diffuse.as_ref(),
-                    AsRef::<[f32; 3]>::as_ref(&shading_data.diffuse)
+                    AsRef::<[f32; 3]>::as_ref(&shading_data.diffuse),
                 );
-                self.local_shading_state.diffuse = shading_data.diffuse.clone();
+                self.local_shading_state.diffuse = shading_data.diffuse;
             }
             if shading_data.emissive != self.local_shading_state.emissive {
                 gl.uniform_3_f32_slice(
                     self.emissive.as_ref(),
-                    AsRef::<[f32; 3]>::as_ref(&shading_data.emissive)
+                    AsRef::<[f32; 3]>::as_ref(&shading_data.emissive),
                 );
-                self.local_shading_state.emissive = shading_data.emissive.clone();
+                self.local_shading_state.emissive = shading_data.emissive;
             }
             if shading_data.roughness != self.local_shading_state.roughness {
-                gl.uniform_1_f32(
-                    self.roughness.as_ref(),
-                    shading_data.roughness
-                );
+                gl.uniform_1_f32(self.roughness.as_ref(), shading_data.roughness);
                 self.local_shading_state.roughness = shading_data.roughness;
             }
             if shading_data.metalness != self.local_shading_state.metalness {
-                gl.uniform_1_f32(
-                    self.metalness.as_ref(),
-                    shading_data.metalness
-                );
+                gl.uniform_1_f32(self.metalness.as_ref(), shading_data.metalness);
                 self.local_shading_state.metalness = shading_data.metalness;
             }
             if shading_data.opacity != self.local_shading_state.opacity {
-                gl.uniform_1_f32(
-                    self.opacity.as_ref(),
-                    shading_data.opacity
-                );
+                gl.uniform_1_f32(self.opacity.as_ref(), shading_data.opacity);
                 self.local_shading_state.opacity = shading_data.opacity;
             }
         }
@@ -334,7 +328,9 @@ impl<GL: HasContext> DefaultProgram<GL> {
     }
 
     pub fn bind<'a>(
-        &'a mut self, projection_data: &ProjectionData, shading_data: &ShadingData
+        &'a mut self,
+        projection_data: &ProjectionData,
+        shading_data: &ShadingData,
     ) -> DefaultProgramBinder<'a, GL> {
         self.program.use_program();
         self.bind_projection_data(projection_data);
@@ -353,7 +349,7 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
     fn new(program: &'a DefaultProgram<GL>) -> Self {
         DefaultProgramBinder {
             gl: Rc::clone(&program.gl),
-            program: program
+            program,
         }
     }
 
@@ -364,11 +360,25 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
                 gl.bind_vertex_array(mesh.array);
 
                 gl.bind_buffer(glow::ARRAY_BUFFER, mesh.buffer_vertices);
-                gl.vertex_attrib_pointer_f32(self.program.position.unwrap(), 3, glow::FLOAT, false, 0, 0);
+                gl.vertex_attrib_pointer_f32(
+                    self.program.position.unwrap(),
+                    3,
+                    glow::FLOAT,
+                    false,
+                    0,
+                    0,
+                );
                 gl.enable_vertex_attrib_array(self.program.position.unwrap());
 
                 gl.bind_buffer(glow::ARRAY_BUFFER, mesh.buffer_normals);
-                gl.vertex_attrib_pointer_f32(self.program.normal.unwrap(), 3, glow::FLOAT, false, 0, 0);
+                gl.vertex_attrib_pointer_f32(
+                    self.program.normal.unwrap(),
+                    3,
+                    glow::FLOAT,
+                    false,
+                    0,
+                    0,
+                );
                 gl.enable_vertex_attrib_array(self.program.normal.unwrap());
             }
             true
@@ -380,18 +390,27 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
     pub fn bind_instanced_geometry_data(&self, instance_buffer: &mut InstanceBuffer<GL>) {
         let gl = &self.gl;
 
-        instance_buffer.update_buffer(&gl);
+        instance_buffer.update_buffer(gl);
         if self.program.instanced_model_matrix.is_some() {
             let instanced_model_view = self.program.instanced_model_matrix.unwrap();
             unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, instance_buffer.model_view_matrices_buffer);
+                gl.bind_buffer(
+                    glow::ARRAY_BUFFER,
+                    instance_buffer.model_view_matrices_buffer,
+                );
                 for i in 0..4 {
-                    gl.vertex_attrib_pointer_f32(instanced_model_view + i, 4, glow::FLOAT, false, 4 * 16, (16 * i) as i32);
+                    gl.vertex_attrib_pointer_f32(
+                        instanced_model_view + i,
+                        4,
+                        glow::FLOAT,
+                        false,
+                        4 * 16,
+                        (16 * i) as i32,
+                    );
                     gl.enable_vertex_attrib_array(instanced_model_view + i);
                     gl.vertex_attrib_divisor(instanced_model_view + i, 1);
                 }
             }
-
         }
     }
 
@@ -401,7 +420,7 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&color)
+                AsRef::<[f32; 4]>::as_ref(&color),
             )
         }
     }
@@ -409,7 +428,7 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
     pub fn bind_instanced_color_data(&self, instance_buffer: &mut InstanceBuffer<GL>) {
         let gl = &self.gl;
 
-        instance_buffer.update_buffer(&gl);
+        instance_buffer.update_buffer(gl);
         if self.program.instanced_color.is_some() && self.program.instanced_color.is_some() {
             let instanced_color = self.program.instanced_color.unwrap();
             unsafe {
@@ -420,7 +439,6 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
             }
         }
     }
-
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -456,7 +474,9 @@ pub struct EdgeProgram<GL: HasContext> {
 
 impl<GL: HasContext> EdgeProgram<GL> {
     fn new(
-        gl: Rc<GL>, vertex_shader: &ShaderSource, fragment_shader: &ShaderSource
+        gl: Rc<GL>,
+        vertex_shader: &ShaderSource,
+        fragment_shader: &ShaderSource,
     ) -> Result<Self, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), vertex_shader, fragment_shader)?;
 
@@ -468,13 +488,14 @@ impl<GL: HasContext> EdgeProgram<GL> {
 
                 projection: gl.get_uniform_location(program.program, "projection"),
                 model_view: gl.get_uniform_location(program.program, "modelView"),
-        
+
                 position: gl.get_attrib_location(program.program, "position"),
                 color: gl.get_attrib_location(program.program, "color"),
-        
+
                 instanced_color: gl.get_attrib_location(program.program, "instancedColor"),
                 instanced_edge_color: gl.get_attrib_location(program.program, "instancedEdgeColor"),
-                instanced_model_matrix: gl.get_attrib_location(program.program, "instancedModelMatrix"),
+                instanced_model_matrix: gl
+                    .get_attrib_location(program.program, "instancedModelMatrix"),
 
                 default_color: gl.get_uniform_location(program.program, "defaultColor"),
                 edge_color: gl.get_uniform_location(program.program, "edgeColor"),
@@ -493,17 +514,17 @@ impl<GL: HasContext> EdgeProgram<GL> {
                 gl.uniform_matrix_4_f32_slice(
                     self.projection.as_ref(),
                     false,
-                    AsRef::<[f32; 16]>::as_ref(&projection_data.projection)
+                    AsRef::<[f32; 16]>::as_ref(&projection_data.projection),
                 );
-                self.local_projection_state.projection = projection_data.projection.clone();
+                self.local_projection_state.projection = projection_data.projection;
             }
             if projection_data.model_view != self.local_projection_state.model_view {
                 gl.uniform_matrix_4_f32_slice(
                     self.model_view.as_ref(),
                     false,
-                    AsRef::<[f32; 16]>::as_ref(&projection_data.model_view)
+                    AsRef::<[f32; 16]>::as_ref(&projection_data.model_view),
                 );
-                self.local_projection_state.model_view = projection_data.model_view.clone();
+                self.local_projection_state.model_view = projection_data.model_view;
             }
         }
     }
@@ -524,7 +545,7 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
     fn new(program: &'a EdgeProgram<GL>) -> Self {
         EdgeProgramBinder {
             gl: Rc::clone(&program.gl),
-            program: &program
+            program,
         }
     }
 
@@ -535,11 +556,25 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
                 gl.bind_vertex_array(edge.array);
 
                 gl.bind_buffer(glow::ARRAY_BUFFER, edge.buffer_vertices);
-                gl.vertex_attrib_pointer_f32(self.program.position.unwrap(), 3, glow::FLOAT, false, 0, 0);
+                gl.vertex_attrib_pointer_f32(
+                    self.program.position.unwrap(),
+                    3,
+                    glow::FLOAT,
+                    false,
+                    0,
+                    0,
+                );
                 gl.enable_vertex_attrib_array(self.program.position.unwrap());
 
                 gl.bind_buffer(glow::ARRAY_BUFFER, edge.buffer_colors);
-                gl.vertex_attrib_pointer_f32(self.program.color.unwrap(), 3, glow::FLOAT, false, 0, 0);
+                gl.vertex_attrib_pointer_f32(
+                    self.program.color.unwrap(),
+                    3,
+                    glow::FLOAT,
+                    false,
+                    0,
+                    0,
+                );
                 gl.enable_vertex_attrib_array(self.program.color.unwrap());
             }
             true
@@ -551,13 +586,23 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
     pub fn bind_instanced_attribs(&self, instance_buffer: &mut InstanceBuffer<GL>) {
         let gl = &self.gl;
 
-        instance_buffer.update_buffer(&gl);
+        instance_buffer.update_buffer(gl);
         if self.program.instanced_model_matrix.is_some() {
             let instanced_model_view = self.program.instanced_model_matrix.unwrap();
             unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, instance_buffer.model_view_matrices_buffer);
+                gl.bind_buffer(
+                    glow::ARRAY_BUFFER,
+                    instance_buffer.model_view_matrices_buffer,
+                );
                 for i in 0..4 {
-                    gl.vertex_attrib_pointer_f32(instanced_model_view + i, 4, glow::FLOAT, false, 4 * 16, (16 * i) as i32);
+                    gl.vertex_attrib_pointer_f32(
+                        instanced_model_view + i,
+                        4,
+                        glow::FLOAT,
+                        false,
+                        4 * 16,
+                        (16 * i) as i32,
+                    );
                     gl.enable_vertex_attrib_array(instanced_model_view + i);
                     gl.vertex_attrib_divisor(instanced_model_view + i, 1);
                 }
@@ -586,11 +631,11 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.default_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&color)
+                AsRef::<[f32; 4]>::as_ref(&color),
             );
             gl.uniform_4_f32_slice(
                 self.program.edge_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&edge_color)
+                AsRef::<[f32; 4]>::as_ref(&edge_color),
             );
         }
     }
@@ -625,7 +670,9 @@ pub struct OptionalEdgeProgram<GL: HasContext> {
 
 impl<GL: HasContext> OptionalEdgeProgram<GL> {
     fn new(
-        gl: Rc<GL>, vertex_shader: &ShaderSource, fragment_shader: &ShaderSource
+        gl: Rc<GL>,
+        vertex_shader: &ShaderSource,
+        fragment_shader: &ShaderSource,
     ) -> Result<Self, ShaderError> {
         let program = Program::compile(Rc::clone(&gl), vertex_shader, fragment_shader)?;
 
@@ -638,16 +685,17 @@ impl<GL: HasContext> OptionalEdgeProgram<GL> {
 
                 projection: gl.get_uniform_location(program.program, "projection"),
                 model_view: gl.get_uniform_location(program.program, "modelView"),
-        
+
                 position: gl.get_attrib_location(program.program, "position"),
                 color: gl.get_attrib_location(program.program, "color"),
                 control1: gl.get_attrib_location(program.program, "control1"),
                 control2: gl.get_attrib_location(program.program, "control2"),
                 direction: gl.get_attrib_location(program.program, "direction"),
-        
+
                 instanced_color: gl.get_attrib_location(program.program, "instancedColor"),
                 instanced_edge_color: gl.get_attrib_location(program.program, "instancedEdgeColor"),
-                instanced_model_matrix: gl.get_attrib_location(program.program, "instancedModelMatrix"),
+                instanced_model_matrix: gl
+                    .get_attrib_location(program.program, "instancedModelMatrix"),
 
                 default_color: gl.get_uniform_location(program.program, "defaultColor"),
                 edge_color: gl.get_uniform_location(program.program, "edgeColor"),
@@ -666,22 +714,25 @@ impl<GL: HasContext> OptionalEdgeProgram<GL> {
                 gl.uniform_matrix_4_f32_slice(
                     self.projection.as_ref(),
                     false,
-                    AsRef::<[f32; 16]>::as_ref(&projection_data.projection)
+                    AsRef::<[f32; 16]>::as_ref(&projection_data.projection),
                 );
-                self.local_projection_state.projection = projection_data.projection.clone();
+                self.local_projection_state.projection = projection_data.projection;
             }
             if projection_data.model_view != self.local_projection_state.model_view {
                 gl.uniform_matrix_4_f32_slice(
                     self.model_view.as_ref(),
                     false,
-                    AsRef::<[f32; 16]>::as_ref(&projection_data.model_view)
+                    AsRef::<[f32; 16]>::as_ref(&projection_data.model_view),
                 );
-                self.local_projection_state.model_view = projection_data.model_view.clone();
+                self.local_projection_state.model_view = projection_data.model_view;
             }
         }
     }
 
-    pub fn bind<'a>(&'a mut self, projection_data: &ProjectionData) -> OptionalEdgeProgramBinder<'a, GL> {
+    pub fn bind<'a>(
+        &'a mut self,
+        projection_data: &ProjectionData,
+    ) -> OptionalEdgeProgramBinder<'a, GL> {
         self.program.use_program();
         self.bind_projection_data(projection_data);
 
@@ -700,7 +751,7 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
 
         OptionalEdgeProgramBinder {
             gl: Rc::clone(&program.gl),
-            program: &program
+            program,
         }
     }
 
@@ -710,7 +761,14 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
             gl.bind_vertex_array(optional_edge.array);
 
             gl.bind_buffer(glow::ARRAY_BUFFER, optional_edge.buffer_vertices);
-            gl.vertex_attrib_pointer_f32(self.program.position.unwrap(), 3, glow::FLOAT, false, 0, 0);
+            gl.vertex_attrib_pointer_f32(
+                self.program.position.unwrap(),
+                3,
+                glow::FLOAT,
+                false,
+                0,
+                0,
+            );
             gl.enable_vertex_attrib_array(self.program.position.unwrap());
 
             gl.bind_buffer(glow::ARRAY_BUFFER, optional_edge.buffer_colors);
@@ -718,15 +776,36 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
             gl.enable_vertex_attrib_array(self.program.color.unwrap());
 
             gl.bind_buffer(glow::ARRAY_BUFFER, optional_edge.buffer_controls_1);
-            gl.vertex_attrib_pointer_f32(self.program.control1.unwrap(), 3, glow::FLOAT, false, 0, 0);
+            gl.vertex_attrib_pointer_f32(
+                self.program.control1.unwrap(),
+                3,
+                glow::FLOAT,
+                false,
+                0,
+                0,
+            );
             gl.enable_vertex_attrib_array(self.program.control1.unwrap());
 
             gl.bind_buffer(glow::ARRAY_BUFFER, optional_edge.buffer_controls_2);
-            gl.vertex_attrib_pointer_f32(self.program.control1.unwrap(), 3, glow::FLOAT, false, 0, 0);
+            gl.vertex_attrib_pointer_f32(
+                self.program.control1.unwrap(),
+                3,
+                glow::FLOAT,
+                false,
+                0,
+                0,
+            );
             gl.enable_vertex_attrib_array(self.program.control2.unwrap());
 
             gl.bind_buffer(glow::ARRAY_BUFFER, optional_edge.buffer_directions);
-            gl.vertex_attrib_pointer_f32(self.program.direction.unwrap(), 3, glow::FLOAT, false, 0, 0);
+            gl.vertex_attrib_pointer_f32(
+                self.program.direction.unwrap(),
+                3,
+                glow::FLOAT,
+                false,
+                0,
+                0,
+            );
             gl.enable_vertex_attrib_array(self.program.direction.unwrap());
         }
     }
@@ -734,13 +813,23 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
     pub fn bind_instanced_attribs(&self, instance_buffer: &mut InstanceBuffer<GL>) {
         let gl = &self.gl;
 
-        instance_buffer.update_buffer(&gl);
+        instance_buffer.update_buffer(gl);
         if self.program.instanced_model_matrix.is_some() {
             let instanced_model_view = self.program.instanced_model_matrix.unwrap();
             unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, instance_buffer.model_view_matrices_buffer);
+                gl.bind_buffer(
+                    glow::ARRAY_BUFFER,
+                    instance_buffer.model_view_matrices_buffer,
+                );
                 for i in 0..4 {
-                    gl.vertex_attrib_pointer_f32(instanced_model_view + i, 4, glow::FLOAT, false, 4 * 16, (16 * i) as i32);
+                    gl.vertex_attrib_pointer_f32(
+                        instanced_model_view + i,
+                        4,
+                        glow::FLOAT,
+                        false,
+                        4 * 16,
+                        (16 * i) as i32,
+                    );
                     gl.enable_vertex_attrib_array(instanced_model_view + i);
                     gl.vertex_attrib_divisor(instanced_model_view + i, 1);
                 }
@@ -769,11 +858,11 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.default_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&color)
+                AsRef::<[f32; 4]>::as_ref(&color),
             );
             gl.uniform_4_f32_slice(
                 self.program.edge_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&edge_color)
+                AsRef::<[f32; 4]>::as_ref(&edge_color),
             );
         }
     }
@@ -797,66 +886,85 @@ pub struct ProgramManager<GL: HasContext> {
 
 impl<GL: HasContext> ProgramManager<GL> {
     pub fn new(gl: Rc<GL>) -> Result<ProgramManager<GL>, ShaderError> {
-        let default_fs = ShaderSource::new(String::from_utf8(include_bytes!("../shaders/default.fs").to_vec()).unwrap());
-        let default_vs = ShaderSource::new(String::from_utf8(include_bytes!("../shaders/default.vs").to_vec()).unwrap());
+        let default_fs = ShaderSource::new(
+            String::from_utf8(include_bytes!("../shaders/default.fs").to_vec()).unwrap(),
+        );
+        let default_vs = ShaderSource::new(
+            String::from_utf8(include_bytes!("../shaders/default.vs").to_vec()).unwrap(),
+        );
 
-        let default = DefaultProgram::new(
-            Rc::clone(&gl),
-            &default_vs,
-            &default_fs
-        )?;
+        let default = DefaultProgram::new(Rc::clone(&gl), &default_vs, &default_fs)?;
         let default_instanced = DefaultProgram::new(
             Rc::clone(&gl),
             &default_vs.clone().with_flag("USE_INSTANCING"),
-            &default_fs.clone().with_flag("USE_INSTANCING")
+            &default_fs.clone().with_flag("USE_INSTANCING"),
         )?;
         let default_instanced_with_colors = DefaultProgram::new(
             Rc::clone(&gl),
-            &default_vs.clone().with_flag("USE_INSTANCING").with_flag("USE_INSTANCED_COLORS"),
-            &default_fs.clone().with_flag("USE_INSTANCING").with_flag("USE_INSTANCED_COLORS")
+            &default_vs
+                .clone()
+                .with_flag("USE_INSTANCING")
+                .with_flag("USE_INSTANCED_COLORS"),
+            &default_fs
+                .clone()
+                .with_flag("USE_INSTANCING")
+                .with_flag("USE_INSTANCED_COLORS"),
         )?;
         let default_without_bfc = DefaultProgram::new(
             Rc::clone(&gl),
             &default_vs.clone().with_flag("WITHOUT_BFC"),
-            &default_fs.clone().with_flag("WITHOUT_BFC")
+            &default_fs.clone().with_flag("WITHOUT_BFC"),
         )?;
         let default_without_bfc_instanced = DefaultProgram::new(
             Rc::clone(&gl),
-            &default_vs.clone().with_flag("WITHOUT_BFC").with_flag("USE_INSTANCING"),
-            &default_fs.clone().with_flag("WITHOUT_BFC").with_flag("USE_INSTANCING")
+            &default_vs
+                .clone()
+                .with_flag("WITHOUT_BFC")
+                .with_flag("USE_INSTANCING"),
+            &default_fs
+                .clone()
+                .with_flag("WITHOUT_BFC")
+                .with_flag("USE_INSTANCING"),
         )?;
         let default_without_bfc_instanced_with_colors = DefaultProgram::new(
             Rc::clone(&gl),
-            &default_vs.clone().with_flag("WITHOUT_BFC").with_flag("USE_INSTANCING").with_flag("USE_INSTANCED_COLORS"),
-            &default_fs.clone().with_flag("WITHOUT_BFC").with_flag("USE_INSTANCING").with_flag("USE_INSTANCED_COLORS")
+            &default_vs
+                .with_flag("WITHOUT_BFC")
+                .with_flag("USE_INSTANCING")
+                .with_flag("USE_INSTANCED_COLORS"),
+            &default_fs
+                .with_flag("WITHOUT_BFC")
+                .with_flag("USE_INSTANCING")
+                .with_flag("USE_INSTANCED_COLORS"),
         )?;
 
-        let edge_fs = ShaderSource::new(String::from_utf8(include_bytes!("../shaders/edge.fs").to_vec()).unwrap());
-        let edge_vs = ShaderSource::new(String::from_utf8(include_bytes!("../shaders/edge.vs").to_vec()).unwrap());
+        let edge_fs = ShaderSource::new(
+            String::from_utf8(include_bytes!("../shaders/edge.fs").to_vec()).unwrap(),
+        );
+        let edge_vs = ShaderSource::new(
+            String::from_utf8(include_bytes!("../shaders/edge.vs").to_vec()).unwrap(),
+        );
 
-        let edge = EdgeProgram::new(
-            Rc::clone(&gl),
-            &edge_vs,
-            &edge_fs
-        )?;
+        let edge = EdgeProgram::new(Rc::clone(&gl), &edge_vs, &edge_fs)?;
         let edge_instanced = EdgeProgram::new(
             Rc::clone(&gl),
-            &edge_vs.clone().with_flag("USE_INSTANCING"),
-            &edge_fs.clone().with_flag("USE_INSTANCING")
+            &edge_vs.with_flag("USE_INSTANCING"),
+            &edge_fs.with_flag("USE_INSTANCING"),
         )?;
 
-        let optional_edge_fs = ShaderSource::new(String::from_utf8(include_bytes!("../shaders/optional_edge.fs").to_vec()).unwrap());
-        let optional_edge_vs = ShaderSource::new(String::from_utf8(include_bytes!("../shaders/optional_edge.vs").to_vec()).unwrap());
+        let optional_edge_fs = ShaderSource::new(
+            String::from_utf8(include_bytes!("../shaders/optional_edge.fs").to_vec()).unwrap(),
+        );
+        let optional_edge_vs = ShaderSource::new(
+            String::from_utf8(include_bytes!("../shaders/optional_edge.vs").to_vec()).unwrap(),
+        );
 
-        let optional_edge = OptionalEdgeProgram::new(
-            Rc::clone(&gl),
-            &optional_edge_vs,
-            &optional_edge_fs
-        )?;
+        let optional_edge =
+            OptionalEdgeProgram::new(Rc::clone(&gl), &optional_edge_vs, &optional_edge_fs)?;
         let optional_edge_instanced = OptionalEdgeProgram::new(
             Rc::clone(&gl),
-            &optional_edge_vs.clone().with_flag("USE_INSTANCING"),
-            &optional_edge_fs.clone().with_flag("USE_INSTANCING")
+            &optional_edge_vs.with_flag("USE_INSTANCING"),
+            &optional_edge_fs.with_flag("USE_INSTANCING"),
         )?;
 
         Ok(ProgramManager {
@@ -875,18 +983,28 @@ impl<GL: HasContext> ProgramManager<GL> {
         })
     }
 
-    pub fn get_default_program<'a>(&'a mut self, instancing_kind: DefaultProgramInstancingKind, bfc: bool) -> &'a mut DefaultProgram<GL> {
+    pub fn get_default_program(
+        &mut self,
+        instancing_kind: DefaultProgramInstancingKind,
+        bfc: bool,
+    ) -> &mut DefaultProgram<GL> {
         match (instancing_kind, bfc) {
             (DefaultProgramInstancingKind::NonInstanced, true) => &mut self.default,
             (DefaultProgramInstancingKind::Instanced, true) => &mut self.default_instanced,
-            (DefaultProgramInstancingKind::InstancedWithColors, true) => &mut self.default_instanced_with_colors,
+            (DefaultProgramInstancingKind::InstancedWithColors, true) => {
+                &mut self.default_instanced_with_colors
+            }
             (DefaultProgramInstancingKind::NonInstanced, false) => &mut self.default_without_bfc,
-            (DefaultProgramInstancingKind::Instanced, false) => &mut self.default_without_bfc_instanced,
-            (DefaultProgramInstancingKind::InstancedWithColors, false) => &mut self.default_without_bfc_instanced_with_colors,
+            (DefaultProgramInstancingKind::Instanced, false) => {
+                &mut self.default_without_bfc_instanced
+            }
+            (DefaultProgramInstancingKind::InstancedWithColors, false) => {
+                &mut self.default_without_bfc_instanced_with_colors
+            }
         }
     }
 
-    pub fn get_edge_program<'a>(&'a mut self, instanced: bool) -> &'a mut EdgeProgram<GL> {
+    pub fn get_edge_program(&mut self, instanced: bool) -> &mut EdgeProgram<GL> {
         if instanced {
             &mut self.edge_instanced
         } else {
@@ -894,7 +1012,7 @@ impl<GL: HasContext> ProgramManager<GL> {
         }
     }
 
-    pub fn get_optional_edge_program<'a>(&'a mut self, instanced: bool) -> &'a mut OptionalEdgeProgram<GL> {
+    pub fn get_optional_edge_program(&mut self, instanced: bool) -> &mut OptionalEdgeProgram<GL> {
         if instanced {
             &mut self.optional_edge_instanced
         } else {
@@ -907,6 +1025,4 @@ impl<GL: HasContext> ProgramManager<GL> {
         self.default_instanced.bind_envmap(texture);
         self.default_instanced_with_colors.bind_envmap(texture);
     }
-
-
 }

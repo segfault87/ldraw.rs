@@ -1,21 +1,15 @@
-use std::{
-    collections::hash_map::HashMap,
-    rc::Rc,
-    vec::Vec,
-};
+use std::{collections::hash_map::HashMap, rc::Rc, vec::Vec};
 
 use cgmath::SquareMatrix;
 use glow::HasContext;
 use itertools::izip;
 use ldraw::{
-    color::{ColorReference},
+    color::ColorReference,
     document::{Document, MultipartDocument},
     Matrix4, PartAlias, Vector4,
 };
 
-use crate::{
-    utils::cast_as_bytes,
-};
+use crate::utils::cast_as_bytes;
 
 pub struct DisplayItemBuilder {
     name: PartAlias,
@@ -31,7 +25,6 @@ impl DisplayItemBuilder {
             colors: vec![],
         }
     }
-
 }
 
 pub struct InstanceBuffer<GL: HasContext> {
@@ -84,15 +77,15 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             self.model_view_matrices_buffer = None;
         } else {
             if self.model_view_matrices_buffer.is_none() {
-                self.model_view_matrices_buffer = unsafe {
-                    gl.create_buffer().ok()
-                };
+                self.model_view_matrices_buffer = unsafe { gl.create_buffer().ok() };
             }
 
             unsafe {
                 gl.bind_buffer(glow::ARRAY_BUFFER, self.model_view_matrices_buffer);
                 gl.buffer_data_u8_slice(
-                    glow::ARRAY_BUFFER, cast_as_bytes(self.model_view_matrices.as_ref()), glow::DYNAMIC_DRAW
+                    glow::ARRAY_BUFFER,
+                    cast_as_bytes(self.model_view_matrices.as_ref()),
+                    glow::DYNAMIC_DRAW,
                 );
             }
         }
@@ -101,15 +94,15 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             self.color_buffer = None;
         } else {
             if self.color_buffer.is_none() {
-                self.color_buffer = unsafe {
-                    gl.create_buffer().ok()
-                };
+                self.color_buffer = unsafe { gl.create_buffer().ok() };
             }
 
             unsafe {
                 gl.bind_buffer(glow::ARRAY_BUFFER, self.color_buffer);
                 gl.buffer_data_u8_slice(
-                    glow::ARRAY_BUFFER, cast_as_bytes(self.colors.as_ref()), glow::DYNAMIC_DRAW
+                    glow::ARRAY_BUFFER,
+                    cast_as_bytes(self.colors.as_ref()),
+                    glow::DYNAMIC_DRAW,
                 );
             }
         }
@@ -118,15 +111,15 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             self.edge_color_buffer = None;
         } else {
             if self.edge_color_buffer.is_none() {
-                self.edge_color_buffer = unsafe {
-                    gl.create_buffer().ok()
-                };
+                self.edge_color_buffer = unsafe { gl.create_buffer().ok() };
             }
 
             unsafe {
                 gl.bind_buffer(glow::ARRAY_BUFFER, self.edge_color_buffer);
                 gl.buffer_data_u8_slice(
-                    glow::ARRAY_BUFFER, cast_as_bytes(self.edge_colors.as_ref()), glow::DYNAMIC_DRAW
+                    glow::ARRAY_BUFFER,
+                    cast_as_bytes(self.edge_colors.as_ref()),
+                    glow::DYNAMIC_DRAW,
                 );
             }
         }
@@ -161,7 +154,6 @@ pub struct DisplayItem<GL: HasContext> {
 }
 
 impl<GL: HasContext> DisplayItem<GL> {
-
     pub fn new(gl: Rc<GL>, alias: &PartAlias) -> Self {
         DisplayItem {
             part: alias.clone(),
@@ -175,9 +167,9 @@ impl<GL: HasContext> DisplayItem<GL> {
     pub fn update_data(
         &mut self,
         opaque: bool,
-        model_view_matrices: &Vec<Matrix4>,
-        color_buffer: &Vec<Vector4>,
-        edge_color_buffer: &Vec<Vector4>,
+        model_view_matrices: &[Matrix4],
+        color_buffer: &[Vector4],
+        edge_color_buffer: &[Vector4],
     ) {
         let mut mvmr = vec![];
         let mut cr = vec![];
@@ -201,11 +193,7 @@ impl<GL: HasContext> DisplayItem<GL> {
         buffer.modified = true;
     }
 
-    pub fn add(
-        &mut self,
-        matrix: &Matrix4,
-        color: &ColorReference
-    ) {
+    pub fn add(&mut self, matrix: &Matrix4, color: &ColorReference) {
         let material = match color {
             ColorReference::Material(m) => m,
             _ => return,
@@ -217,25 +205,25 @@ impl<GL: HasContext> DisplayItem<GL> {
             &mut self.opaque
         };
 
-        buffer.model_view_matrices.extend(AsRef::<[f32; 16]>::as_ref(matrix));
-        buffer.colors.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
-        buffer.edge_colors.extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.edge)));
+        buffer
+            .model_view_matrices
+            .extend(AsRef::<[f32; 16]>::as_ref(matrix));
+        buffer
+            .colors
+            .extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.color)));
+        buffer
+            .edge_colors
+            .extend(AsRef::<[f32; 4]>::as_ref(&Vector4::from(&material.edge)));
         buffer.count += 1;
         buffer.modified = true;
     }
 }
 
 pub struct DisplayList<GL: HasContext> {
-    pub map: HashMap<PartAlias, DisplayItem<GL>>
+    pub map: HashMap<PartAlias, DisplayItem<GL>>,
 }
 
 impl<GL: HasContext> DisplayList<GL> {
-    pub fn new() -> Self {
-        DisplayList {
-            map: HashMap::new()
-        }
-    }
-
     pub fn count(&self) -> usize {
         let mut count = 0;
 
@@ -247,37 +235,64 @@ impl<GL: HasContext> DisplayList<GL> {
     }
 }
 
+impl<GL: HasContext> Default for DisplayList<GL> {
+    fn default() -> Self {
+        DisplayList {
+            map: HashMap::new(),
+        }
+    }
+}
+
 fn build_display_list<'a, GL: HasContext>(
     gl: Rc<GL>,
     display_list: &mut DisplayList<GL>,
     document: &'a Document,
     matrix: Matrix4,
-    parent: &'a MultipartDocument
+    parent: &'a MultipartDocument,
 ) {
     for e in document.iter_refs() {
         if parent.subparts.contains_key(&e.name) {
-            build_display_list(Rc::clone(&gl), display_list, parent.subparts.get(&e.name).unwrap(), matrix * e.matrix, parent);
+            build_display_list(
+                Rc::clone(&gl),
+                display_list,
+                parent.subparts.get(&e.name).unwrap(),
+                matrix * e.matrix,
+                parent,
+            );
         } else {
-            display_list.add(Rc::clone(&gl), e.name.clone(), matrix * e.matrix, e.color.clone());
+            display_list.add(
+                Rc::clone(&gl),
+                e.name.clone(),
+                matrix * e.matrix,
+                e.color.clone(),
+            );
         }
     }
 }
 
 impl<GL: HasContext> DisplayList<GL> {
     pub fn from_multipart_document(gl: Rc<GL>, document: &MultipartDocument) -> Self {
-        let mut display_list = DisplayList::new();
+        let mut display_list = DisplayList::default();
 
-        build_display_list(gl, &mut display_list, &document.body, Matrix4::identity(), &document);
+        build_display_list(
+            gl,
+            &mut display_list,
+            &document.body,
+            Matrix4::identity(),
+            document,
+        );
 
         display_list
     }
 
     pub fn add(&mut self, gl: Rc<GL>, name: PartAlias, matrix: Matrix4, color: ColorReference) {
-        self.map.entry(name.clone()).or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name)).add(&matrix, &color);
+        self.map
+            .entry(name.clone())
+            .or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name))
+            .add(&matrix, &color);
     }
 
     pub fn clear(&mut self) {
         self.map.clear();
     }
 }
-   

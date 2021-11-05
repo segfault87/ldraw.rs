@@ -205,7 +205,7 @@ impl<GL: HasContext> App<GL> {
             features: HashMap::new(),
             parts: HashMap::new(),
             context,
-            display_list: DisplayList::new(),
+            display_list: DisplayList::default(),
             rendering_order: Vec::new(),
             animating: Vec::new(),
             orbit: OrbitController::new(),
@@ -254,7 +254,7 @@ impl<GL: HasContext> App<GL> {
         self.parts.extend(parts);
         self.state = State::Playing;
         self.animating = Vec::new();
-        self.display_list = DisplayList::new();
+        self.display_list = DisplayList::default();
         self.pointer = None;
         self.last_time = None;
         let (rendering_order, bounding_box) = create_rendering_list(Rc::clone(&self.gl), &document);

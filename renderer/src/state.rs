@@ -1,25 +1,11 @@
-use std::{
-    collections::HashMap,
-    rc::Rc,
-    vec::Vec,
-};
+use std::{collections::HashMap, rc::Rc, vec::Vec};
 
-use cgmath::{
-    Deg,
-    PerspectiveFov,
-    Point3,
-    Rad,
-    SquareMatrix,
-    prelude::*
-};
+use cgmath::{prelude::*, Deg, PerspectiveFov, Point3, Rad, SquareMatrix};
 use glow::HasContext;
-use ldraw::{
-    color::ColorReference,
-    Matrix3, Matrix4, PartAlias, Vector3, Vector4
-};
+use ldraw::{color::ColorReference, Matrix3, Matrix4, PartAlias, Vector3, Vector4};
 
 use crate::{
-    display_list::{DisplayList, DisplayItem},
+    display_list::{DisplayItem, DisplayList},
     part::Part,
     shader::{DefaultProgramInstancingKind, ProgramManager},
     utils::derive_normal_matrix,
@@ -53,7 +39,7 @@ impl ProjectionData {
     }
 
     pub fn update_projection_matrix(&mut self, proj: &Matrix4) {
-        self.projection = proj.clone();
+        self.projection = *proj;
     }
 
     fn update_model_view_and_normal_matrix(&mut self) {
@@ -62,12 +48,12 @@ impl ProjectionData {
     }
 
     pub fn update_view_matrix(&mut self, camera: &Matrix4) {
-        self.view_matrix = camera.clone();
+        self.view_matrix = *camera;
         self.update_model_view_and_normal_matrix();
     }
 
     pub fn push_model_matrix(&mut self, m: &Matrix4) {
-        let top = self.model_matrix.last().unwrap().clone();
+        let top = *self.model_matrix.last().unwrap();
         let transformed = m * top;
         self.model_matrix.push(transformed);
         self.update_model_view_and_normal_matrix();
@@ -110,15 +96,12 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new(
-        position: Point3<f32>, look_at: Point3<f32>,
-        fov: Deg<f32>
-    ) -> Self {
+    pub fn new(position: Point3<f32>, look_at: Point3<f32>, fov: Deg<f32>) -> Self {
         Camera {
             position,
             look_at,
             up: Vector3::new(0.0, -1.0, 0.0),
-            fov
+            fov,
         }
     }
 
@@ -127,7 +110,7 @@ impl Camera {
             fovy: Rad::from(self.fov),
             aspect: aspect_ratio,
             near: 0.1,
-            far: 100000.0
+            far: 100000.0,
         })
     }
 
@@ -142,7 +125,7 @@ pub struct RenderingContext<GL: HasContext> {
     pub program_manager: ProgramManager<GL>,
     width: u32,
     height: u32,
-    
+
     pub camera: Camera,
     pub projection_data: ProjectionData,
     pub shading_data: ShadingData,
@@ -161,10 +144,32 @@ impl<GL: HasContext> RenderingContext<GL> {
                 }
             };
             gl.bind_texture(glow::TEXTURE_2D, envmap);
-            gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA as i32, 768, 768, 0, glow::RGBA, glow::UNSIGNED_BYTE, Some(include_bytes!("../assets/cubemap.bin")));
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA as i32,
+                768,
+                768,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                Some(include_bytes!("../assets/cubemap.bin")),
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_S,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_T,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR as i32,
+            );
 
             envmap
         };
@@ -187,11 +192,12 @@ impl<GL: HasContext> RenderingContext<GL> {
 
     pub fn update_camera(&mut self) {
         self.projection_data.update_projection_matrix(
-            &self.camera.derive_projection_matrix(self.width as f32 / self.height as f32)
+            &self
+                .camera
+                .derive_projection_matrix(self.width as f32 / self.height as f32),
         );
-        self.projection_data.update_view_matrix(
-            &self.camera.derive_view_matrix()
-        );
+        self.projection_data
+            .update_view_matrix(&self.camera.derive_view_matrix());
     }
 
     pub fn upload_shading_data(&self) {
@@ -222,13 +228,15 @@ impl<GL: HasContext> RenderingContext<GL> {
     }
 
     pub fn render_instance(
-        &mut self, part: &Part<GL>, display_item: &mut DisplayItem<GL>,
-        semitransparent: bool
+        &mut self,
+        part: &Part<GL>,
+        display_item: &mut DisplayItem<GL>,
+        semitransparent: bool,
     ) {
         let gl = &self.gl;
         let part_buffer = &part.part;
 
-        let mut instance_buffer = if semitransparent {
+        let instance_buffer = if semitransparent {
             &mut display_item.semitransparent
         } else {
             &mut display_item.opaque
@@ -239,33 +247,33 @@ impl<GL: HasContext> RenderingContext<GL> {
         }
 
         if let Some(uncolored_index) = &part_buffer.uncolored_index {
-            let program = self.program_manager.get_default_program(
-                DefaultProgramInstancingKind::InstancedWithColors, true
-            );
+            let program = self
+                .program_manager
+                .get_default_program(DefaultProgramInstancingKind::InstancedWithColors, true);
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
-            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
-            bind.bind_instanced_geometry_data(&mut instance_buffer);
-            bind.bind_instanced_color_data(&mut instance_buffer);
+            bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
+            bind.bind_instanced_geometry_data(instance_buffer);
+            bind.bind_instanced_color_data(instance_buffer);
 
             unsafe {
                 gl.draw_arrays_instanced(
                     glow::TRIANGLES,
                     uncolored_index.start as i32,
                     uncolored_index.span as i32,
-                    instance_buffer.count as i32
+                    instance_buffer.count as i32,
                 );
             }
         }
         if let Some(uncolored_without_bfc_index) = &part_buffer.uncolored_without_bfc_index {
-            let program = self.program_manager.get_default_program(
-                DefaultProgramInstancingKind::InstancedWithColors, false
-            );
+            let program = self
+                .program_manager
+                .get_default_program(DefaultProgramInstancingKind::InstancedWithColors, false);
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
-            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
-            bind.bind_instanced_geometry_data(&mut instance_buffer);
-            bind.bind_instanced_color_data(&mut instance_buffer);
+            bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
+            bind.bind_instanced_geometry_data(instance_buffer);
+            bind.bind_instanced_color_data(instance_buffer);
 
             unsafe {
                 gl.disable(glow::CULL_FACE);
@@ -273,7 +281,7 @@ impl<GL: HasContext> RenderingContext<GL> {
                     glow::TRIANGLES,
                     uncolored_without_bfc_index.start as i32,
                     uncolored_without_bfc_index.span as i32,
-                    instance_buffer.count as i32
+                    instance_buffer.count as i32,
                 );
                 gl.enable(glow::CULL_FACE);
             }
@@ -284,18 +292,18 @@ impl<GL: HasContext> RenderingContext<GL> {
             &part_buffer.opaque_indices
         };
         for (group, indices) in subparts.iter() {
-            let program = self.program_manager.get_default_program(
-                DefaultProgramInstancingKind::Instanced, group.bfc
-            );
+            let program = self
+                .program_manager
+                .get_default_program(DefaultProgramInstancingKind::Instanced, group.bfc);
             let bind = program.bind(&self.projection_data, &self.shading_data);
-            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
-            bind.bind_instanced_geometry_data(&mut instance_buffer);
+            bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
+            bind.bind_instanced_geometry_data(instance_buffer);
             let color = match &group.color_ref {
                 ColorReference::Material(m) => m.color.into(),
                 _ => continue,
             };
             bind.bind_non_instanced_color_data(&color);
-            
+
             unsafe {
                 if !group.bfc {
                     gl.disable(glow::CULL_FACE);
@@ -304,7 +312,7 @@ impl<GL: HasContext> RenderingContext<GL> {
                     glow::TRIANGLES,
                     indices.start as i32,
                     indices.span as i32,
-                    instance_buffer.count as i32
+                    instance_buffer.count as i32,
                 );
                 if !group.bfc {
                     gl.enable(glow::CULL_FACE);
@@ -316,15 +324,15 @@ impl<GL: HasContext> RenderingContext<GL> {
             let program = self.program_manager.get_edge_program(true);
 
             let bind = program.bind(&self.projection_data);
-            bind.bind_attribs(&edges);
-            bind.bind_instanced_attribs(&mut instance_buffer);
+            bind.bind_attribs(edges);
+            bind.bind_instanced_attribs(instance_buffer);
 
             unsafe {
                 gl.draw_arrays_instanced(
                     glow::LINES,
                     0,
                     edges.length as i32,
-                    instance_buffer.count as i32
+                    instance_buffer.count as i32,
                 );
             }
         }
@@ -333,15 +341,15 @@ impl<GL: HasContext> RenderingContext<GL> {
             let program = self.program_manager.get_optional_edge_program(true);
 
             let bind = program.bind(&self.projection_data);
-            bind.bind_attribs(&optional_edges);
-            bind.bind_instanced_attribs(&mut instance_buffer);
+            bind.bind_attribs(optional_edges);
+            bind.bind_instanced_attribs(instance_buffer);
 
             unsafe {
                 gl.draw_arrays_instanced(
                     glow::LINES,
                     0,
                     optional_edges.length as i32,
-                    instance_buffer.count as i32
+                    instance_buffer.count as i32,
                 );
             }
         }
@@ -349,7 +357,9 @@ impl<GL: HasContext> RenderingContext<GL> {
 
     pub fn render_single_part(
         &mut self,
-        part: &Part<GL>, color: &ColorReference, semitransparent: bool
+        part: &Part<GL>,
+        color: &ColorReference,
+        semitransparent: bool,
     ) {
         let gl = &self.gl;
         let part_buffer = &part.part;
@@ -363,29 +373,29 @@ impl<GL: HasContext> RenderingContext<GL> {
 
         if material.is_semi_transparent() == semitransparent {
             if let Some(uncolored_index) = &part_buffer.uncolored_index {
-                let program = self.program_manager.get_default_program(
-                    DefaultProgramInstancingKind::NonInstanced, true
-                );
+                let program = self
+                    .program_manager
+                    .get_default_program(DefaultProgramInstancingKind::NonInstanced, true);
 
                 let bind = program.bind(&self.projection_data, &self.shading_data);
-                bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
+                bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
                 bind.bind_non_instanced_color_data(&default_color);
 
                 unsafe {
                     gl.draw_arrays(
                         glow::TRIANGLES,
                         uncolored_index.start as i32,
-                        uncolored_index.span as i32
+                        uncolored_index.span as i32,
                     );
                 }
             }
             if let Some(uncolored_without_bfc_index) = &part_buffer.uncolored_without_bfc_index {
-                let program = self.program_manager.get_default_program(
-                    DefaultProgramInstancingKind::NonInstanced, false
-                );
+                let program = self
+                    .program_manager
+                    .get_default_program(DefaultProgramInstancingKind::NonInstanced, false);
 
                 let bind = program.bind(&self.projection_data, &self.shading_data);
-                bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
+                bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
                 bind.bind_non_instanced_color_data(&default_color);
 
                 unsafe {
@@ -393,7 +403,7 @@ impl<GL: HasContext> RenderingContext<GL> {
                     gl.draw_arrays(
                         glow::TRIANGLES,
                         uncolored_without_bfc_index.start as i32,
-                        uncolored_without_bfc_index.span as i32
+                        uncolored_without_bfc_index.span as i32,
                     );
                     gl.enable(glow::CULL_FACE);
                 }
@@ -411,23 +421,19 @@ impl<GL: HasContext> RenderingContext<GL> {
                 _ => continue,
             };
 
-            let program = self.program_manager.get_default_program(
-                DefaultProgramInstancingKind::NonInstanced, group.bfc
-            );
+            let program = self
+                .program_manager
+                .get_default_program(DefaultProgramInstancingKind::NonInstanced, group.bfc);
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
-            bind.bind_geometry_data(&part_buffer.mesh.as_ref().unwrap());
+            bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
             bind.bind_non_instanced_color_data(&color);
-            
+
             unsafe {
                 if !group.bfc {
                     gl.disable(glow::CULL_FACE);
                 }
-                gl.draw_arrays(
-                    glow::TRIANGLES,
-                    indices.start as i32,
-                    indices.span as i32
-                );
+                gl.draw_arrays(glow::TRIANGLES, indices.start as i32, indices.span as i32);
                 if !group.bfc {
                     gl.enable(glow::CULL_FACE);
                 }
@@ -439,15 +445,11 @@ impl<GL: HasContext> RenderingContext<GL> {
                 let program = self.program_manager.get_edge_program(false);
 
                 let bind = program.bind(&self.projection_data);
-                bind.bind_attribs(&edges);
+                bind.bind_attribs(edges);
                 bind.bind_non_instanced_properties(&default_color, &edge_color);
 
                 unsafe {
-                    gl.draw_arrays(
-                        glow::LINES,
-                        0,
-                        edges.length as i32
-                    );
+                    gl.draw_arrays(glow::LINES, 0, edges.length as i32);
                 }
             }
 
@@ -455,34 +457,31 @@ impl<GL: HasContext> RenderingContext<GL> {
                 let program = self.program_manager.get_optional_edge_program(false);
 
                 let bind = program.bind(&self.projection_data);
-                bind.bind_attribs(&optional_edges);
+                bind.bind_attribs(optional_edges);
                 bind.bind_non_instanced_properties(&default_color, &edge_color);
 
                 unsafe {
-                    gl.draw_arrays(
-                        glow::LINES,
-                        0,
-                        optional_edges.length as i32
-                    );
+                    gl.draw_arrays(glow::LINES, 0, optional_edges.length as i32);
                 }
             }
         }
     }
 
     pub fn render_display_list(
-        &mut self, parts: &HashMap<PartAlias, Part<GL>>, display_list: &mut DisplayList<GL>,
-        semitransparent: bool
+        &mut self,
+        parts: &HashMap<PartAlias, Part<GL>>,
+        display_list: &mut DisplayList<GL>,
+        semitransparent: bool,
     ) {
-        for (alias, mut object) in display_list.map.iter_mut() {
-            let part = match parts.get(&alias) {
+        for (alias, object) in display_list.map.iter_mut() {
+            let part = match parts.get(alias) {
                 Some(e) => e,
                 None => continue,
             };
 
-            self.render_instance(&part, &mut object, semitransparent);
+            self.render_instance(part, object, semitransparent);
         }
     }
-
 }
 
 impl<GL: HasContext> Drop for RenderingContext<GL> {

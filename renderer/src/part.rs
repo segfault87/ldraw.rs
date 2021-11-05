@@ -1,27 +1,21 @@
-use std::{
-    collections::HashMap,
-    rc::Rc,
-};
+use std::{collections::HashMap, rc::Rc};
 
 use glow::HasContext;
-use ldraw::{Vector3};
+use ldraw::Vector3;
 use ldraw_ir::{
     part::{
-        EdgeBufferBuilder, FeatureMap, MeshBufferBuilder,
-        OptionalEdgeBufferBuilder, PartBuilder, PartBufferBuilder,
-        SubpartIndex,
+        EdgeBufferBuilder, FeatureMap, MeshBufferBuilder, OptionalEdgeBufferBuilder,
+        PartBufferBuilder, PartBuilder, SubpartIndex,
     },
     BoundingBox, MeshGroup,
 };
 
-use crate::{
-    utils::cast_as_bytes,
-};
+use crate::utils::cast_as_bytes;
 
 #[derive(Debug)]
 pub struct MeshBuffer<GL: HasContext> {
     gl: Rc<GL>,
-    
+
     pub array: Option<GL::VertexArray>,
     pub buffer_vertices: Option<GL::Buffer>,
     pub buffer_normals: Option<GL::Buffer>,
@@ -42,13 +36,13 @@ impl<GL: HasContext> MeshBuffer<GL> {
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.vertices.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_normals);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.normals.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
         }
 
@@ -84,7 +78,6 @@ impl<GL: HasContext> MeshBuffer<GL> {
 }
 
 impl<GL: HasContext> Drop for MeshBuffer<GL> {
-
     fn drop(&mut self) {
         let gl = &self.gl;
         unsafe {
@@ -99,13 +92,12 @@ impl<GL: HasContext> Drop for MeshBuffer<GL> {
             }
         }
     }
-    
 }
 
 #[derive(Debug)]
 pub struct EdgeBuffer<GL: HasContext> {
     gl: Rc<GL>,
-    
+
     pub array: Option<GL::VertexArray>,
     pub buffer_vertices: Option<GL::Buffer>,
     pub buffer_colors: Option<GL::Buffer>,
@@ -113,7 +105,6 @@ pub struct EdgeBuffer<GL: HasContext> {
 }
 
 impl<GL: HasContext> EdgeBuffer<GL> {
-
     pub fn create(builder: &EdgeBufferBuilder, gl: Rc<GL>) -> Self {
         let array: Option<GL::VertexArray>;
         let buffer_vertices: Option<GL::Buffer>;
@@ -127,13 +118,13 @@ impl<GL: HasContext> EdgeBuffer<GL> {
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.vertices.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.colors.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
         }
 
@@ -166,7 +157,6 @@ impl<GL: HasContext> EdgeBuffer<GL> {
             }
         }
     }
-    
 }
 
 impl<GL: HasContext> Drop for EdgeBuffer<GL> {
@@ -189,7 +179,7 @@ impl<GL: HasContext> Drop for EdgeBuffer<GL> {
 #[derive(Debug)]
 pub struct OptionalEdgeBuffer<GL: HasContext> {
     gl: Rc<GL>,
-    
+
     pub array: Option<GL::VertexArray>,
     pub buffer_vertices: Option<GL::Buffer>,
     pub buffer_controls_1: Option<GL::Buffer>,
@@ -200,7 +190,6 @@ pub struct OptionalEdgeBuffer<GL: HasContext> {
 }
 
 impl<GL: HasContext> OptionalEdgeBuffer<GL> {
-
     pub fn create(builder: &OptionalEdgeBufferBuilder, gl: Rc<GL>) -> Self {
         let array: Option<GL::VertexArray>;
         let buffer_vertices: Option<GL::Buffer>;
@@ -220,31 +209,31 @@ impl<GL: HasContext> OptionalEdgeBuffer<GL> {
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.vertices.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls_1);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.controls_1.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls_2);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.controls_2.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_directions);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.direction.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
                 cast_as_bytes(builder.colors.as_ref()),
-                glow::STATIC_DRAW
+                glow::STATIC_DRAW,
             );
         }
 
@@ -262,9 +251,11 @@ impl<GL: HasContext> OptionalEdgeBuffer<GL> {
 
     pub fn bind(
         &self,
-        location_position: &Option<u32>, location_colors: &Option<u32>,
-        location_controls_1: &Option<u32>, location_controls_2: &Option<u32>,
-        location_direction: &Option<u32>
+        location_position: &Option<u32>,
+        location_colors: &Option<u32>,
+        location_controls_1: &Option<u32>,
+        location_controls_2: &Option<u32>,
+        location_direction: &Option<u32>,
     ) {
         let gl = &self.gl;
 
@@ -303,11 +294,9 @@ impl<GL: HasContext> OptionalEdgeBuffer<GL> {
             }
         }
     }
-    
 }
 
 impl<GL: HasContext> Drop for OptionalEdgeBuffer<GL> {
-
     fn drop(&mut self) {
         let gl = &self.gl;
         unsafe {
@@ -331,11 +320,13 @@ impl<GL: HasContext> Drop for OptionalEdgeBuffer<GL> {
             }
         }
     }
-    
 }
 
 #[derive(Debug)]
-pub struct PartBuffer<GL> where GL: HasContext {
+pub struct PartBuffer<GL>
+where
+    GL: HasContext,
+{
     pub uncolored_index: Option<SubpartIndex>,
     pub uncolored_without_bfc_index: Option<SubpartIndex>,
     pub opaque_indices: HashMap<MeshGroup, SubpartIndex>,
@@ -361,18 +352,28 @@ impl<GL: HasContext> PartBuffer<GL> {
             let cur = ptr;
             ptr += builder.uncolored_mesh.len();
 
-            Some(SubpartIndex { start: cur, span: builder.uncolored_mesh.len() })
+            Some(SubpartIndex {
+                start: cur,
+                span: builder.uncolored_mesh.len(),
+            })
         };
 
         let uncolored_without_bfc_index = if builder.uncolored_without_bfc_mesh.is_empty() {
             None
         } else {
-            merged.vertices.extend(&builder.uncolored_without_bfc_mesh.vertices);
-            merged.normals.extend(&builder.uncolored_without_bfc_mesh.normals);
+            merged
+                .vertices
+                .extend(&builder.uncolored_without_bfc_mesh.vertices);
+            merged
+                .normals
+                .extend(&builder.uncolored_without_bfc_mesh.normals);
             let cur = ptr;
             ptr += builder.uncolored_without_bfc_mesh.len();
 
-            Some(SubpartIndex { start: cur, span: builder.uncolored_without_bfc_mesh.len() })
+            Some(SubpartIndex {
+                start: cur,
+                span: builder.uncolored_without_bfc_mesh.len(),
+            })
         };
 
         for (group, mesh) in builder.opaque_meshes.iter() {
@@ -381,7 +382,13 @@ impl<GL: HasContext> PartBuffer<GL> {
             let cur = ptr;
             ptr += mesh.len();
 
-            opaque.insert(group.clone(), SubpartIndex { start: cur, span: mesh.len() });
+            opaque.insert(
+                group.clone(),
+                SubpartIndex {
+                    start: cur,
+                    span: mesh.len(),
+                },
+            );
         }
 
         for (group, mesh) in builder.semitransparent_meshes.iter() {
@@ -390,21 +397,30 @@ impl<GL: HasContext> PartBuffer<GL> {
             let cur = ptr;
             ptr += mesh.len();
 
-            semitransparent.insert(group.clone(), SubpartIndex { start: cur, span: mesh.len() });
+            semitransparent.insert(
+                group.clone(),
+                SubpartIndex {
+                    start: cur,
+                    span: mesh.len(),
+                },
+            );
         }
 
-        let mesh = if merged.len() > 0 {
+        let mesh = if !merged.is_empty() {
             Some(MeshBuffer::create(&merged, Rc::clone(&gl)))
         } else {
             None
         };
-        let edges = if builder.edges.len() > 0 {
+        let edges = if !builder.edges.is_empty() {
             Some(EdgeBuffer::create(&builder.edges, Rc::clone(&gl)))
         } else {
             None
         };
-        let optional_edges = if builder.optional_edges.len() > 0 {
-            Some(OptionalEdgeBuffer::create(&builder.optional_edges, Rc::clone(&gl)))
+        let optional_edges = if !builder.optional_edges.is_empty() {
+            Some(OptionalEdgeBuffer::create(
+                &builder.optional_edges,
+                Rc::clone(&gl),
+            ))
         } else {
             None
         };
@@ -421,11 +437,11 @@ impl<GL: HasContext> PartBuffer<GL> {
     }
 
     pub fn has_opaque_parts(&self) -> bool {
-        self.opaque_indices.len() > 0
+        !self.opaque_indices.is_empty()
     }
 
     pub fn has_semitransparent_parts(&self) -> bool {
-        self.semitransparent_indices.len() > 0
+        !self.semitransparent_indices.is_empty()
     }
 }
 
@@ -438,14 +454,12 @@ pub struct Part<GL: HasContext> {
 }
 
 impl<GL: HasContext> Part<GL> {
-
     pub fn create(builder: &PartBuilder, gl: Rc<GL>) -> Self {
         Part {
             part: PartBuffer::create(&builder.part_builder, Rc::clone(&gl)),
             features: builder.features.clone(),
             bounding_box: builder.bounding_box.clone(),
-            rotation_center: builder.rotation_center.clone(),
+            rotation_center: builder.rotation_center,
         }
     }
-
 }
