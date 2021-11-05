@@ -5,11 +5,8 @@ use std::{
 };
 
 use crate::{
-    elements::{
-        Command, Header, Line, Meta, OptionalLine,
-        PartReference, Quad, Triangle
-    },
-    PartAlias, Winding
+    elements::{Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle},
+    PartAlias, Winding,
 };
 
 #[derive(Clone, Debug)]
@@ -47,14 +44,18 @@ pub struct Document {
 }
 
 fn traverse_dependencies(
-    document: &Document, parent: Option<&MultipartDocument>,
-    mut list: &mut HashSet<PartAlias>
+    document: &Document,
+    parent: Option<&MultipartDocument>,
+    list: &mut HashSet<PartAlias>,
 ) {
     for part_ref in document.iter_refs() {
-        if let Some(ref parent) = parent {
+        if let Some(parent) = parent {
             if parent.subparts.contains_key(&part_ref.name) {
-                traverse_dependencies(&parent.subparts.get(&part_ref.name).unwrap(),
-                                 Some(parent), &mut list);
+                traverse_dependencies(
+                    parent.subparts.get(&part_ref.name).unwrap(),
+                    Some(parent),
+                    list,
+                );
                 continue;
             }
         }
@@ -82,7 +83,7 @@ impl Document {
     pub fn list_dependencies(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
-        traverse_dependencies(&self, None, &mut result);
+        traverse_dependencies(self, None, &mut result);
 
         result
     }
@@ -137,13 +138,11 @@ pub struct MultipartDocument {
 }
 
 impl MultipartDocument {
-
     pub fn list_dependencies(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
-        traverse_dependencies(&self.body, Some(&self), &mut result);
+        traverse_dependencies(&self.body, Some(self), &mut result);
 
         result
     }
-    
 }

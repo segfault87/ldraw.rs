@@ -6,9 +6,9 @@ use std::hash::{Hash, Hasher};
 use std::ops::BitXor;
 
 use cgmath::{
-    Matrix3 as Matrix3_, Matrix4 as Matrix4_,
-    Point2 as Point2_, Point3 as Point3_,
-    Vector2 as Vector2_, Vector3 as Vector3_, Vector4 as Vector4_};
+    Matrix3 as Matrix3_, Matrix4 as Matrix4_, Point2 as Point2_, Point3 as Point3_,
+    Vector2 as Vector2_, Vector3 as Vector3_, Vector4 as Vector4_,
+};
 use serde::de::{Error as DeserializeError, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 

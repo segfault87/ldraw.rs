@@ -187,29 +187,20 @@ impl ColorReference {
     }
 
     pub fn is_current(&self) -> bool {
-        match self {
-            ColorReference::Current => true,
-            _ => false,
-        }
+        matches!(self, ColorReference::Current)
     }
 
     pub fn is_complement(&self) -> bool {
-        match self {
-            ColorReference::Complement => true,
-            _ => false,
-        }
+        matches!(self, ColorReference::Complement)
     }
 
     pub fn is_material(&self) -> bool {
-        match self {
-            ColorReference::Material(_) => true,
-            _ => false,
-        }
+        matches!(self, ColorReference::Material(_))
     }
 
     pub fn get_material(&self) -> Option<&Material> {
         match self {
-            ColorReference::Material(m) => Some(&m),
+            ColorReference::Material(m) => Some(m),
             _ => None,
         }
     }
@@ -280,7 +271,7 @@ impl ColorReference {
             _ => (),
         }
 
-        if code >= 256 && code <= 512 {
+        if (256..=512).contains(&code) {
             if let Some(c) = ColorReference::resolve_blended(code, materials) {
                 return ColorReference::Material(c);
             }

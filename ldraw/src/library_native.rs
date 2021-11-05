@@ -22,9 +22,9 @@ impl From<&OsString> for PartAlias {
 }
 
 fn scan_directory(
-    basepath: &PathBuf,
+    basepath: &Path,
     relpath: PathBuf,
-    mut dir: &mut HashMap<PartAlias, PartEntryNative>,
+    dir: &mut HashMap<PartAlias, PartEntryNative>,
     kind: PartKind,
 ) -> Result<(), LibraryError> {
     for entry in basepath.read_dir()? {
@@ -35,7 +35,7 @@ fn scan_directory(
             scan_directory(
                 &entry.path(),
                 relpath.join(path.file_name().unwrap()),
-                &mut dir,
+                dir,
                 kind,
             )?;
         } else {

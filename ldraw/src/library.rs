@@ -70,7 +70,7 @@ impl<T> PartDirectory<T> {
     pub fn query(&self, key: &PartAlias) -> Option<&PartEntry<T>> {
         match self.parts.get(key) {
             Some(v) => Some(v),
-            None => match self.primitives.get(&key) {
+            None => match self.primitives.get(key) {
                 Some(v) => Some(v),
                 None => None,
             },
@@ -78,7 +78,7 @@ impl<T> PartDirectory<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PartCache {
     primitives: HashMap<PartAlias, Rc<Document>>,
     parts: HashMap<PartAlias, Rc<Document>>,
@@ -89,15 +89,6 @@ pub enum CacheCollectionStrategy {
     Parts,
     Primitives,
     PartsAndPrimitives,
-}
-
-impl Default for PartCache {
-    fn default() -> PartCache {
-        PartCache {
-            parts: HashMap::new(),
-            primitives: HashMap::new(),
-        }
-    }
 }
 
 impl Drop for PartCache {
@@ -116,11 +107,8 @@ impl PartCache {
 
     pub fn query(&self, alias: &PartAlias) -> Option<Rc<Document>> {
         match self.parts.get(alias) {
-            Some(part) => Some(Rc::clone(&part)),
-            None => match self.primitives.get(alias) {
-                Some(prim) => Some(Rc::clone(&prim)),
-                None => None,
-            },
+            Some(part) => Some(Rc::clone(part)),
+            None => self.primitives.get(alias).map(Rc::clone),
         }
     }
 
@@ -129,17 +117,17 @@ impl PartCache {
         match collection_strategy {
             CacheCollectionStrategy::Parts => {
                 self.parts
-                    .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+                    .retain(|_, v| Rc::strong_count(v) > 1 || Rc::weak_count(v) > 0);
             }
             CacheCollectionStrategy::Primitives => {
                 self.primitives
-                    .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+                    .retain(|_, v| Rc::strong_count(v) > 1 || Rc::weak_count(v) > 0);
             }
             CacheCollectionStrategy::PartsAndPrimitives => {
                 self.parts
-                    .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+                    .retain(|_, v| Rc::strong_count(v) > 1 || Rc::weak_count(v) > 0);
                 self.primitives
-                    .retain(|_, v| Rc::strong_count(&v) > 1 || Rc::weak_count(&v) > 0);
+                    .retain(|_, v| Rc::strong_count(v) > 1 || Rc::weak_count(v) > 0);
             }
         };
         prev_size - self.parts.len() - self.primitives.len()
@@ -207,7 +195,7 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
             if let Some(e) = parent {
                 if let Some(doc) = e.subparts.get(name) {
                     self.map
-                        .insert(name.clone(), ResolutionResult::Subpart(&doc));
+                        .insert(name.clone(), ResolutionResult::Subpart(doc));
                     self.resolve(&doc, parent);
                     continue;
                 }
@@ -244,7 +232,7 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
                 ResolutionResult::Missing => None,
                 ResolutionResult::Pending(_) => None,
                 ResolutionResult::Subpart(e) => Some(e),
-                ResolutionResult::Associated(e) => Some(&e),
+                ResolutionResult::Associated(e) => Some(e),
             },
             None => None,
         }

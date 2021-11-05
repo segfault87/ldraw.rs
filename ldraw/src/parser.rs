@@ -10,18 +10,12 @@ use crate::{
         ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter, MaterialRegistry,
         MaterialSpeckle, Rgba,
     },
-    document::{
-        BfcCertification, Document, MultipartDocument
-    },
+    document::{BfcCertification, Document, MultipartDocument},
     elements::{
         BfcStatement, Command, Header, Line, Meta, OptionalLine, PartReference, Quad, Triangle,
     },
-    error::{
-        ColorDefinitionParseError, DocumentParseError, ParseError
-    },
-    {
-        Matrix4, PartAlias, Vector4, Winding
-    },
+    error::{ColorDefinitionParseError, DocumentParseError, ParseError},
+    {Matrix4, PartAlias, Vector4, Winding},
 };
 
 #[derive(Debug)]
@@ -35,10 +29,7 @@ enum Line0 {
 }
 
 fn is_whitespace(ch: char) -> bool {
-    match ch {
-        ' ' | '\t' | '\r' | '\n' => true,
-        _ => false,
-    }
+    matches!(ch, ' ' | '\t' | '\r' | '\n')
 }
 
 fn next_token(iterator: &mut Chars, glob_remaining: bool) -> Result<String, ParseError> {
@@ -535,9 +526,9 @@ pub fn parse_multipart_document<T: BufRead>(
 }
 
 fn parse_customized_material(
-    mut iterator: &mut Chars,
+    iterator: &mut Chars,
 ) -> Result<CustomizedMaterial, ColorDefinitionParseError> {
-    match next_token(&mut iterator, false)?.as_str() {
+    match next_token(iterator, false)?.as_str() {
         "GLITTER" => {
             let mut alpha = 255u8;
             let mut luminance = 0u8;
@@ -546,7 +537,7 @@ fn parse_customized_material(
             let mut size = 0u32;
             let mut minsize = 0u32;
             let mut maxsize = 0u32;
-            match next_token(&mut iterator, false)?.as_str() {
+            match next_token(iterator, false)?.as_str() {
                 "VALUE" => (),
                 e => {
                     return Err(ColorDefinitionParseError::ParseError(
@@ -554,9 +545,9 @@ fn parse_customized_material(
                     ));
                 }
             };
-            let (vr, vg, vb) = next_token_rgb(&mut iterator)?;
+            let (vr, vg, vb) = next_token_rgb(iterator)?;
             loop {
-                let token = match next_token(&mut iterator, false) {
+                let token = match next_token(iterator, false) {
                     Ok(v) => v,
                     Err(ParseError::EndOfLine) => break,
                     Err(e) => return Err(ColorDefinitionParseError::ParseError(e)),
@@ -564,25 +555,25 @@ fn parse_customized_material(
 
                 match token.as_str() {
                     "ALPHA" => {
-                        alpha = next_token_u32(&mut iterator)? as u8;
+                        alpha = next_token_u32(iterator)? as u8;
                     }
                     "LUMINANCE" => {
-                        luminance = next_token_u32(&mut iterator)? as u8;
+                        luminance = next_token_u32(iterator)? as u8;
                     }
                     "FRACTION" => {
-                        fraction = next_token_f32(&mut iterator)?;
+                        fraction = next_token_f32(iterator)?;
                     }
                     "VFRACTION" => {
-                        vfraction = next_token_f32(&mut iterator)?;
+                        vfraction = next_token_f32(iterator)?;
                     }
                     "SIZE" => {
-                        size = next_token_u32(&mut iterator)?;
+                        size = next_token_u32(iterator)?;
                     }
                     "MINSIZE" => {
-                        minsize = next_token_u32(&mut iterator)?;
+                        minsize = next_token_u32(iterator)?;
                     }
                     "MAXSIZE" => {
-                        maxsize = next_token_u32(&mut iterator)?;
+                        maxsize = next_token_u32(iterator)?;
                     }
                     _ => {
                         return Err(ColorDefinitionParseError::ParseError(
@@ -608,7 +599,7 @@ fn parse_customized_material(
             let mut size = 0u32;
             let mut minsize = 0u32;
             let mut maxsize = 0u32;
-            match next_token(&mut iterator, false)?.as_str() {
+            match next_token(iterator, false)?.as_str() {
                 "VALUE" => (),
                 e => {
                     return Err(ColorDefinitionParseError::ParseError(
@@ -616,9 +607,9 @@ fn parse_customized_material(
                     ));
                 }
             };
-            let (vr, vg, vb) = next_token_rgb(&mut iterator)?;
+            let (vr, vg, vb) = next_token_rgb(iterator)?;
             loop {
-                let token = match next_token(&mut iterator, false) {
+                let token = match next_token(iterator, false) {
                     Ok(v) => v,
                     Err(ParseError::EndOfLine) => break,
                     Err(e) => return Err(ColorDefinitionParseError::ParseError(e)),
@@ -626,22 +617,22 @@ fn parse_customized_material(
 
                 match token.as_str() {
                     "ALPHA" => {
-                        alpha = next_token_u32(&mut iterator)? as u8;
+                        alpha = next_token_u32(iterator)? as u8;
                     }
                     "LUMINANCE" => {
-                        luminance = next_token_u32(&mut iterator)? as u8;
+                        luminance = next_token_u32(iterator)? as u8;
                     }
                     "FRACTION" => {
-                        fraction = next_token_f32(&mut iterator)?;
+                        fraction = next_token_f32(iterator)?;
                     }
                     "SIZE" => {
-                        size = next_token_u32(&mut iterator)?;
+                        size = next_token_u32(iterator)?;
                     }
                     "MINSIZE" => {
-                        minsize = next_token_u32(&mut iterator)?;
+                        minsize = next_token_u32(iterator)?;
                     }
                     "MAXSIZE" => {
-                        maxsize = next_token_u32(&mut iterator)?;
+                        maxsize = next_token_u32(iterator)?;
                     }
                     _ => {
                         return Err(ColorDefinitionParseError::ParseError(
