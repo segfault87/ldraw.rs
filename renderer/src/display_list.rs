@@ -150,7 +150,7 @@ pub struct DisplayItem<GL: HasContext> {
     pub part: PartAlias,
 
     pub opaque: InstanceBuffer<GL>,
-    pub semitransparent: InstanceBuffer<GL>,
+    pub translucent: InstanceBuffer<GL>,
 }
 
 impl<GL: HasContext> DisplayItem<GL> {
@@ -159,7 +159,7 @@ impl<GL: HasContext> DisplayItem<GL> {
             part: alias.clone(),
 
             opaque: InstanceBuffer::new(Rc::clone(&gl)),
-            semitransparent: InstanceBuffer::new(Rc::clone(&gl)),
+            translucent: InstanceBuffer::new(Rc::clone(&gl)),
         }
     }
 
@@ -183,7 +183,7 @@ impl<GL: HasContext> DisplayItem<GL> {
         let buffer = if opaque {
             &mut self.opaque
         } else {
-            &mut self.semitransparent
+            &mut self.translucent
         };
 
         buffer.model_view_matrices = mvmr;
@@ -200,7 +200,7 @@ impl<GL: HasContext> DisplayItem<GL> {
         };
 
         let buffer = if material.is_semi_transparent() {
-            &mut self.semitransparent
+            &mut self.translucent
         } else {
             &mut self.opaque
         };
@@ -228,7 +228,7 @@ impl<GL: HasContext> DisplayList<GL> {
         let mut count = 0;
 
         for v in self.map.values() {
-            count += v.opaque.count + v.semitransparent.count;
+            count += v.opaque.count + v.translucent.count;
         }
 
         count

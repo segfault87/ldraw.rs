@@ -231,13 +231,13 @@ impl<GL: HasContext> RenderingContext<GL> {
         &mut self,
         part: &Part<GL>,
         display_item: &mut DisplayItem<GL>,
-        semitransparent: bool,
+        translucent: bool,
     ) {
         let gl = &self.gl;
         let part_buffer = &part.part;
 
-        let instance_buffer = if semitransparent {
-            &mut display_item.semitransparent
+        let instance_buffer = if translucent {
+            &mut display_item.translucent
         } else {
             &mut display_item.opaque
         };
@@ -286,8 +286,8 @@ impl<GL: HasContext> RenderingContext<GL> {
                 gl.enable(glow::CULL_FACE);
             }
         }
-        let subparts = if semitransparent {
-            &part_buffer.semitransparent_indices
+        let subparts = if translucent {
+            &part_buffer.translucent_indices
         } else {
             &part_buffer.opaque_indices
         };
@@ -359,7 +359,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         &mut self,
         part: &Part<GL>,
         color: &ColorReference,
-        semitransparent: bool,
+        translucent: bool,
     ) {
         let gl = &self.gl;
         let part_buffer = &part.part;
@@ -371,7 +371,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         let default_color: Vector4 = material.color.into();
         let edge_color: Vector4 = material.edge.into();
 
-        if material.is_semi_transparent() == semitransparent {
+        if material.is_semi_transparent() == translucent {
             if let Some(uncolored_index) = &part_buffer.uncolored_index {
                 let program = self
                     .program_manager
@@ -410,8 +410,8 @@ impl<GL: HasContext> RenderingContext<GL> {
             }
         }
 
-        let subparts = if semitransparent {
-            &part_buffer.semitransparent_indices
+        let subparts = if translucent {
+            &part_buffer.translucent_indices
         } else {
             &part_buffer.opaque_indices
         };
@@ -440,7 +440,7 @@ impl<GL: HasContext> RenderingContext<GL> {
             }
         }
 
-        if !semitransparent {
+        if !translucent {
             if let Some(edges) = &part_buffer.edges {
                 let program = self.program_manager.get_edge_program(false);
 
@@ -471,7 +471,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         &mut self,
         parts: &HashMap<PartAlias, Part<GL>>,
         display_list: &mut DisplayList<GL>,
-        semitransparent: bool,
+        translucent: bool,
     ) {
         for (alias, object) in display_list.map.iter_mut() {
             let part = match parts.get(alias) {
@@ -479,7 +479,7 @@ impl<GL: HasContext> RenderingContext<GL> {
                 None => continue,
             };
 
-            self.render_instance(part, object, semitransparent);
+            self.render_instance(part, object, translucent);
         }
     }
 }

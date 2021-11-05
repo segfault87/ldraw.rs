@@ -330,7 +330,7 @@ where
     pub uncolored_index: Option<SubpartIndex>,
     pub uncolored_without_bfc_index: Option<SubpartIndex>,
     pub opaque_indices: HashMap<MeshGroup, SubpartIndex>,
-    pub semitransparent_indices: HashMap<MeshGroup, SubpartIndex>,
+    pub translucent_indices: HashMap<MeshGroup, SubpartIndex>,
 
     pub mesh: Option<MeshBuffer<GL>>,
     pub edges: Option<EdgeBuffer<GL>>,
@@ -341,7 +341,7 @@ impl<GL: HasContext> PartBuffer<GL> {
     pub fn create(builder: &PartBufferBuilder, gl: Rc<GL>) -> Self {
         let mut merged = MeshBufferBuilder::default();
         let mut opaque = HashMap::new();
-        let mut semitransparent = HashMap::new();
+        let mut translucent = HashMap::new();
         let mut ptr: usize = 0;
 
         let uncolored_index = if builder.uncolored_mesh.is_empty() {
@@ -391,13 +391,13 @@ impl<GL: HasContext> PartBuffer<GL> {
             );
         }
 
-        for (group, mesh) in builder.semitransparent_meshes.iter() {
+        for (group, mesh) in builder.translucent_meshes.iter() {
             merged.vertices.extend(&mesh.vertices);
             merged.normals.extend(&mesh.normals);
             let cur = ptr;
             ptr += mesh.len();
 
-            semitransparent.insert(
+            translucent.insert(
                 group.clone(),
                 SubpartIndex {
                     start: cur,
@@ -429,7 +429,7 @@ impl<GL: HasContext> PartBuffer<GL> {
             uncolored_index,
             uncolored_without_bfc_index,
             opaque_indices: opaque,
-            semitransparent_indices: semitransparent,
+            translucent_indices: translucent,
             mesh,
             edges,
             optional_edges,
@@ -440,8 +440,8 @@ impl<GL: HasContext> PartBuffer<GL> {
         !self.opaque_indices.is_empty()
     }
 
-    pub fn has_semitransparent_parts(&self) -> bool {
-        !self.semitransparent_indices.is_empty()
+    pub fn has_translucent_parts(&self) -> bool {
+        !self.translucent_indices.is_empty()
     }
 }
 

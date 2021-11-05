@@ -171,7 +171,7 @@ pub struct PartBufferBuilder {
     pub uncolored_mesh: MeshBufferBuilder,
     pub uncolored_without_bfc_mesh: MeshBufferBuilder,
     pub opaque_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
-    pub semitransparent_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
+    pub translucent_meshes: HashMap<MeshGroup, MeshBufferBuilder>,
     pub edges: EdgeBufferBuilder,
     pub optional_edges: OptionalEdgeBufferBuilder,
 }
@@ -183,7 +183,7 @@ impl PartBufferBuilder {
             (ColorReference::Current, false) => Some(&mut self.uncolored_without_bfc_mesh),
             (ColorReference::Material(m), _) => {
                 let entry = if m.is_semi_transparent() {
-                    self.semitransparent_meshes
+                    self.translucent_meshes
                         .entry(group.clone())
                         .or_insert_with(MeshBufferBuilder::default)
                 } else {

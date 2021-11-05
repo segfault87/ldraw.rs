@@ -32,16 +32,16 @@ impl PartialOrd for MeshGroup {
 
 impl Ord for MeshGroup {
     fn cmp(&self, other: &MeshGroup) -> Ordering {
-        let lhs_semitransparent = match &self.color_ref {
+        let lhs_translucent = match &self.color_ref {
             ColorReference::Material(m) => m.is_semi_transparent(),
             _ => false,
         };
-        let rhs_semitransparent = match &other.color_ref {
+        let rhs_translucent = match &other.color_ref {
             ColorReference::Material(m) => m.is_semi_transparent(),
             _ => false,
         };
 
-        match (lhs_semitransparent, rhs_semitransparent) {
+        match (lhs_translucent, rhs_translucent) {
             (true, false) => return Ordering::Greater,
             (false, true) => return Ordering::Less,
             (_, _) => (),

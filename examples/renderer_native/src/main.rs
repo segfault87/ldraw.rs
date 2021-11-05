@@ -47,7 +47,7 @@ fn get_part_size(part: &PartBuilder) -> usize {
     for (_, mesh) in part.part_builder.opaque_meshes.iter() {
         bytes += mesh.len() * 3 * 4 * 2;
     }
-    for (_, mesh) in part.part_builder.semitransparent_meshes.iter() {
+    for (_, mesh) in part.part_builder.translucent_meshes.iter() {
         bytes += mesh.len() * 3 * 4 * 2;
     }
     bytes += part.part_builder.edges.len() * 3 * 4 * 2;
