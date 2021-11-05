@@ -3,10 +3,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use ldraw::{
-    color::ColorReference,
-    Vector3
-};
+use ldraw::{color::ColorReference, Vector3};
 use serde::{Deserialize, Serialize};
 
 pub mod constraints;
@@ -103,14 +100,18 @@ impl BoundingBox {
     }
 
     pub fn is_null(&self) -> bool {
-        self.min.x == 0.0 && self.min.y == 0.0 && self.min.z == 0.0 &&
-        self.max.x == 0.0 && self.max.y == 0.0 && self.max.z == 0.0
+        self.min.x == 0.0
+            && self.min.y == 0.0
+            && self.min.z == 0.0
+            && self.max.x == 0.0
+            && self.max.y == 0.0
+            && self.max.z == 0.0
     }
 
     pub fn update_point(&mut self, v: &Vector3) {
         if self.is_null() {
-            self.min = v.clone();
-            self.max = v.clone();
+            self.min = *v;
+            self.max = *v;
         } else {
             if self.min.x > v.x {
                 self.min.x = v.x;

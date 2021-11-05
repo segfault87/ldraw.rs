@@ -1,31 +1,25 @@
 use std::{
     collections::{HashMap, HashSet},
-    f32,
-    hash::BuildHasher,
-    mem,
+    f32, mem,
     ops::Deref,
     rc::Rc,
     vec::Vec,
 };
 
 use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
-use kdtree::{
-    distance::squared_euclidean,
-    KdTree
-};
+use kdtree::{distance::squared_euclidean, KdTree};
 use ldraw::{
-    color::{ColorReference, Material},
+    color::ColorReference,
     document::Document,
     elements::{BfcStatement, Command, Meta},
     library::{ResolutionMap, ResolutionResult},
-    AliasType, PartAlias, Matrix4, Vector3, Vector4, Winding
+    AliasType, Matrix4, PartAlias, Vector3, Vector4, Winding,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{BoundingBox, MeshGroup};
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
-
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MeshBufferBuilder {
@@ -117,12 +111,22 @@ pub struct OptionalEdgeBufferBuilder {
 }
 
 impl OptionalEdgeBufferBuilder {
-    pub fn add(&mut self, v1: &Vector3, v2: &Vector3, c1: &Vector3, c2: &Vector3, color: &ColorReference, top: &ColorReference) {
+    pub fn add(
+        &mut self,
+        v1: &Vector3,
+        v2: &Vector3,
+        c1: &Vector3,
+        c2: &Vector3,
+        color: &ColorReference,
+        top: &ColorReference,
+    ) {
         let d = v2 - v1;
 
         self.vertices.extend(&[v1.x, v1.y, v1.z, v2.x, v2.y, v2.z]);
-        self.controls_1.extend(&[c1.x, c1.y, c1.z, c1.x, c1.y, c1.z]);
-        self.controls_2.extend(&[c2.x, c2.y, c2.z, c2.x, c2.y, c2.z]);
+        self.controls_1
+            .extend(&[c1.x, c1.y, c1.z, c1.x, c1.y, c1.z]);
+        self.controls_2
+            .extend(&[c2.x, c2.y, c2.z, c2.x, c2.y, c2.z]);
         self.direction.extend(&[d.x, d.y, d.z, d.x, d.y, d.z]);
 
         if color.is_current() {
@@ -175,21 +179,21 @@ pub struct PartBufferBuilder {
 impl PartBufferBuilder {
     pub fn query_mesh<'a>(&'a mut self, group: &MeshGroup) -> Option<&'a mut MeshBufferBuilder> {
         match (&group.color_ref, group.bfc) {
-            (ColorReference::Current, true) => {
-                Some(&mut self.uncolored_mesh)
-            }
-            (ColorReference::Current, false) => {
-                Some(&mut self.uncolored_without_bfc_mesh)
-            }
+            (ColorReference::Current, true) => Some(&mut self.uncolored_mesh),
+            (ColorReference::Current, false) => Some(&mut self.uncolored_without_bfc_mesh),
             (ColorReference::Material(m), _) => {
                 let entry = if m.is_semi_transparent() {
-                    self.semitransparent_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
+                    self.semitransparent_meshes
+                        .entry(group.clone())
+                        .or_insert_with(MeshBufferBuilder::default)
                 } else {
-                    self.opaque_meshes.entry(group.clone()).or_insert(MeshBufferBuilder::default())
+                    self.opaque_meshes
+                        .entry(group.clone())
+                        .or_insert_with(MeshBufferBuilder::default)
                 };
                 Some(entry)
             }
-            _ => None
+            _ => None,
         }
     }
 }
@@ -218,7 +222,6 @@ impl PartBuilder {
             rotation_center: *rotation_center,
         }
     }
-    
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -407,7 +410,7 @@ impl MeshBuilder {
                     e.add(&face);
                 }
                 None => {
-                    let mut adjacency = Adjacency::new(&vertex);
+                    let mut adjacency = Adjacency::new(vertex);
                     adjacency.add(&face);
                     self.point_cloud.add(*vertex.as_ref(), adjacency).unwrap();
                 }
@@ -420,7 +423,7 @@ impl MeshBuilder {
         let mut bounding_box_max = None;
 
         for (group_key, faces) in self.faces.iter() {
-            let mesh = builder.query_mesh(&group_key);
+            let mesh = builder.query_mesh(group_key);
             if mesh.is_none() {
                 println!("Skipping unknown color group_key {:?}", group_key);
                 continue;
@@ -479,14 +482,16 @@ impl MeshBuilder {
                         }
                     };
 
-                    mesh.add(&vertex, &normal);
+                    mesh.add(vertex, &normal);
                 }
             }
         }
 
-        if bounding_box_min.is_some() && bounding_box_max.is_some() {
-            bounding_box.update_point(&bounding_box_min.unwrap());
-            bounding_box.update_point(&bounding_box_max.unwrap());
+        if let Some(bounding_box_min) = bounding_box_min {
+            if let Some(bounding_box_max) = bounding_box_max {
+                bounding_box.update_point(&bounding_box_min);
+                bounding_box.update_point(&bounding_box_max);
+            }
         }
     }
 }
@@ -512,10 +517,7 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
     ) {
         let mut local_cull = true;
         let mut winding = Winding::Ccw;
-        let bfc_certified = match document.bfc.is_certified() {
-            Some(e) => e,
-            None => true,
-        };
+        let bfc_certified = document.bfc.is_certified().unwrap_or(true);
         let mut invert_next = false;
 
         if bfc_certified {
@@ -546,9 +548,15 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
                         e => e.clone(),
                     };
 
-                    if self.enabled_features.is_some() && self.enabled_features.unwrap().contains(&cmd.name) && !invert_child {
-                        (*self.features.entry(cmd.name.clone()).or_insert_with(Vec::new))
-                            .push((color.clone(), matrix));
+                    if self.enabled_features.is_some()
+                        && self.enabled_features.unwrap().contains(&cmd.name)
+                        && !invert_child
+                    {
+                        (*self
+                            .features
+                            .entry(cmd.name.clone())
+                            .or_insert_with(Vec::new))
+                        .push((color.clone(), matrix));
                     } else {
                         match self.resolutions.get(cmd) {
                             Some(ResolutionResult::Subpart(part)) => {
@@ -570,19 +578,24 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
                 Command::Line(cmd) => {
                     let top = self.color_stack.last().unwrap();
 
-                    self.builder.edges
+                    self.builder
+                        .edges
                         .add(&(matrix * cmd.a).truncate(), &cmd.color, top);
-                    self.builder.edges
+                    self.builder
+                        .edges
                         .add(&(matrix * cmd.b).truncate(), &cmd.color, top);
                 }
                 Command::OptionalLine(cmd) => {
                     let top = self.color_stack.last().unwrap();
 
-                    /*self.builder.optional_edges.add(
-                        &(matrix * cmd.a).truncate(), &(matrix * cmd.b).truncate(),
-                        &(matrix * cmd.c).truncate(), &(matrix * cmd.d).truncate(),
-                        &cmd.color, top
-                    );*/
+                    self.builder.optional_edges.add(
+                        &(matrix * cmd.a).truncate(),
+                        &(matrix * cmd.b).truncate(),
+                        &(matrix * cmd.c).truncate(),
+                        &(matrix * cmd.d).truncate(),
+                        &cmd.color,
+                        top,
+                    );
                 }
                 Command::Triangle(cmd) => {
                     let color = match &cmd.color {
@@ -679,7 +692,6 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
                         }
                     }
                 }
-                _ => (),
             };
         }
     }
@@ -689,43 +701,17 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
         self.mesh_builder.bake(&mut self.builder, &mut bounding_box);
 
         PartBuilder::new(
-            mem::replace(&mut self.builder, PartBufferBuilder::default()),
+            mem::take(&mut self.builder),
             self.features.clone(),
             bounding_box,
             &Vector3::new(0.0, 0.0, 0.0),
         )
     }
 
-    pub fn visualize_normals(&self, scale: f32) -> EdgeBufferBuilder {
-        let mut buffer = EdgeBufferBuilder::default();
-
-        for (group, mesh) in self.mesh_builder.faces.iter() {
-            if !group.bfc {
-                continue;
-            }
-            for face in mesh.iter() {
-                let normal = face.vertices.normal();
-                let c = face.vertices.center();
-                buffer.vertices.push(c.x);
-                buffer.vertices.push(c.y);
-                buffer.vertices.push(c.z);
-                let w = c + (normal * scale);
-                buffer.vertices.push(w.x);
-                buffer.vertices.push(w.y);
-                buffer.vertices.push(w.z);
-                buffer.colors.push(1.0);
-                buffer.colors.push(0.0);
-                buffer.colors.push(1.0);
-                buffer.colors.push(1.0);
-                buffer.colors.push(1.0);
-                buffer.colors.push(0.0);
-            }
-        }
-
-        buffer
-    }
-
-    pub fn new(resolutions: &'a ResolutionMap<T>, enabled_features: Option<&'a HashSet<PartAlias>>) -> Self {
+    pub fn new(
+        resolutions: &'a ResolutionMap<T>,
+        enabled_features: Option<&'a HashSet<PartAlias>>,
+    ) -> Self {
         let mut mb = PartBaker {
             resolutions,
             enabled_features,
@@ -753,4 +739,3 @@ pub fn bake_part<'a, T: AliasType>(
     baker.traverse(&document, Matrix4::identity(), true, false);
     baker.bake()
 }
-

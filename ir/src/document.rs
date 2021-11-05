@@ -1,4 +1,1 @@
-
-pub struct Document {
-    
-}
+pub struct Document {}
