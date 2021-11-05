@@ -222,7 +222,7 @@ fn main_loop(
                             }
                         }
                         WindowEvent::CursorMoved { position, .. } => {
-                            app.orbit.on_mouse_move(started.elapsed().as_millis() as f32 / 1000.0, position.x as f32, position.y as f32)
+                            app.orbit.on_mouse_move(position.x as f32, position.y as f32)
                         }
                         _ => ()
                     }

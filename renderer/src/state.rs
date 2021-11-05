@@ -208,6 +208,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         let gl = &self.gl;
         unsafe {
             gl.clear_color(1.0, 1.0, 1.0, 1.0);
+            gl.clear_depth_f32(1.0);
             gl.line_width(2.0);
             gl.cull_face(glow::BACK);
             gl.enable(glow::CULL_FACE);

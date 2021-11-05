@@ -788,7 +788,7 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
 
             gl.bind_buffer(glow::ARRAY_BUFFER, optional_edge.buffer_controls_2);
             gl.vertex_attrib_pointer_f32(
-                self.program.control1.unwrap(),
+                self.program.control2.unwrap(),
                 3,
                 glow::FLOAT,
                 false,

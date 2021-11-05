@@ -350,6 +350,20 @@ impl<GL: HasContext> App<GL> {
                 self.context.shading_data.opacity = opacity.clone();
                 self.context.projection_data.push_model_matrix(&matrix);
                 self.context.render_single_part(&part, &item.color, false);
+                self.context.projection_data.pop_model_matrix();
+            }
+
+            if let Some(max) = max {
+                if max == i {
+                    break;
+                }
+            }
+        }
+
+        for (i, (item, _, matrix, opacity, _)) in self.animating.iter().enumerate() {
+            if let Some(part) = self.parts.get(&item.name) {
+                self.context.shading_data.opacity = opacity.clone();
+                self.context.projection_data.push_model_matrix(&matrix);
                 self.context.render_single_part(&part, &item.color, true);
                 self.context.projection_data.pop_model_matrix();
             }
@@ -360,6 +374,7 @@ impl<GL: HasContext> App<GL> {
                 }
             }
         }
+
         self.context.shading_data.opacity = 1.0;
 
         self.frames += 1;

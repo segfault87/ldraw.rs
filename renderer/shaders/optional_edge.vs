@@ -15,8 +15,8 @@ in vec3 color;
     in vec4 instancedEdgeColor;
     in mat4 instancedModelMatrix;
 #else
-    uniform vec3 defaultColor;
-    uniform vec3 edgeColor;
+    uniform vec4 defaultColor;
+    uniform vec4 edgeColor;
 #endif
 
 uniform mat4 modelMatrix;
@@ -70,9 +70,9 @@ void main(void) {
         }
     #else
         if (color.x < -1.0) {
-            vColor = vec4(edgeColor, 1.0);
+            vColor = edgeColor;
         } else if (color.x < 0.0) {
-            vColor = vec4(defaultColor, 1.0)    ;
+            vColor = defaultColor;
         } else {
             vColor = vec4(color, 1.0);
         }
