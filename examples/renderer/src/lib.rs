@@ -30,7 +30,7 @@ use ldraw_renderer::{
 struct RenderingOrderItem {
     name: PartAlias,
     matrix: Matrix4,
-    color: ColorReference,
+    material: Material,
 }
 
 pub struct OrbitController {
@@ -122,6 +122,7 @@ fn traverse<'a, GL: HasContext>(
     bb: &mut BoundingBox,
     document: &'a Document,
     matrix: Matrix4,
+    material_stack: &mut Vec<Material>,
     parent: &'a MultipartDocument
 ) {
     for cmd in document.commands.iter() {
@@ -136,17 +137,26 @@ fn traverse<'a, GL: HasContext>(
             },
             Command::PartReference(r) => {
                 if parent.subparts.contains_key(&r.name) {
-                    traverse(Rc::clone(&gl), orders, bb, parent.subparts.get(&r.name).unwrap(), matrix * r.matrix, parent);
+                    material_stack.push(match &r.color {
+                        ColorReference::Material(m) => m.clone(),
+                        _ => material_stack.last().unwrap().clone(),
+                    });
+                    traverse(Rc::clone(&gl), orders, bb, parent.subparts.get(&r.name).unwrap(), matrix * r.matrix, material_stack, parent);
+                    material_stack.pop();
                 } else {
+                    let material = match &r.color {
+                        ColorReference::Material(m) => &m,
+                        _ => material_stack.last().unwrap(),
+                    };
+
                     let matrix = matrix * r.matrix;
-                    // FIXME: unsimplify
                     let center = Vector3::new(matrix[3][0], matrix[3][1], matrix[3][2]);
                     bb.update_point(&center);
                     orders.push(RenderingOrder::Item(RenderingOrderItem {
                         name: r.name.clone(),
                         matrix,
-                        color: r.color.clone(),
-                    }))
+                        material: material.clone(),
+                    }));
                 }
             },
             _ => (),
@@ -157,8 +167,9 @@ fn traverse<'a, GL: HasContext>(
 fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocument) -> (Vec<RenderingOrder>, BoundingBox) {
     let mut order = Vec::new();
     let mut bb = BoundingBox::zero();
+    let mut material_stack = Vec::new();
 
-    traverse(gl, &mut order, &mut bb, &document.body, Matrix4::identity(), document);
+    traverse(gl, &mut order, &mut bb, &document.body, Matrix4::identity(), &mut material_stack, document);
 
     (order, bb)
 }
@@ -323,12 +334,12 @@ impl<GL: HasContext> App<GL> {
             }
         }
 
-        /*if clear {
+        if clear {
             for (order, _, _, _, _) in self.animating.iter() {
-                self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.color.clone());
+                self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.material.clone());
             }
             self.animating.clear();
-        }*/
+        }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -342,14 +353,12 @@ impl<GL: HasContext> App<GL> {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
         }
 
-        //self.context.render_display_list(&self.parts, &mut self.display_list, false);
-        //self.context.render_display_list(&self.parts, &mut self.display_list, true);
-
+        self.context.render_display_list(&self.parts, &mut self.display_list, false);
         for (i, (item, _, matrix, opacity, _)) in self.animating.iter().enumerate() {
             if let Some(part) = self.parts.get(&item.name) {
                 self.context.shading_data.opacity = opacity.clone();
                 self.context.projection_data.push_model_matrix(&matrix);
-                self.context.render_single_part(&part, &item.color, false);
+                self.context.render_single_part(&part, &item.material, false);
                 self.context.projection_data.pop_model_matrix();
             }
 
@@ -359,12 +368,14 @@ impl<GL: HasContext> App<GL> {
                 }
             }
         }
+        self.context.shading_data.opacity = 1.0;
 
+        self.context.render_display_list(&self.parts, &mut self.display_list, true);
         for (i, (item, _, matrix, opacity, _)) in self.animating.iter().enumerate() {
             if let Some(part) = self.parts.get(&item.name) {
                 self.context.shading_data.opacity = opacity.clone();
                 self.context.projection_data.push_model_matrix(&matrix);
-                self.context.render_single_part(&part, &item.color, true);
+                self.context.render_single_part(&part, &item.material, true);
                 self.context.projection_data.pop_model_matrix();
             }
 
@@ -374,7 +385,6 @@ impl<GL: HasContext> App<GL> {
                 }
             }
         }
-
         self.context.shading_data.opacity = 1.0;
 
         self.frames += 1;

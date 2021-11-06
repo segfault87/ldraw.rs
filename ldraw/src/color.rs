@@ -117,8 +117,21 @@ pub struct Material {
     pub finish: Finish,
 }
 
+impl Default for Material {
+    fn default() -> Self {
+        Material {
+            code: 0,
+            name: String::from("Black"),
+            color: Rgba::new(0x05, 0x13, 0x1d, 0xff),
+            edge: Rgba::new(0x59, 0x59, 0x59, 0xff),
+            luminance: 0x00,
+            finish: Finish::Plastic
+        }
+    }
+}
+
 impl Material {
-    pub fn is_semi_transparent(&self) -> bool {
+    pub fn is_translucent(&self) -> bool {
         self.color.alpha() < 255u8
     }
 }
@@ -288,5 +301,19 @@ impl ColorReference {
         }
 
         ColorReference::Unknown(code)
+    }
+
+    pub fn get_color(&self) -> Option<Vector4> {
+        match self {
+            ColorReference::Material(m) => Some(m.color.into()),
+            _ => None
+        }
+    }
+
+    pub fn get_edge_color(&self) -> Option<Vector4> {
+        match self {
+            ColorReference::Material(m) => Some(m.edge.into()),
+            _ => None
+        }
     }
 }

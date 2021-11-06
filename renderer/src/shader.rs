@@ -420,7 +420,7 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&color),
+                AsRef::<[f32; 4]>::as_ref(color),
             )
         }
     }
@@ -650,11 +650,11 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.default_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&color),
+                AsRef::<[f32; 4]>::as_ref(&color)
             );
             gl.uniform_4_f32_slice(
                 self.program.edge_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&edge_color),
+                AsRef::<[f32; 4]>::as_ref(&edge_color)
             );
         }
     }
@@ -901,11 +901,11 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.default_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&color),
+                AsRef::<[f32; 4]>::as_ref(&color)
             );
             gl.uniform_4_f32_slice(
                 self.program.edge_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&edge_color),
+                AsRef::<[f32; 4]>::as_ref(&edge_color)
             );
         }
     }

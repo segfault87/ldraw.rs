@@ -182,7 +182,7 @@ impl PartBufferBuilder {
             (ColorReference::Current, true) => Some(&mut self.uncolored_mesh),
             (ColorReference::Current, false) => Some(&mut self.uncolored_without_bfc_mesh),
             (ColorReference::Material(m), _) => {
-                let entry = if m.is_semi_transparent() {
+                let entry = if m.is_translucent() {
                     self.translucent_meshes
                         .entry(group.clone())
                         .or_insert_with(MeshBufferBuilder::default)
