@@ -151,11 +151,11 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
         "BFC" => parse_bfc_statement(&mut inner_iterator),
         "Name:" => match next_token(&mut inner_iterator, true) {
             Ok(msg) => Ok(Line0::Name(msg)),
-            Err(e) => Err(e),
+            Err(_) => Ok(Line0::Name(String::from(""))),
         },
         "Author:" => match next_token(&mut inner_iterator, true) {
             Ok(msg) => Ok(Line0::Author(msg)),
-            Err(e) => Err(e),
+            Err(e) => Ok(Line0::Author(String::from(""))),
         },
         "FILE" => match next_token(&mut inner_iterator, true) {
             Ok(msg) => Ok(Line0::File(msg)),
@@ -474,7 +474,7 @@ fn parse_inner<T: BufRead>(
         }
     }
 
-    if name.is_empty() || author.is_empty() || description.is_empty() {
+    if name.is_empty() {
         Err(DocumentParseError {
             line: last_index + 1,
             error: ParseError::InvalidDocumentStructure,

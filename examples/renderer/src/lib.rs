@@ -169,6 +169,8 @@ fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocumen
     let mut bb = BoundingBox::zero();
     let mut material_stack = Vec::new();
 
+    material_stack.push(Material::default());
+
     traverse(gl, &mut order, &mut bb, &document.body, Matrix4::identity(), &mut material_stack, document);
 
     (order, bb)
