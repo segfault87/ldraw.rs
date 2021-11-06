@@ -194,7 +194,7 @@ fn main_loop(
     app.set_up();
     while !closed {
         app.animate(started.elapsed().as_millis() as f32 / 1000.0);
-        app.render(None);
+        app.render();
 
         windowed_context.swap_buffers().unwrap();
 
