@@ -346,7 +346,24 @@ impl<GL: HasContext> App<GL> {
         self.context.resize(width, height);
     }
 
-    pub fn render(&mut self, max: Option<usize>) {
+    pub fn rebuild_display_list(&mut self, count: usize) {
+        let mut idx = 0;
+
+        self.animating.clear();
+        self.display_list.clear();
+        for item in self.rendering_order.iter() {
+            if let RenderingOrder::Item(order) = item {
+                self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.material.clone());
+
+                if idx == count {
+                    break;
+                }
+                idx += 1;
+            }
+        }
+    }
+
+    pub fn render(&mut self) {
         let gl = &self.gl;
 
         unsafe {
@@ -354,35 +371,23 @@ impl<GL: HasContext> App<GL> {
         }
 
         self.context.render_display_list(&self.parts, &mut self.display_list, false);
-        for (i, (item, _, matrix, opacity, _)) in self.animating.iter().enumerate() {
+        for (item, _, matrix, opacity, _) in self.animating.iter() {
             if let Some(part) = self.parts.get(&item.name) {
                 self.context.shading_data.opacity = opacity.clone();
                 self.context.projection_data.push_model_matrix(&matrix);
                 self.context.render_single_part(&part, &item.material, false);
                 self.context.projection_data.pop_model_matrix();
             }
-
-            if let Some(max) = max {
-                if max == i {
-                    break;
-                }
-            }
         }
         self.context.shading_data.opacity = 1.0;
 
         self.context.render_display_list(&self.parts, &mut self.display_list, true);
-        for (i, (item, _, matrix, opacity, _)) in self.animating.iter().enumerate() {
+        for (item, _, matrix, opacity, _) in self.animating.iter() {
             if let Some(part) = self.parts.get(&item.name) {
                 self.context.shading_data.opacity = opacity.clone();
                 self.context.projection_data.push_model_matrix(&matrix);
                 self.context.render_single_part(&part, &item.material, true);
                 self.context.projection_data.pop_model_matrix();
-            }
-
-            if let Some(max) = max {
-                if max == i {
-                    break;
-                }
             }
         }
         self.context.shading_data.opacity = 1.0;

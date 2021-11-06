@@ -3,8 +3,9 @@ use std::{collections::HashMap, rc::Rc, vec::Vec};
 use cgmath::{prelude::*, Deg, PerspectiveFov, Point3, Rad, SquareMatrix};
 use glow::HasContext;
 use ldraw::{
-    color::{ColorReference, Material},
-    Matrix3, Matrix4, PartAlias, Vector3, Vector4};
+    color::Material,
+    Matrix3, Matrix4, PartAlias, Vector3, Vector4
+};
 
 use crate::{
     display_list::{DisplayItem, DisplayList},

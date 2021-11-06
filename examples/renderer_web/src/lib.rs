@@ -338,7 +338,6 @@ pub async fn run(path: JsValue) -> JsValue {
 
     let slider = web_document.get_element_by_id("slider").unwrap();
     let slider = JsCast::dyn_ref::<HtmlInputElement>(&slider).unwrap();
-    let max_items = Rc::new(Cell::new(None));
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
@@ -459,12 +458,13 @@ pub async fn run(path: JsValue) -> JsValue {
         closure.forget();
     }
     {
-        let a = Rc::clone(&app);
+        let app = Rc::clone(&app);
         let slider_ = slider.clone();
-        let max_items = Rc::clone(&max_items);
         let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
             let value = slider_.value().parse::<usize>().unwrap_or(0);
-            &max_items.set(Some(value));
+            if let Ok(mut app) = app.try_borrow_mut() {
+                app.rebuild_display_list(value);
+            }
         }) as Box<dyn FnMut(_)>);
         slider.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref()).unwrap();
         closure.forget();
@@ -481,7 +481,6 @@ pub async fn run(path: JsValue) -> JsValue {
         if let Ok(mut m) = app.try_borrow_mut() {
             if let Some((document, features, parts)) = &*new_doc.borrow() {
                 m.set_document(&document, &features, &parts);
-                max_items.set(None);
 
                 let part_count = m.part_count();
                 slider_.set_max(&part_count.to_string());
@@ -492,7 +491,7 @@ pub async fn run(path: JsValue) -> JsValue {
             
             m.set_up();
             m.animate(((perf.now() - start_time) / 1000.0) as f32);
-            m.render(max_items.get());
+            m.render();
 
             if m.state != state {
                 let next_button = web_document.get_element_by_id("next-button").unwrap();
