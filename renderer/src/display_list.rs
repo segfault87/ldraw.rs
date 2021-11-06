@@ -71,8 +71,6 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             return;
         }
 
-        println!("Update buffer: {}", self.count);
-
         if self.model_view_matrices.is_empty() {
             self.model_view_matrices_buffer = None;
         } else {

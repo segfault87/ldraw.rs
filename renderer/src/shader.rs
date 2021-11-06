@@ -441,6 +441,25 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
     }
 }
 
+impl<'a, GL: HasContext> Drop for DefaultProgramBinder<'a, GL> {
+    fn drop(&mut self) {
+        let gl = &self.gl;
+        if self.program.instanced_model_matrix.is_some() {
+            let instanced_model_view = self.program.instanced_model_matrix.unwrap();
+            unsafe {
+                for i in 0..4 {
+                    gl.vertex_attrib_divisor(instanced_model_view + i, 0);
+                }
+            }
+        }
+        if let Some(instanced_color) = self.program.instanced_color {
+            unsafe {
+                gl.vertex_attrib_divisor(instanced_color, 0);
+            }
+        }
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum DefaultProgramInstancingKind {
     NonInstanced,
@@ -637,6 +656,30 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
                 self.program.edge_color.as_ref(),
                 AsRef::<[f32; 4]>::as_ref(&edge_color),
             );
+        }
+    }
+}
+
+impl<'a, GL: HasContext> Drop for EdgeProgramBinder<'a, GL> {
+    fn drop(&mut self) {
+        let gl = &self.gl;
+        if self.program.instanced_model_matrix.is_some() {
+            let instanced_model_view = self.program.instanced_model_matrix.unwrap();
+            unsafe {
+                for i in 0..4 {
+                    gl.vertex_attrib_divisor(instanced_model_view + i, 0);
+                }
+            }
+        }
+        if let Some(instanced_color) = self.program.instanced_color {
+            unsafe {
+                gl.vertex_attrib_divisor(instanced_color, 0);
+            }
+        }
+        if let Some(instanced_edge_color) = self.program.instanced_edge_color {
+            unsafe {
+                gl.vertex_attrib_divisor(instanced_edge_color, 0);
+            }
         }
     }
 }
@@ -864,6 +907,30 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
                 self.program.edge_color.as_ref(),
                 AsRef::<[f32; 4]>::as_ref(&edge_color),
             );
+        }
+    }
+}
+
+impl<'a, GL: HasContext> Drop for OptionalEdgeProgramBinder<'a, GL> {
+    fn drop(&mut self) {
+        let gl = &self.gl;
+        if self.program.instanced_model_matrix.is_some() {
+            let instanced_model_view = self.program.instanced_model_matrix.unwrap();
+            unsafe {
+                for i in 0..4 {
+                    gl.vertex_attrib_divisor(instanced_model_view + i, 0);
+                }
+            }
+        }
+        if let Some(instanced_color) = self.program.instanced_color {
+            unsafe {
+                gl.vertex_attrib_divisor(instanced_color, 0);
+            }
+        }
+        if let Some(instanced_edge_color) = self.program.instanced_edge_color {
+            unsafe {
+                gl.vertex_attrib_divisor(instanced_edge_color, 0);
+            }
         }
     }
 }
