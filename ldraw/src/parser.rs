@@ -535,8 +535,8 @@ fn parse_customized_material(
             let mut fraction = 0.0;
             let mut vfraction = 0.0;
             let mut size = 0u32;
-            let mut minsize = 0u32;
-            let mut maxsize = 0u32;
+            let mut minsize = 0.0;
+            let mut maxsize = 0.0;
             match next_token(iterator, false)?.as_str() {
                 "VALUE" => (),
                 e => {
@@ -570,10 +570,10 @@ fn parse_customized_material(
                         size = next_token_u32(iterator)?;
                     }
                     "MINSIZE" => {
-                        minsize = next_token_u32(iterator)?;
+                        minsize = next_token_f32(iterator)?;
                     }
                     "MAXSIZE" => {
-                        maxsize = next_token_u32(iterator)?;
+                        maxsize = next_token_f32(iterator)?;
                     }
                     _ => {
                         return Err(ColorDefinitionParseError::ParseError(
@@ -597,8 +597,8 @@ fn parse_customized_material(
             let mut luminance = 0u8;
             let mut fraction = 0.0;
             let mut size = 0u32;
-            let mut minsize = 0u32;
-            let mut maxsize = 0u32;
+            let mut minsize = 0.0;
+            let mut maxsize = 0.0;
             match next_token(iterator, false)?.as_str() {
                 "VALUE" => (),
                 e => {
@@ -629,10 +629,10 @@ fn parse_customized_material(
                         size = next_token_u32(iterator)?;
                     }
                     "MINSIZE" => {
-                        minsize = next_token_u32(iterator)?;
+                        minsize = next_token_f32(iterator)?;
                     }
                     "MAXSIZE" => {
-                        maxsize = next_token_u32(iterator)?;
+                        maxsize = next_token_f32(iterator)?;
                     }
                     _ => {
                         return Err(ColorDefinitionParseError::ParseError(

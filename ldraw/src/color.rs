@@ -76,8 +76,8 @@ pub struct MaterialGlitter {
     pub fraction: f32,
     pub vfraction: f32,
     pub size: u32,
-    pub minsize: u32,
-    pub maxsize: u32,
+    pub minsize: f32,
+    pub maxsize: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -86,8 +86,8 @@ pub struct MaterialSpeckle {
     pub luminance: u8,
     pub fraction: f32,
     pub size: u32,
-    pub minsize: u32,
-    pub maxsize: u32,
+    pub minsize: f32,
+    pub maxsize: f32,
 }
 
 #[derive(Clone, Debug)]
