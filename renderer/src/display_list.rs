@@ -133,8 +133,6 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             }
         }
 
-        println!("{}", self.count);
-
         self.modified = false;
     }
 }

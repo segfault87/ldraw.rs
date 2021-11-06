@@ -96,7 +96,6 @@ impl<GL: HasContext> Program<GL> {
             gl.compile_shader(shader);
 
             if !gl.get_shader_compile_status(shader) {
-                println!("{}", src.build());
                 Err(ShaderError::CompileError(gl.get_shader_info_log(shader)))
             } else {
                 Ok(shader)
