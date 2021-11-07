@@ -1,2 +1,0 @@
-[workspace]
-members = ["renderer", "renderer_native", "renderer_web"]

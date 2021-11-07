@@ -21,7 +21,7 @@ js-sys = "~0.3.55"
 wasm-bindgen-futures = "~0.4.28"
 serde = { version = "1.0.80", features = ["derive"] }
 serde_derive = "^1.0.59"
-test_renderer = { path = "../renderer" }
+viewer_common = { path = "../common" }
 
 [dependencies.web-sys]
 version = "~0.3.55"

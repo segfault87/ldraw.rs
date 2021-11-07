@@ -1,5 +1,5 @@
 [package]
-name = "test_renderer"
+name = "viewer_common"
 version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2018"

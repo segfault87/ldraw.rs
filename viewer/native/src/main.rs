@@ -31,7 +31,7 @@ use ldraw_ir::{
 use ldraw_renderer::{
     shader::ProgramManager,
 };
-use test_renderer::App;
+use viewer_common::App;
 
 struct NativeLoader {
     ldrawdir: String,

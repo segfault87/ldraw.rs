@@ -1,5 +1,5 @@
 [package]
-name = "renderer_native"
+name = "viewer_native"
 edition = "2021"
 version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
@@ -11,4 +11,4 @@ glutin = "~0.21.1"
 ldraw = { path = "../../ldraw" }
 ldraw_ir = { path = "../../ir" }
 ldraw_renderer = { path = "../../renderer" }
-test_renderer = { path = "../renderer" }
+viewer_common = { path = "../common" }

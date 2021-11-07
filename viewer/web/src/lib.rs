@@ -32,7 +32,7 @@ use ldraw_renderer::{
     part::Part,
     shader::ProgramManager,
 };
-use test_renderer::{App, State};
+use viewer_common::{App, State};
 use wasm_bindgen::{
     prelude::*,
     JsCast
