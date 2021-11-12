@@ -1,7 +1,8 @@
 [workspace]
 members = [
-    "ldraw",
     "ir",
+    "ldraw",
+    "olr",
     "renderer"
 ]
 

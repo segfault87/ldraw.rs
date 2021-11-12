@@ -1,5 +1,5 @@
 [package]
-name = "ldraw_renderer"
+name = "ldraw_olr"
 version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
@@ -7,7 +7,8 @@ edition = "2021"
 [dependencies]
 cgmath = "~0.18.0"
 glow = "~0.11.0"
-itertools = "~0.10"
+glutin = "~0.27.0"
 ldraw = { path = "../ldraw" }
 ldraw_ir = { path = "../ir" }
+ldraw_renderer = { path = "../renderer" }
 serde = { version = "1.0", features = ["derive"] }
