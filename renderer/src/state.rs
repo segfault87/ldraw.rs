@@ -1,6 +1,10 @@
 use std::{collections::HashMap, rc::Rc, vec::Vec};
 
-use cgmath::{prelude::*, Deg, PerspectiveFov, Point3, Rad, SquareMatrix};
+use cgmath::{
+    prelude::*,
+    Deg, Ortho, PerspectiveFov, Point3,
+    Rad, SquareMatrix
+};
 use glow::HasContext;
 use ldraw::{
     color::Material,
@@ -91,33 +95,87 @@ impl Default for ShadingData {
     }
 }
 
-pub struct Camera {
+pub struct PerspectiveCamera {
     pub position: Point3<f32>,
     pub look_at: Point3<f32>,
     pub up: Vector3,
     pub fov: Deg<f32>,
 }
 
-impl Camera {
+trait Camera {
+    fn derive_projection_matrix(&self, width: usize, height: usize) -> Matrix4;
+    fn derive_view_matrix(&self) -> Matrix4;
+}
+
+impl PerspectiveCamera {
     pub fn new(position: Point3<f32>, look_at: Point3<f32>, fov: Deg<f32>) -> Self {
-        Camera {
+        PerspectiveCamera {
             position,
             look_at,
             up: Vector3::new(0.0, -1.0, 0.0),
             fov,
         }
     }
+}
 
-    pub fn derive_projection_matrix(&self, aspect_ratio: f32) -> Matrix4 {
+impl Camera for PerspectiveCamera {
+    fn derive_projection_matrix(&self, width: usize, height: usize) -> Matrix4 {
+        let aspect_ratio = width as f32 / height as f32;
+
         Matrix4::from(PerspectiveFov {
             fovy: Rad::from(self.fov),
             aspect: aspect_ratio,
-            near: 0.1,
+            near: 0.01,
             far: 100000.0,
         })
     }
 
-    pub fn derive_view_matrix(&self) -> Matrix4 {
+    fn derive_view_matrix(&self) -> Matrix4 {
+        Matrix4::look_at_rh(self.position, self.look_at, self.up)
+    }
+}
+
+pub struct OrthographicCamera {
+    pub position: Point3<f32>,
+    pub look_at: Point3<f32>,
+    pub up: Vector3,
+}
+
+impl OrthographicCamera {
+    pub fn new(position: Point3<f32>, look_at: Point3<f32>) -> Self {
+        OrthographicCamera {
+            position,
+            look_at,
+            up: Vector3::new(0.0, -1.0, 0.0),
+        }
+    }
+
+    pub fn new_isometric(center: Point3<f32>) -> Self {
+        let sin = Deg(45.0f32).sin() * 100.0;
+        let siny = Deg(30.0f32).sin() * 100.0;
+        let position = Point3::new(center.x + sin, center.y - siny, center.z - sin);
+
+        OrthographicCamera {
+            position,
+            look_at: center,
+            up: Vector3::new(0.0, -1.0, 0.0),
+        }
+    }
+}
+
+impl Camera for OrthographicCamera {
+    fn derive_projection_matrix(&self, width: usize, height: usize) -> Matrix4 {
+        Matrix4::from(Ortho {
+            left: -(width as f32 * 0.125),
+            right: width as f32 * 0.125,
+            top: height as f32 * 0.125,
+            bottom: -(height as f32 * 0.125),
+            near: 0.1,
+            far: 100000.0
+        })
+    }
+
+    fn derive_view_matrix(&self) -> Matrix4 {
         Matrix4::look_at_rh(self.position, self.look_at, self.up)
     }
 }
@@ -129,7 +187,6 @@ pub struct RenderingContext<GL: HasContext> {
     width: u32,
     height: u32,
 
-    pub camera: Camera,
     pub projection_data: ProjectionData,
     pub shading_data: ShadingData,
 
@@ -179,11 +236,6 @@ impl<GL: HasContext> RenderingContext<GL> {
 
         RenderingContext {
             gl: Rc::clone(&gl),
-            camera: Camera::new(
-                Point3::new(0.0, -200.0, -1200.0),
-                Point3::new(0.0, 0.0, 0.0),
-                Deg(45.0),
-            ),
             program_manager,
             width: 1,
             height: 1,
@@ -193,14 +245,22 @@ impl<GL: HasContext> RenderingContext<GL> {
         }
     }
 
-    pub fn update_camera(&mut self) {
+    pub fn apply_perspective_camera(&mut self, camera: &PerspectiveCamera) {
         self.projection_data.update_projection_matrix(
-            &self
-                .camera
-                .derive_projection_matrix(self.width as f32 / self.height as f32),
+            &camera.derive_projection_matrix(self.width as _, self.height as _),
         );
         self.projection_data
-            .update_view_matrix(&self.camera.derive_view_matrix());
+            .update_view_matrix(&camera.derive_view_matrix());
+        self.projection_data.orthographic = false;
+    }
+
+    pub fn apply_orthographic_camera(&mut self, camera: &OrthographicCamera) {
+        self.projection_data.update_projection_matrix(
+            &camera.derive_projection_matrix(self.width as _, self.height as _),
+        );
+        self.projection_data
+            .update_view_matrix(&camera.derive_view_matrix());
+        self.projection_data.orthographic = true;
     }
 
     pub fn upload_shading_data(&self) {
@@ -210,22 +270,23 @@ impl<GL: HasContext> RenderingContext<GL> {
     pub fn set_initial_state(&self) {
         let gl = &self.gl;
         unsafe {
-            gl.clear_color(1.0, 1.0, 1.0, 1.0);
+            gl.clear_color(1.0, 1.0, 1.0, 0.0);
             gl.clear_depth_f32(1.0);
-            gl.line_width(2.0);
+            gl.line_width(1.0);
             gl.cull_face(glow::BACK);
             gl.enable(glow::CULL_FACE);
             gl.enable(glow::DEPTH_TEST);
             gl.enable(glow::BLEND);
             gl.depth_func(glow::LEQUAL);
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+            gl.polygon_offset(1.0, 1.0);
+            gl.enable(glow::POLYGON_OFFSET_FILL);
         }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-        self.update_camera();
         unsafe {
             self.gl.viewport(0, 0, width as i32, height as i32);
         }

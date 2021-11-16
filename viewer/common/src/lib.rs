@@ -22,7 +22,7 @@ use ldraw_renderer::{
     display_list::DisplayList,
     error::RendererError,
     part::Part,
-    state::RenderingContext,
+    state::{OrthographicCamera, RenderingContext},
     shader::{ProgramManager},
 };
 
@@ -45,10 +45,11 @@ pub struct OrbitController {
     longitude: f32,
 
     pub radius: f32,
-    pub center: Point3,
 
     tick: Option<f32>,
     velocity: Vector2,
+
+    pub camera: OrthographicCamera,
 }
 
 impl OrbitController {
@@ -65,10 +66,11 @@ impl OrbitController {
             latitude: 0.785,
             longitude: 0.262,
             radius: 300.0,
-            center: Point3::new(0.0, 0.0, 0.0),
 
             velocity: Vector2::new(0.1, 0.0),
             tick: None,
+
+            camera: OrthographicCamera::new_isometric(Point3::new(0.0, 0.0, 0.0)),
         }
     }
 
@@ -99,12 +101,15 @@ impl OrbitController {
         }
 
         self.tick = Some(tick);
+
+        self.camera.position = self.derive_coordinate();
     }
 
-    pub fn derive_coordinate(&self) -> Point3 {
-        let x = self.latitude.sin() * self.longitude.cos() * self.radius + self.center.x;
-        let y = -self.longitude.sin() * self.radius + self.center.y;
-        let z = -self.latitude.cos() * self.longitude.cos() * self.radius + self.center.z;
+    fn derive_coordinate(&self) -> Point3 {
+        let look_at = &self.camera.look_at;
+        let x = self.latitude.sin() * self.longitude.cos() * self.radius + look_at.x;
+        let y = -self.longitude.sin() * self.radius + look_at.y;
+        let z = -self.latitude.cos() * self.longitude.cos() * self.radius + look_at.z;
 
         Point3::new(x, y, z)
     }
@@ -273,7 +278,7 @@ impl<GL: HasContext> App<GL> {
         let (rendering_order, bounding_box) = create_rendering_list(Rc::clone(&self.gl), &document);
         self.rendering_order = rendering_order;
         let center = bounding_box.center();
-        self.orbit.center = Point3::new(center.x, center.y, center.z);
+        self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
         self.orbit.radius = (
             bounding_box.len_x() * bounding_box.len_x() +
             bounding_box.len_y() * bounding_box.len_y() +
@@ -315,9 +320,7 @@ impl<GL: HasContext> App<GL> {
     pub fn animate(&mut self, time: f32) {
         self.orbit.update(time);
 
-        self.context.camera.position = self.orbit.derive_coordinate();
-        self.context.camera.look_at = self.orbit.center;
-        self.context.update_camera();
+        self.context.apply_orthographic_camera(&self.orbit.camera);
 
         if self.state == State::Playing {
             self.advance(time);

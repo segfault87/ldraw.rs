@@ -1,10 +1,14 @@
-use std::slice::from_raw_parts;
+use std::slice::{from_raw_parts, from_raw_parts_mut};
 
 use cgmath::{Matrix, SquareMatrix};
 use ldraw::{Matrix3, Matrix4};
 
 pub(crate) fn cast_as_bytes<T>(input: &[T]) -> &[u8] {
     unsafe { from_raw_parts(input.as_ptr() as *const u8, input.len() * 4) }
+}
+
+pub fn cast_as_bytes_mut<T>(input: &mut [T]) -> &mut [u8] {
+    unsafe { from_raw_parts_mut(input.as_mut_ptr() as *mut u8, input.len() * 4) }
 }
 
 fn truncate_matrix4(m: &Matrix4) -> Matrix3 {
