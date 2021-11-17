@@ -3,11 +3,12 @@ use std::{collections::HashMap, rc::Rc};
 use glow::HasContext;
 use ldraw::Vector3;
 use ldraw_ir::{
+    geometry::BoundingBox3,
     part::{
         EdgeBufferBuilder, FeatureMap, MeshBufferBuilder, OptionalEdgeBufferBuilder,
         PartBufferBuilder, PartBuilder, SubpartIndex,
     },
-    BoundingBox, MeshGroup,
+    MeshGroup,
 };
 
 use crate::utils::cast_as_bytes;
@@ -449,7 +450,7 @@ impl<GL: HasContext> PartBuffer<GL> {
 pub struct Part<GL: HasContext> {
     pub part: PartBuffer<GL>,
     pub features: FeatureMap,
-    pub bounding_box: BoundingBox,
+    pub bounding_box: BoundingBox3,
     pub rotation_center: Vector3,
 }
 

@@ -16,7 +16,7 @@ use ldraw::{
 };
 use ldraw_ir::{
     part::PartBuilder,
-    BoundingBox
+    BoundingBox3
 };
 use ldraw_renderer::{
     display_list::DisplayList,
@@ -124,7 +124,7 @@ enum RenderingOrder {
 fn traverse<'a, GL: HasContext>(
     gl: Rc<GL>,
     orders: &mut Vec<RenderingOrder>,
-    bb: &mut BoundingBox,
+    bb: &mut BoundingBox3,
     document: &'a Document,
     matrix: Matrix4,
     material_stack: &mut Vec<Material>,
@@ -169,9 +169,9 @@ fn traverse<'a, GL: HasContext>(
     }
 }
 
-fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocument) -> (Vec<RenderingOrder>, BoundingBox) {
+fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocument) -> (Vec<RenderingOrder>, BoundingBox3) {
     let mut order = Vec::new();
-    let mut bb = BoundingBox::zero();
+    let mut bb = BoundingBox3::zero();
     let mut material_stack = Vec::new();
 
     material_stack.push(Material::default());

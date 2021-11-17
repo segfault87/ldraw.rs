@@ -17,7 +17,7 @@ use ldraw::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{BoundingBox, MeshGroup};
+use crate::{geometry::BoundingBox3, MeshGroup};
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
@@ -204,7 +204,7 @@ pub type FeatureMap = HashMap<PartAlias, Vec<(ColorReference, Matrix4)>>;
 pub struct PartBuilder {
     pub part_builder: PartBufferBuilder,
     pub features: FeatureMap,
-    pub bounding_box: BoundingBox,
+    pub bounding_box: BoundingBox3,
     pub rotation_center: Vector3,
 }
 
@@ -212,7 +212,7 @@ impl PartBuilder {
     pub fn new(
         part_builder: PartBufferBuilder,
         features: FeatureMap,
-        bounding_box: BoundingBox,
+        bounding_box: BoundingBox3,
         rotation_center: &Vector3,
     ) -> Self {
         PartBuilder {
@@ -418,7 +418,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn bake(&self, builder: &mut PartBufferBuilder, bounding_box: &mut BoundingBox) {
+    pub fn bake(&self, builder: &mut PartBufferBuilder, bounding_box: &mut BoundingBox3) {
         let mut bounding_box_min = None;
         let mut bounding_box_max = None;
 
@@ -504,7 +504,7 @@ struct PartBaker<'a, T> {
     mesh_builder: MeshBuilder,
     color_stack: Vec<ColorReference>,
     features: FeatureMap,
-    bounding_box: BoundingBox,
+    bounding_box: BoundingBox3,
 }
 
 impl<'a, T: AliasType> PartBaker<'a, T> {
@@ -697,7 +697,7 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
     }
 
     pub fn bake(&mut self) -> PartBuilder {
-        let mut bounding_box = BoundingBox::zero();
+        let mut bounding_box = BoundingBox3::zero();
         self.mesh_builder.bake(&mut self.builder, &mut bounding_box);
 
         PartBuilder::new(
@@ -720,7 +720,7 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
             mesh_builder: MeshBuilder::new(),
             color_stack: Vec::new(),
             features: HashMap::new(),
-            bounding_box: BoundingBox::zero(),
+            bounding_box: BoundingBox3::zero(),
         };
 
         mb.color_stack.push(ColorReference::Current);
