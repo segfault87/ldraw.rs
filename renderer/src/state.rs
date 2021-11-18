@@ -8,8 +8,9 @@ use cgmath::{
 use glow::HasContext;
 use ldraw::{
     color::Material,
-    Matrix3, Matrix4, PartAlias, Vector3, Vector4
+    Matrix3, Matrix4, PartAlias, Vector2, Vector3, Vector4
 };
+use ldraw_ir::geometry::{BoundingBox2, BoundingBox3};
 
 use crate::{
     display_list::{DisplayItem, DisplayList},
@@ -72,6 +73,18 @@ impl ProjectionData {
             self.update_model_view_and_normal_matrix();
         }
     }
+
+    pub fn derive_projected_bounding_box_2d(&self, bb: &BoundingBox3) -> BoundingBox2 {
+        let matrix = self.view_matrix * self.model_matrix.last().unwrap();
+
+        let mut pbb = BoundingBox2::zero();
+        for point in bb.points() {
+            let p = matrix * point.extend(1.0);
+            pbb.update_point(&Vector2::new(p.x, p.y));
+        }
+
+        pbb
+    }
 }
 
 #[derive(Debug)]
@@ -102,11 +115,6 @@ pub struct PerspectiveCamera {
     pub fov: Deg<f32>,
 }
 
-trait Camera {
-    fn derive_projection_matrix(&self, width: usize, height: usize) -> Matrix4;
-    fn derive_view_matrix(&self) -> Matrix4;
-}
-
 impl PerspectiveCamera {
     pub fn new(position: Point3<f32>, look_at: Point3<f32>, fov: Deg<f32>) -> Self {
         PerspectiveCamera {
@@ -116,10 +124,8 @@ impl PerspectiveCamera {
             fov,
         }
     }
-}
 
-impl Camera for PerspectiveCamera {
-    fn derive_projection_matrix(&self, width: usize, height: usize) -> Matrix4 {
+    pub fn derive_projection_matrix(&self, width: usize, height: usize) -> Matrix4 {
         let aspect_ratio = width as f32 / height as f32;
 
         Matrix4::from(PerspectiveFov {
@@ -130,9 +136,17 @@ impl Camera for PerspectiveCamera {
         })
     }
 
-    fn derive_view_matrix(&self) -> Matrix4 {
+    pub fn derive_view_matrix(&self) -> Matrix4 {
         Matrix4::look_at_rh(self.position, self.look_at, self.up)
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum OrthographicViewBounds {
+    BoundingBox3(BoundingBox3),
+    BoundingBox2(BoundingBox2),
+    Radius(f32),
+    None,
 }
 
 pub struct OrthographicCamera {
@@ -151,8 +165,8 @@ impl OrthographicCamera {
     }
 
     pub fn new_isometric(center: Point3<f32>) -> Self {
-        let sin = Deg(45.0f32).sin() * 100.0;
-        let siny = Deg(30.0f32).sin() * 100.0;
+        let sin = Deg(45.0f32).sin() * 10000.0;
+        let siny = Deg(35.264f32).sin() * 10000.0;
         let position = Point3::new(center.x + sin, center.y - siny, center.z - sin);
 
         OrthographicCamera {
@@ -161,21 +175,19 @@ impl OrthographicCamera {
             up: Vector3::new(0.0, -1.0, 0.0),
         }
     }
-}
 
-impl Camera for OrthographicCamera {
-    fn derive_projection_matrix(&self, width: usize, height: usize) -> Matrix4 {
+    pub fn derive_projection_matrix(&self, view_bounds: &BoundingBox2) -> Matrix4 {
         Matrix4::from(Ortho {
-            left: -(width as f32 * 0.125),
-            right: width as f32 * 0.125,
-            top: height as f32 * 0.125,
-            bottom: -(height as f32 * 0.125),
+            left: view_bounds.min.x,
+            right: view_bounds.max.x,
+            top: view_bounds.max.y,
+            bottom: view_bounds.min.y,
             near: 0.1,
             far: 100000.0
         })
     }
 
-    fn derive_view_matrix(&self) -> Matrix4 {
+    pub fn derive_view_matrix(&self) -> Matrix4 {
         Matrix4::look_at_rh(self.position, self.look_at, self.up)
     }
 }
@@ -254,13 +266,61 @@ impl<GL: HasContext> RenderingContext<GL> {
         self.projection_data.orthographic = false;
     }
 
-    pub fn apply_orthographic_camera(&mut self, camera: &OrthographicCamera) {
-        self.projection_data.update_projection_matrix(
-            &camera.derive_projection_matrix(self.width as _, self.height as _),
-        );
+    pub fn apply_orthographic_camera(&mut self, camera: &OrthographicCamera, view_bounds: &OrthographicViewBounds) -> Option<BoundingBox2> {
         self.projection_data
             .update_view_matrix(&camera.derive_view_matrix());
+
+        let (view_bounding_box, fraction) = match view_bounds {
+            OrthographicViewBounds::BoundingBox3(bb) => {
+                let transformed_bb = self.projection_data.derive_projected_bounding_box_2d(&bb);
+
+                let (adjusted, fraction) = if transformed_bb.len_x() >= transformed_bb.len_y() {
+                    println!("x {} y {}", transformed_bb.len_x(), transformed_bb.len_y());
+
+                    let margin = transformed_bb.len_x() * 0.05;
+                    let d = (transformed_bb.len_x() - transformed_bb.len_y()) * 0.5;
+                    let fd = d / transformed_bb.len_x();
+
+                    (BoundingBox2::new(
+                        &Vector2::new(transformed_bb.min.x - margin, transformed_bb.min.y - d - margin),
+                        &Vector2::new(transformed_bb.max.x + margin, transformed_bb.max.y + d + margin),
+                    ), BoundingBox2::new(
+                        &Vector2::new(0.0, fd),
+                        &Vector2::new(1.0, 1.0 - fd)
+                    ))
+                } else {
+                    let margin = transformed_bb.len_x() * 0.05;
+                    let d = (transformed_bb.len_y() - transformed_bb.len_x()) * 0.5;
+                    let fd = d / transformed_bb.len_y();
+
+                    (BoundingBox2::new(
+                        &Vector2::new(transformed_bb.min.x - d - margin, transformed_bb.min.y - margin),
+                        &Vector2::new(transformed_bb.max.x + d + margin, transformed_bb.max.y + margin),
+                    ), BoundingBox2::new(
+                        &Vector2::new(fd, 0.0),
+                        &Vector2::new(1.0 - fd, 1.0)
+                    ))
+                };
+
+                (adjusted, Some(fraction))
+            },
+            OrthographicViewBounds::BoundingBox2(bb) => (bb.clone(), None),
+            OrthographicViewBounds::Radius(r) => (BoundingBox2::new(
+                &Vector2::new(-(r / self.width as f32), -(r / self.height as f32)),
+                &Vector2::new(r / self.width as f32, r / self.height as f32)
+            ), None),
+            OrthographicViewBounds::None => (BoundingBox2::new(
+                &Vector2::new(-(self.width as f32 * 0.125), -(self.height as f32 * 0.125)),
+                &Vector2::new(self.width as f32 * 0.125, self.height as f32 * 0.125)
+            ), None),
+        };
+        
+        self.projection_data.update_projection_matrix(
+            &camera.derive_projection_matrix(&view_bounding_box),
+        );
         self.projection_data.orthographic = true;
+
+        fraction
     }
 
     pub fn upload_shading_data(&self) {
