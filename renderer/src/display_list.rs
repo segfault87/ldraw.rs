@@ -4,10 +4,11 @@ use cgmath::SquareMatrix;
 use glow::HasContext;
 use itertools::izip;
 use ldraw::{
-    color::{ColorReference, Material, Rgba},
+    color::{ColorReference, Material},
     document::{Document, MultipartDocument},
     Matrix4, PartAlias, Vector4,
 };
+use ldraw_ir::geometry::BoundingBox3;
 
 use crate::utils::cast_as_bytes;
 
@@ -62,6 +63,19 @@ impl<GL: HasContext> InstanceBuffer<GL> {
 
             modified: false,
         }
+    }
+
+    pub fn calculate_bounding_box(&self, bounding_box: &BoundingBox3) -> BoundingBox3 {
+        let mut bb = BoundingBox3::zero();
+
+        for matrix in self.model_view_matrices.iter() {
+            for point in bounding_box.points() {
+                let transformed = matrix * point.extend(1.0);
+                bb.update_point(&transformed.truncate());
+            } 
+        }
+
+        bb
     }
 
     pub fn is_empty(&self) -> bool {

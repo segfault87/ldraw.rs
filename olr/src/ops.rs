@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     rc::Rc,
     vec::Vec,
 };
@@ -7,18 +8,19 @@ use glow::{Context as GlContext, HasContext, PixelPackData};
 use image::RgbaImage;
 use ldraw::{
     color::Material,
-    Point3
+    PartAlias, Point3
 };
-use ldraw_ir::{
-    geometry::BoundingBox2,
-    part::PartBuilder,
-};
+use ldraw_ir::geometry::BoundingBox2;
 use ldraw_renderer::{
+    display_list::DisplayList,
     part::Part,
     state::{OrthographicCamera, OrthographicViewBounds},
 };
 
-use crate::context::OlrContext;
+use crate::{
+    context::OlrContext,
+    utils::calculate_bounding_box,
+};
 
 fn buffer_to_image(context: &OlrContext, gl: Rc<GlContext>, bounds: &BoundingBox2) -> RgbaImage {
     let mut pixels: Vec<u8> = Vec::new();
@@ -47,7 +49,7 @@ fn buffer_to_image(context: &OlrContext, gl: Rc<GlContext>, bounds: &BoundingBox
     RgbaImage::from_raw(cw as _, ch as _, pixels_rearranged).unwrap()
 } 
 
-pub fn render_single_part(context: &mut OlrContext, part: &PartBuilder, material: &Material) -> RgbaImage {
+pub fn render_single_part(context: &mut OlrContext, part: &Part<GlContext>, material: &Material) -> RgbaImage {
     let gl = &context.gl;
 
     let rc = &mut context.rendering_context;
@@ -56,12 +58,37 @@ pub fn render_single_part(context: &mut OlrContext, part: &PartBuilder, material
         gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
     }
 
-    let part = Part::create(&part, Rc::clone(&gl));
-
     let camera = OrthographicCamera::new_isometric(Point3::new(0.0, 0.0, 0.0));
     let bounds = rc.apply_orthographic_camera(&camera, &OrthographicViewBounds::BoundingBox3(part.bounding_box.clone())).unwrap();
     rc.render_single_part(&part, &material, false);
     rc.render_single_part(&part, &material, true);
+
+    unsafe {
+        gl.flush();
+    }
+
+    buffer_to_image(context, Rc::clone(&gl), &bounds)
+}
+
+pub fn render_display_list(
+    context: &mut OlrContext,
+    parts: &HashMap<PartAlias, Part<GlContext>>,
+    display_list: &mut DisplayList<GlContext>
+) -> RgbaImage {
+    let gl = &context.gl;
+
+    let rc = &mut context.rendering_context;
+
+    unsafe {
+        gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+    }
+
+    let camera = OrthographicCamera::new_isometric(Point3::new(0.0, 0.0, 0.0));
+    let bounding_box = calculate_bounding_box(parts, display_list);
+    let bounds = rc.apply_orthographic_camera(&camera, &OrthographicViewBounds::BoundingBox3(bounding_box.clone())).unwrap();
+    
+    rc.render_display_list(&parts, display_list, false);
+    rc.render_display_list(&parts, display_list, true);
 
     unsafe {
         gl.flush();
