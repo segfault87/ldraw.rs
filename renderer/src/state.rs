@@ -131,7 +131,7 @@ impl PerspectiveCamera {
         Matrix4::from(PerspectiveFov {
             fovy: Rad::from(self.fov),
             aspect: aspect_ratio,
-            near: 0.01,
+            near: 10.0,
             far: 100000.0,
         })
     }
