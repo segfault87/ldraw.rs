@@ -42,6 +42,7 @@ features = [
     'RequestInit',
     'RequestMode',
     'Response',
+    'UiEvent',
     'WebGlRenderingContext',
     'WheelEvent',
     'Window'

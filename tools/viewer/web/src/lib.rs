@@ -436,6 +436,19 @@ pub async fn run(path: JsValue) -> JsValue {
         canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref()).unwrap();
         closure.forget();
     }
+    {
+        let window = web_sys::window().unwrap();
+        let app = Rc::clone(&app);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::UiEvent| {
+            let app = &mut app.borrow_mut();
+            let window = web_sys::window().unwrap();
+            canvas.set_width(canvas.client_width() as _);
+            canvas.set_height(canvas.client_height() as _);
+            app.resize(canvas.client_width() as _, canvas.client_height() as _);
+        }) as Box<dyn FnMut(_)>);
+        window.add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
 
     {
         let next_button = web_document.get_element_by_id("next-button").unwrap();
