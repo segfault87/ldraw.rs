@@ -339,7 +339,7 @@ impl<GL: HasContext> RenderingContext<GL> {
             gl.enable(glow::BLEND);
             gl.depth_func(glow::LEQUAL);
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
-            gl.polygon_offset(1.0, 1.0);
+            gl.polygon_offset(1.0, 0.0);
             gl.enable(glow::POLYGON_OFFSET_FILL);
         }
     }
