@@ -8,6 +8,6 @@ edition = "2018"
 async-trait = "~0.1.51"
 cgmath = "~0.18.0"
 glow = "~0.11.0"
-ldraw = { path = "../../ldraw" }
-ldraw_ir = { path = "../../ir" }
-ldraw_renderer = { path = "../../renderer" }
+ldraw = { path = "../../../ldraw" }
+ldraw_ir = { path = "../../../ir" }
+ldraw_renderer = { path = "../../../renderer" }

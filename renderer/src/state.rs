@@ -348,7 +348,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         self.width = width;
         self.height = height;
         unsafe {
-            self.gl.viewport(0, 0, width as i32, height as i32);
+            self.gl.viewport(0, 0, width as _, height as _);
         }
     }
 

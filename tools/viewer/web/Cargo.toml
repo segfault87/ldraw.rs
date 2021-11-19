@@ -13,9 +13,9 @@ console_error_panic_hook = "~0.1.7"
 futures = { version = "~0.3.17", features = ["async-await"] }
 gloo = "~0.4.0"
 glow = { version = "~0.11.0" } 
-ldraw = { path = "../../ldraw" }
-ldraw_ir = { path = "../../ir" } 
-ldraw_renderer = { path = "../../renderer" }
+ldraw = { path = "../../../ldraw" }
+ldraw_ir = { path = "../../../ir" } 
+ldraw_renderer = { path = "../../../renderer" }
 wasm-bindgen = { version = "~0.2.78", features = ["serde-serialize"] }
 js-sys = "~0.3.55"
 wasm-bindgen-futures = "~0.4.28"

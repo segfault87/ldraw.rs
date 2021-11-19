@@ -6,14 +6,15 @@ use std::{
     io::BufReader,
     path::Path,
     rc::Rc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use glow::{self, Context};
 use glutin::{
-    dpi::LogicalSize,
-    ContextBuilder, ElementState, Event, EventsLoop, GlProfile, GlRequest,
-    MouseButton, VirtualKeyCode, WindowBuilder, WindowEvent
+    event::{ElementState, Event, MouseButton, StartCause, VirtualKeyCode, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+    ContextBuilder, GlProfile, GlRequest,
 };
 use ldraw::{
     color::MaterialRegistry,
@@ -159,10 +160,9 @@ fn main_loop(
     locator: &String,
     mut resource_loader: NativeLoader
 ) {
-    let mut evloop = EventsLoop::new();
+    let evloop = EventLoop::new();
     let window_builder = WindowBuilder::new()
-        .with_title("ldraw.rs demo")
-        .with_dimensions(LogicalSize::new(1280.0, 720.0));
+        .with_title("ldraw.rs demo");
     let windowed_context = ContextBuilder::new()
         .with_gl_profile(GlProfile::Core)
         .with_gl(GlRequest::Latest)
@@ -185,52 +185,60 @@ fn main_loop(
     app.set_document(&document, &features, &parts);
 
     let window = windowed_context.window();
-    let size = window.get_inner_size().unwrap();
-    let (w, h) = size.to_physical(window.get_hidpi_factor()).into();
-    app.resize(w, h);
+    let size = window.inner_size();
+    app.resize(size.width, size.height);
 
-    let mut closed = false;
     let started = Instant::now();
     app.set_up();
-    while !closed {
-        app.animate(started.elapsed().as_millis() as f32 / 1000.0);
-        app.render();
 
-        windowed_context.swap_buffers().unwrap();
+    let refresh_duration = Duration::from_nanos(16_666_667);
 
-        evloop.poll_events(|event| {
-            match event {
-                Event::WindowEvent { event, .. } => {
-                    match event {
-                        WindowEvent::CloseRequested => {
-                            closed = true;
-                        }
-                        WindowEvent::Resized(size) => {
-                            let physical = size.to_physical(window.get_hidpi_factor());
-                            windowed_context.resize(physical);
-                            let (w, h): (u32, u32) = physical.into();
-                            app.resize(w, h);
-                        }
-                        WindowEvent::KeyboardInput { input, .. } => {
-                            if input.virtual_keycode == Some(VirtualKeyCode::Space) && input.state == ElementState::Pressed {
-                                app.advance(started.elapsed().as_millis() as f32 / 1000.0);
-                            }
-                        }
-                        WindowEvent::MouseInput { state, button, .. } => {
-                            if button == MouseButton::Left {
-                                app.orbit.on_mouse_press(state == ElementState::Pressed);
-                            }
-                        }
-                        WindowEvent::CursorMoved { position, .. } => {
-                            app.orbit.on_mouse_move(position.x as f32, position.y as f32)
-                        }
-                        _ => ()
-                    }
-                },
-                _ => (),
+    evloop.run(move |event, _, control_flow| {
+        match event {
+            Event::LoopDestroyed => return,
+            Event::RedrawRequested(_) => {
+                app.render();
+
+                windowed_context.swap_buffers().unwrap();
+            },
+            Event::NewEvents(StartCause::Init) => {
+                *control_flow = ControlFlow::WaitUntil(Instant::now() + refresh_duration);
             }
-        });
-    }
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                app.animate(started.elapsed().as_millis() as f32 / 1000.0);
+                app.render();
+                windowed_context.swap_buffers().unwrap();
+                *control_flow = ControlFlow::WaitUntil(Instant::now() + refresh_duration);
+            }
+            Event::WindowEvent { event, .. } => {
+                match event {
+                    WindowEvent::CloseRequested => {
+                        *control_flow = ControlFlow::Exit;
+                    }
+                    WindowEvent::Resized(size) => {
+                        windowed_context.resize(size);
+                        app.resize(size.width, size.height);
+                    }
+                    WindowEvent::KeyboardInput { input, .. } => {
+                        if input.virtual_keycode == Some(VirtualKeyCode::Space) && input.state == ElementState::Pressed {
+                            app.advance(started.elapsed().as_millis() as f32 / 1000.0);
+                        }
+                    }
+                    WindowEvent::MouseInput { state, button, .. } => {
+                        if button == MouseButton::Left {
+                            app.orbit.on_mouse_press(state == ElementState::Pressed);
+                        }
+                    }
+                    WindowEvent::CursorMoved { position, .. } => {
+                        app.orbit.on_mouse_move(position.x as f32, position.y as f32);
+                    }
+                    _ => ()
+                }
+            },
+            _ => (),
+        }
+    });
+        
 }
 
 fn get_features_list() -> HashSet<PartAlias> {
