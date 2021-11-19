@@ -7,8 +7,8 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 [dependencies]
 cgmath = "~0.18.0"
 glow = "~0.11.0"
-glutin = "~0.21.1"
-ldraw = { path = "../../ldraw" }
-ldraw_ir = { path = "../../ir" }
-ldraw_renderer = { path = "../../renderer" }
+glutin = "~0.27.0"
+ldraw = { path = "../../../ldraw" }
+ldraw_ir = { path = "../../../ir" }
+ldraw_renderer = { path = "../../../renderer" }
 viewer_common = { path = "../common" }

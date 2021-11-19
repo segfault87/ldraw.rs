@@ -1,28 +1,26 @@
 use std::{
     collections::{HashSet, HashMap},
     f32,
-    future::Future,
     rc::Rc,
     vec::Vec,
 };
 
-use cgmath::{SquareMatrix, Zero};
+use cgmath::{Deg, SquareMatrix};
 use glow::HasContext;
 use ldraw::{
-    color::{ColorReference, Material, MaterialRegistry},
+    color::{ColorReference, Material},
     elements::{Command, Meta},
     document::{Document, MultipartDocument},
-    Matrix3, Matrix4, PartAlias, Point2, Point3, Vector2, Vector3, Vector4,
+    Matrix4, PartAlias, Point2, Point3, Vector2, Vector3,
 };
 use ldraw_ir::{
+    geometry::BoundingBox3,
     part::PartBuilder,
-    BoundingBox3
 };
 use ldraw_renderer::{
     display_list::DisplayList,
-    error::RendererError,
     part::Part,
-    state::{OrthographicCamera, RenderingContext},
+    state::{PerspectiveCamera, RenderingContext},
     shader::{ProgramManager},
 };
 
@@ -49,7 +47,7 @@ pub struct OrbitController {
     tick: Option<f32>,
     velocity: Vector2,
 
-    pub camera: OrthographicCamera,
+    pub camera: PerspectiveCamera,
 }
 
 impl OrbitController {
@@ -70,7 +68,7 @@ impl OrbitController {
             velocity: Vector2::new(0.1, 0.0),
             tick: None,
 
-            camera: OrthographicCamera::new_isometric(Point3::new(0.0, 0.0, 0.0)),
+            camera: PerspectiveCamera::new(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 0.0), Deg(45.0)),
         }
     }
 
@@ -320,7 +318,7 @@ impl<GL: HasContext> App<GL> {
     pub fn animate(&mut self, time: f32) {
         self.orbit.update(time);
 
-        self.context.apply_orthographic_camera(&self.orbit.camera);
+        self.context.apply_perspective_camera(&self.orbit.camera);
 
         if self.state == State::Playing {
             self.advance(time);

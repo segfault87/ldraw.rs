@@ -1,16 +1,14 @@
 extern crate console_error_panic_hook;
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::{RefCell},
     collections::{HashMap, HashSet},
     io::BufReader,
     panic,
     rc::Rc,
-    sync::Arc,
     vec::Vec,
 };
 
-use cgmath::SquareMatrix;
 use futures::future::join_all;
 use gloo::events::EventListener;
 use glow::Context;
@@ -22,16 +20,10 @@ use ldraw::{
         ResolutionMap, ResolutionResult
     },
     parser::{parse_color_definition, parse_multipart_document, parse_single_document},
-    Matrix4, PartAlias,
+    PartAlias,
 };
-use ldraw_ir::{
-    MeshGroup,
-    part::{PartBuilder, bake_part},
-};
-use ldraw_renderer::{
-    part::Part,
-    shader::ProgramManager,
-};
+use ldraw_ir::part::{PartBuilder, bake_part};
+use ldraw_renderer::shader::ProgramManager;
 use viewer_common::{App, State};
 use wasm_bindgen::{
     prelude::*,
