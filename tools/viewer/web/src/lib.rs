@@ -401,6 +401,7 @@ pub async fn run(path: JsValue) -> JsValue {
         closure.forget();
     }
 
+    // Mouse events
     {
         let app = Rc::clone(&app);
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
@@ -436,6 +437,67 @@ pub async fn run(path: JsValue) -> JsValue {
         canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref()).unwrap();
         closure.forget();
     }
+
+    // Touch events
+    let tx = Rc::new(RefCell::new(0));
+    let ty = Rc::new(RefCell::new(0));
+    let distance = Rc::new(RefCell::new(0.0f32));
+    {
+        let distance = Rc::clone(&distance);
+        let app = Rc::clone(&app);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::TouchEvent| {
+            if let Ok(mut a) = app.try_borrow_mut() {
+                match event.touches().length() {
+                    1 => {
+                        let t = event.touches().item(0).unwrap();
+                        a.orbit.on_mouse_move(t.page_x() as _, t.page_y() as _);
+                    },
+                    2 => {
+                        let t1 = event.touches().item(0).unwrap();
+                        let t2 = event.touches().item(1).unwrap();
+
+                        let x1 = t1.page_x();
+                        let y1 = t1.page_y();
+                        let x2 = t2.page_x();
+                        let y2 = t2.page_y();
+
+                        let sd = (((x2 - x1) as f32).powf(2.0) + ((y2 - y1) as f32).powf(2.0)).sqrt();
+                        let pd = *distance.borrow();
+                        if pd != 0.0 {
+                            let distance_delta = sd - pd;
+
+                            a.orbit.radius = (a.orbit.radius - distance_delta).clamp(100.0, 10000.0);
+                        }
+                        *distance.borrow_mut() = sd;
+                    },
+                    _ => {},
+                }
+            }
+        }) as Box<dyn FnMut(_)>);
+        canvas.add_event_listener_with_callback("touchmove", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
+    {
+        let app = Rc::clone(&app);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::TouchEvent| {
+            app.borrow_mut().orbit.on_mouse_press(true);
+        }) as Box<dyn FnMut(_)>);
+        canvas.add_event_listener_with_callback("touchstart", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
+    {
+        let tx = Rc::clone(&tx);
+        let ty = Rc::clone(&ty);
+        let distance = Rc::clone(&distance);
+        let app = Rc::clone(&app);
+        let closure = Closure::wrap(Box::new(move |event: web_sys::TouchEvent| {
+            app.borrow_mut().orbit.on_mouse_press(false);
+            *distance.borrow_mut() = 0.0;
+        }) as Box<dyn FnMut(_)>);
+        canvas.add_event_listener_with_callback("touchend", closure.as_ref().unchecked_ref()).unwrap();
+        closure.forget();
+    }
+
     {
         let window = web_sys::window().unwrap();
         let app = Rc::clone(&app);
