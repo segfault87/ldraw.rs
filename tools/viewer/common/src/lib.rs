@@ -200,11 +200,13 @@ pub struct App<GL: HasContext> {
 
     pub state: State,
     pointer: Option<usize>,
+    fall_interval: f32,
     last_time: Option<f32>,
     frames: usize,
 }
 
 const FALL_INTERVAL: f32 = 0.2;
+const FALL_INTERVAL_UPPER_BOUND: f32 = 5.0;
 const FALL_DURATION: f32 = 0.5;
 
 impl<GL: HasContext> App<GL> {
@@ -227,6 +229,7 @@ impl<GL: HasContext> App<GL> {
             orbit: OrbitController::new(),
             state: State::Finished,
             pointer: None,
+            fall_interval: FALL_INTERVAL,
             last_time: None,
             frames: 0,
         }
@@ -289,9 +292,27 @@ impl<GL: HasContext> App<GL> {
     }
 
     pub fn advance(&mut self, time: f32) {
+        if self.state == State::Step || self.pointer.is_none() {
+            let start = self.pointer.unwrap_or(0);
+
+            let mut count = 0;
+            for i in start..self.rendering_order.len() {
+                if let RenderingOrder::Step = self.rendering_order[i] {
+                    break;
+                }
+                count += 1;
+            }
+
+            self.fall_interval = if count as f32 * FALL_INTERVAL >= FALL_INTERVAL_UPPER_BOUND {
+                FALL_INTERVAL_UPPER_BOUND / count as f32
+            } else {
+                FALL_INTERVAL
+            };
+        }
+
         let next = if self.pointer.is_none() && self.last_time.is_none()  {
             0
-        } else if time - self.last_time.unwrap() >= FALL_INTERVAL {
+        } else if time - self.last_time.unwrap() >= self.fall_interval {
             self.pointer.unwrap() + 1
         } else {
             return
@@ -324,7 +345,6 @@ impl<GL: HasContext> App<GL> {
             self.advance(time);
         }
 
-        let mut clear = true;
         for (order, started_at, mat, opacity, progress) in self.animating.iter_mut() {
             if *progress < 1.0 {
                 let elapsed = (time - started_at.clone()).clamp(0.0, FALL_DURATION) / FALL_DURATION;
@@ -333,16 +353,13 @@ impl<GL: HasContext> App<GL> {
                 *opacity = ease;
                 *progress = elapsed;
 
-                clear = false;
+                if *progress >= 1.0 {
+                    self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.material.clone());
+                }
             }
         }
 
-        if clear {
-            for (order, _, _, _, _) in self.animating.iter() {
-                self.display_list.add(Rc::clone(&self.gl), order.name.clone(), order.matrix.clone(), order.material.clone());
-            }
-            self.animating.clear();
-        }
+        self.animating.retain(|(_, _, _, _, progress)| *progress < 1.0);
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
