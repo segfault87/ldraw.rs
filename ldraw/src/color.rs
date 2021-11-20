@@ -21,10 +21,10 @@ impl Rgba {
     }
 
     pub fn from_value(value: u32) -> Rgba {
-        let r = (value & 0x00ff_0000 >> 16) as u8;
-        let g = (value & 0x0000_ff00 >> 8) as u8;
+        let r = ((value & 0x00ff_0000) >> 16) as u8;
+        let g = ((value & 0x0000_ff00) >> 8) as u8;
         let b = (value & 0x0000_00ff) as u8;
-        let a = (value & 0xff00_0000 >> 24) as u8;
+        let a = ((value & 0xff00_0000) >> 24) as u8;
         Rgba {
             value: [r, g, b, a],
         }
@@ -284,6 +284,10 @@ impl ColorReference {
             _ => (),
         }
 
+        if let Some(c) = materials.get(&code) {
+            return ColorReference::Material(c.clone());
+        }
+
         if (256..=512).contains(&code) {
             if let Some(c) = ColorReference::resolve_blended(code, materials) {
                 return ColorReference::Material(c);
@@ -294,10 +298,6 @@ impl ColorReference {
             return ColorReference::Material(ColorReference::resolve_rgb_2(code));
         } else if (code & 0xff00_0000) == 0x0400_0000 {
             return ColorReference::Material(ColorReference::resolve_rgb_4(code));
-        }
-
-        if let Some(c) = materials.get(&code) {
-            return ColorReference::Material(c.clone());
         }
 
         ColorReference::Unknown(code)
