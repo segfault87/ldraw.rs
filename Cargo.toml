@@ -3,6 +3,7 @@ members = [
     "ir",
     "ldraw",
     "olr",
+    "tools/baker",
     "tools/viewer/common",
     "tools/viewer/native",
     "tools/viewer/web"
