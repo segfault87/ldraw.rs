@@ -8,7 +8,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-cgmath = "~0.17.0"
+cgmath = "~0.18.0"
 console_error_panic_hook = "~0.1.7"
 futures = { version = "~0.3.17", features = ["async-await"] }
 gloo = "~0.4.0"

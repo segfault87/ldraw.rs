@@ -328,7 +328,7 @@ out vec4 fragColor;
     
     }
     
-    const float envMapIntensity = 1.25;
+    const float envMapIntensity = 1.0;
     
     vec3 getIBLIrradiance( const in vec3 normal ) {
         vec3 worldNormal = inverseTransformDirection( normal, viewMatrix );

@@ -6,6 +6,7 @@ use cgmath::{
     Rad, SquareMatrix
 };
 use glow::HasContext;
+use image::{ImageFormat, load_from_memory_with_format};
 use ldraw::{
     color::Material,
     Matrix3, Matrix4, PartAlias, Vector2, Vector3, Vector4
@@ -205,6 +206,12 @@ pub struct RenderingContext<GL: HasContext> {
     envmap: Option<GL::Texture>,
 }
 
+fn load_envmap() -> Vec<u8> {
+    let image = load_from_memory_with_format(include_bytes!("../assets/cubemap.png"), ImageFormat::Png).unwrap();
+    let rgba = image.to_rgba8();
+    rgba.into_raw()
+}
+
 impl<GL: HasContext> RenderingContext<GL> {
     pub fn new(gl: Rc<GL>, program_manager: ProgramManager<GL>) -> Self {
         let envmap = unsafe {
@@ -225,7 +232,7 @@ impl<GL: HasContext> RenderingContext<GL> {
                 0,
                 glow::RGBA,
                 glow::UNSIGNED_BYTE,
-                Some(include_bytes!("../assets/cubemap.bin")),
+                Some(&load_envmap()),
             );
             gl.tex_parameter_i32(
                 glow::TEXTURE_2D,
