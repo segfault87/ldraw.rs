@@ -87,6 +87,13 @@ impl OlrContext {
             pixels_rearranged.extend_from_slice(&pixels[s..(s + (cw * 4))]);
         }
 
+        unsafe {
+            // Revert back to previous state
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, self.framebuffer);
+        }
+
         RgbaImage::from_raw(cw as _, ch as _, pixels_rearranged).unwrap()
     }
 
