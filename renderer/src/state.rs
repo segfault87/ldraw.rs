@@ -338,7 +338,8 @@ impl<GL: HasContext> RenderingContext<GL> {
             gl.enable(glow::DEPTH_TEST);
             gl.enable(glow::BLEND);
             gl.depth_func(glow::LEQUAL);
-            gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+            gl.blend_func_separate(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+            gl.blend_equation(glow::FUNC_ADD);
             gl.polygon_offset(1.0, 0.0);
             gl.enable(glow::POLYGON_OFFSET_FILL);
         }
