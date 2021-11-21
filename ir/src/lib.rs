@@ -1,9 +1,12 @@
 use std::{
     cmp::Ordering,
     hash::{Hash, Hasher},
+    mem::replace,
 };
 
-use ldraw::{color::ColorReference};
+use ldraw::{
+    color::{ColorReference, MaterialRegistry}
+};
 use serde::{Deserialize, Serialize};
 
 pub mod constraints;
@@ -16,6 +19,28 @@ pub mod part;
 pub struct MeshGroup {
     pub color_ref: ColorReference,
     pub bfc: bool,
+}
+
+impl MeshGroup {
+    pub fn clone_resolved(&self, materials: &MaterialRegistry) -> Self {
+        if let ColorReference::Unknown(v) = self.color_ref {
+            MeshGroup {
+                color_ref: ColorReference::resolve(v, materials),
+                bfc: self.bfc
+            }
+        } else {
+            self.clone()
+        }
+    }
+
+    pub fn resolve_color(&mut self, materials: &MaterialRegistry) -> bool {
+        if let ColorReference::Unknown(v) = self.color_ref {
+            let _ = replace(&mut self.color_ref, ColorReference::resolve(v, &materials));
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Hash for MeshGroup {

@@ -9,7 +9,7 @@ use std::{
 use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
 use kdtree::{distance::squared_euclidean, KdTree};
 use ldraw::{
-    color::ColorReference,
+    color::{ColorReference, MaterialRegistry},
     document::Document,
     elements::{BfcStatement, Command, Meta},
     library::{ResolutionMap, ResolutionResult},
@@ -194,6 +194,25 @@ impl PartBufferBuilder {
                 Some(entry)
             }
             _ => None,
+        }
+    }
+
+    pub fn resolve_colors(&mut self, colors: &MaterialRegistry) {
+        let keys = self.opaque_meshes.keys().map(|e| e.clone()).collect::<Vec<_>>();
+        for key in keys.iter() {
+            let val = match self.opaque_meshes.remove(&key) {
+                Some(v) => v,
+                None => continue,
+            };
+            self.opaque_meshes.insert(key.clone_resolved(colors), val);
+        }
+        let keys = self.translucent_meshes.keys().map(|e| e.clone()).collect::<Vec<_>>();
+        for key in keys.iter() {
+            let val = match self.translucent_meshes.remove(&key) {
+                Some(v) => v,
+                None => continue,
+            };
+            self.translucent_meshes.insert(key.clone_resolved(colors), val);
         }
     }
 }
