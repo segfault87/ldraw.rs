@@ -275,8 +275,6 @@ impl<GL: HasContext> RenderingContext<GL> {
                 let transformed_bb = self.projection_data.derive_projected_bounding_box_2d(&bb);
 
                 let (adjusted, fraction) = if transformed_bb.len_x() >= transformed_bb.len_y() {
-                    println!("x {} y {}", transformed_bb.len_x(), transformed_bb.len_y());
-
                     let margin = transformed_bb.len_x() * 0.05;
                     let d = (transformed_bb.len_x() - transformed_bb.len_y()) * 0.5;
                     let fd = d / transformed_bb.len_x();

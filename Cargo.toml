@@ -4,6 +4,7 @@ members = [
     "ldraw",
     "olr",
     "tools/baker",
+    "tools/ldr2img",
     "tools/viewer/common",
     "tools/viewer/native",
     "tools/viewer/web"
