@@ -65,7 +65,7 @@ impl<GL: HasContext> InstanceBuffer<GL> {
         }
     }
 
-    pub fn calculate_bounding_box(&self, bounding_box: &BoundingBox3) -> BoundingBox3 {
+    pub fn calculate_bounding_box(&self, bounding_box: &BoundingBox3) -> Option<BoundingBox3> {
         let mut bb = BoundingBox3::zero();
 
         for matrix in self.model_view_matrices.iter() {
@@ -75,7 +75,11 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             } 
         }
 
-        bb
+        if bb.is_null() {
+            None
+        } else {
+            Some(bb)
+        }
     }
 
     pub fn is_empty(&self) -> bool {
