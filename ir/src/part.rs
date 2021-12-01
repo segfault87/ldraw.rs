@@ -3,6 +3,7 @@ use std::{
     f32, mem,
     ops::Deref,
     rc::Rc,
+    sync::Arc,
     vec::Vec,
 };
 
@@ -585,7 +586,7 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
                             }
                             Some(ResolutionResult::Associated(part)) => {
                                 self.color_stack.push(color);
-                                self.traverse(&Rc::clone(part), matrix, cull_next, invert_child);
+                                self.traverse(&Arc::clone(part), matrix, cull_next, invert_child);
                                 self.color_stack.pop();
                             }
                             _ => (),

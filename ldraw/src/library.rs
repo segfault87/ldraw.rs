@@ -1,15 +1,17 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::hash;
-use std::ops::Deref;
-use std::rc::Rc;
+use std::{
+    collections::{HashMap, HashSet},
+    hash,
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::document::{Document, MultipartDocument};
-use crate::elements::PartReference;
-use crate::AliasType;
-use crate::PartAlias;
+use crate::{
+    document::{Document, MultipartDocument},
+    elements::PartReference,
+    AliasType, PartAlias,
+};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum PartKind {
@@ -80,8 +82,8 @@ impl<T> PartDirectory<T> {
 
 #[derive(Debug, Default)]
 pub struct PartCache {
-    primitives: HashMap<PartAlias, Rc<Document>>,
-    parts: HashMap<PartAlias, Rc<Document>>,
+    primitives: HashMap<PartAlias, Arc<Document>>,
+    parts: HashMap<PartAlias, Arc<Document>>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -100,15 +102,15 @@ impl Drop for PartCache {
 impl PartCache {
     pub fn register(&mut self, kind: PartKind, alias: PartAlias, document: Document) {
         match kind {
-            PartKind::Part => self.parts.insert(alias, Rc::new(document)),
-            PartKind::Primitive => self.primitives.insert(alias, Rc::new(document)),
+            PartKind::Part => self.parts.insert(alias, Arc::new(document)),
+            PartKind::Primitive => self.primitives.insert(alias, Arc::new(document)),
         };
     }
 
-    pub fn query(&self, alias: &PartAlias) -> Option<Rc<Document>> {
+    pub fn query(&self, alias: &PartAlias) -> Option<Arc<Document>> {
         match self.parts.get(alias) {
-            Some(part) => Some(Rc::clone(part)),
-            None => self.primitives.get(alias).map(Rc::clone),
+            Some(part) => Some(Arc::clone(part)),
+            None => self.primitives.get(alias).map(Arc::clone),
         }
     }
 
@@ -117,17 +119,17 @@ impl PartCache {
         match collection_strategy {
             CacheCollectionStrategy::Parts => {
                 self.parts
-                    .retain(|_, v| Rc::strong_count(v) > 1 || Rc::weak_count(v) > 0);
+                    .retain(|_, v| Arc::strong_count(v) > 1 || Arc::weak_count(v) > 0);
             }
             CacheCollectionStrategy::Primitives => {
                 self.primitives
-                    .retain(|_, v| Rc::strong_count(v) > 1 || Rc::weak_count(v) > 0);
+                    .retain(|_, v| Arc::strong_count(v) > 1 || Arc::weak_count(v) > 0);
             }
             CacheCollectionStrategy::PartsAndPrimitives => {
                 self.parts
-                    .retain(|_, v| Rc::strong_count(v) > 1 || Rc::weak_count(v) > 0);
+                    .retain(|_, v| Arc::strong_count(v) > 1 || Arc::weak_count(v) > 0);
                 self.primitives
-                    .retain(|_, v| Rc::strong_count(v) > 1 || Rc::weak_count(v) > 0);
+                    .retain(|_, v| Arc::strong_count(v) > 1 || Arc::weak_count(v) > 0);
             }
         };
         prev_size - self.parts.len() - self.primitives.len()
@@ -151,20 +153,20 @@ pub enum ResolutionResult<'a, T> {
     Missing,
     Pending(PartEntry<T>),
     Subpart(&'a Document),
-    Associated(Rc<Document>),
+    Associated(Arc<Document>),
 }
 
 #[derive(Clone, Debug)]
 pub struct ResolutionMap<'a, T> {
-    directory: Rc<RefCell<PartDirectory<T>>>,
-    cache: Rc<RefCell<PartCache>>,
+    directory: Arc<RwLock<PartDirectory<T>>>,
+    cache: Arc<RwLock<PartCache>>,
     pub map: HashMap<PartAlias, ResolutionResult<'a, T>>,
 }
 
 impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
     pub fn new(
-        directory: Rc<RefCell<PartDirectory<T>>>,
-        cache: Rc<RefCell<PartCache>>,
+        directory: Arc<RwLock<PartDirectory<T>>>,
+        cache: Arc<RwLock<PartCache>>,
     ) -> ResolutionMap<'a, T> {
         ResolutionMap {
             directory,
@@ -201,15 +203,15 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
                 }
             }
 
-            let cached = self.cache.borrow().query(name);
+            let cached = self.cache.read().unwrap().query(name);
             if let Some(e) = cached {
                 self.map
-                    .insert(name.clone(), ResolutionResult::Associated(Rc::clone(&e)));
+                    .insert(name.clone(), ResolutionResult::Associated(Arc::clone(&e)));
                 self.resolve(&e, None);
                 continue;
             }
 
-            if let Some(e) = self.directory.borrow().query(name) {
+            if let Some(e) = self.directory.read().unwrap().query(name) {
                 self.map
                     .insert(name.clone(), ResolutionResult::Pending(e.clone()));
             } else {
@@ -218,11 +220,11 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
         }
     }
 
-    pub fn update(&mut self, key: &PartAlias, document: Rc<Document>) {
-        self.resolve(&Rc::clone(&document), None);
+    pub fn update(&mut self, key: &PartAlias, document: Arc<Document>) {
+        self.resolve(&Arc::clone(&document), None);
         self.map.insert(
             key.clone(),
-            ResolutionResult::Associated(Rc::clone(&document)),
+            ResolutionResult::Associated(Arc::clone(&document)),
         );
     }
 
@@ -240,6 +242,38 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
 
     pub fn get(&self, elem: &PartReference) -> Option<&ResolutionResult<T>> {
         self.map.get(&elem.name)
+    }
+
+    fn traverse_dependencies(
+        &self,
+        document: &Document,
+        list: &mut HashSet<PartAlias>,
+    ) {
+        for part_ref in document.iter_refs() {
+            match self.get(&part_ref) {
+                Some(&ResolutionResult::Subpart(doc)) => {
+                    self.traverse_dependencies(doc, list);
+                },
+                Some(ResolutionResult::Associated(part)) => {
+                    if !list.contains(&part_ref.name) {
+                        list.insert(part_ref.name.clone());
+                    }
+                    self.traverse_dependencies(&part, list);
+                },
+                _ => {},
+            }
+        }
+    }
+
+    pub fn list_all_dependencies(
+        &self,
+        document: &Document,
+    ) -> HashSet<PartAlias> {
+        let mut result = HashSet::new();
+
+        self.traverse_dependencies(&document, &mut result);
+
+        result
     }
 }
 

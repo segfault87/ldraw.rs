@@ -1,16 +1,19 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::ffi::OsString;
-use std::fs::File;
-use std::io::BufReader;
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::{
+    collections::HashMap,
+    ffi::{OsStr, OsString},
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+    sync::{Arc, RwLock},
+};
 
-use crate::color::MaterialRegistry;
-use crate::error::LibraryError;
-use crate::library::{PartCache, PartDirectory, PartEntry, PartKind};
-use crate::parser::parse_single_document;
-use crate::PartAlias;
+use crate::{
+    color::MaterialRegistry,
+    error::LibraryError,
+    library::{PartCache, PartDirectory, PartEntry, PartKind},
+    parser::parse_single_document,
+    PartAlias,
+};
 
 pub type PartEntryNative = PartEntry<OsString>;
 pub type PartDirectoryNative = PartDirectory<OsString>;
@@ -31,6 +34,9 @@ fn scan_directory(
         let entry = entry?;
         let file_type = entry.file_type()?;
         let path = entry.path();
+        if !path.is_dir() && path.extension().and_then(OsStr::to_str) != Some("dat") {
+            continue;
+        }
         if file_type.is_dir() {
             scan_directory(
                 &entry.path(),
@@ -78,14 +84,13 @@ pub fn scan_ldraw_directory(path_str: &str) -> Result<PartDirectoryNative, Libra
 
 pub fn load_files<'a, T>(
     materials: &MaterialRegistry,
-    cache: Rc<RefCell<PartCache>>,
+    cache: Arc<RwLock<PartCache>>,
     files: T,
 ) -> Option<Vec<PartAlias>>
 where
     T: Iterator<Item = (&'a PartAlias, &'a PartEntryNative)>,
 {
     let mut loaded = Vec::new();
-    let mut cache = cache.borrow_mut();
 
     for (alias, entry) in files {
         let file = match File::open(&entry.locator) {
@@ -103,7 +108,7 @@ where
             }
         };
 
-        cache.register(entry.kind, alias.clone(), result);
+        cache.write().unwrap().register(entry.kind, alias.clone(), result);
         loaded.push(alias.clone());
     }
 
