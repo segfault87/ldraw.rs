@@ -7,6 +7,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use encoding_rs::WINDOWS_1252;
+use encoding_rs_io::DecodeReaderBytesBuilder;
+
 use crate::{
     color::MaterialRegistry,
     error::LibraryError,
@@ -100,7 +103,10 @@ where
                 continue;
             }
         };
-        let result = match parse_single_document(materials, &mut BufReader::new(file)) {
+        let result = match parse_single_document(
+            materials,
+            &mut BufReader::new(DecodeReaderBytesBuilder::new().encoding(Some(WINDOWS_1252)).build(file))
+        ) {
             Ok(v) => v,
             Err(e) => {
                 println!("Could not read part file {}: {:?}", alias.original, e);
