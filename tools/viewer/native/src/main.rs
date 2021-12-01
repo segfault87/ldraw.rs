@@ -1,11 +1,11 @@
 use std::{
-    cell::RefCell,
     collections::{HashMap, HashSet},
     env,
     fs::File,
     io::BufReader,
     path::Path,
     rc::Rc,
+    sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
@@ -63,23 +63,23 @@ impl NativeLoader {
         &mut self, locator: &String, loaded: &HashSet<&PartAlias>
     ) -> (MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
         println!("Scanning LDraw directory...");
-        let directory = Rc::new(RefCell::new(scan_ldraw_directory(&self.ldrawdir).unwrap()));
+        let directory = Arc::new(RwLock::new(scan_ldraw_directory(&self.ldrawdir).unwrap()));
 
         println!("Parsing document...");
         let document =
             parse_multipart_document(&self.colors, &mut BufReader::new(File::open(&locator).unwrap())).unwrap();
 
         println!("Resolving dependencies...");
-        let cache = Rc::new(RefCell::new(PartCache::default()));
-        let mut resolution = ResolutionMap::new(directory, Rc::clone(&cache));
+        let cache = Arc::new(RwLock::new(PartCache::default()));
+        let mut resolution = ResolutionMap::new(directory, Arc::clone(&cache));
         resolution.resolve(&&document.body, Some(&document));
         loop {
-            let files = match load_files(&self.colors, Rc::clone(&cache), resolution.get_pending()) {
+            let files = match load_files(&self.colors, Arc::clone(&cache), resolution.get_pending()) {
                 Some(e) => e,
                 None => break,
             };
             for key in files {
-                let doc = cache.borrow().query(&key).unwrap();
+                let doc = cache.read().unwrap().query(&key).unwrap();
                 
                 resolution.update(&key, doc);
             }
@@ -137,7 +137,8 @@ impl NativeLoader {
         println!(
             "Collected {} entries",
             cache
-                .borrow_mut()
+                .write()
+                .unwrap()
                 .collect(CacheCollectionStrategy::PartsAndPrimitives)
         );
 

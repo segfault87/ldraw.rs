@@ -1,10 +1,9 @@
 use std::{
-    cell::RefCell,
     env,
     fs::File,
     io::{BufReader, BufWriter},
     path::Path,
-    rc::Rc,
+    sync::{Arc, RwLock},
 };
 
 use bincode::serialize_into;
@@ -70,7 +69,7 @@ fn main() {
     };
 
     let ldrawpath = Path::new(&ldrawdir);
-    let directory = Rc::new(RefCell::new(
+    let directory = Arc::new(RwLock::new(
         scan_ldraw_directory(&ldrawdir).expect("Not a LDraw path.")
     ));
 
@@ -78,7 +77,7 @@ fn main() {
         File::open(ldrawpath.join("LDConfig.ldr")).expect("Could not load color definition.")
     )).expect("Could not parse color definition");
 
-    let cache = Rc::new(RefCell::new(PartCache::default()));
+    let cache = Arc::new(RwLock::new(PartCache::default()));
     if let Some(files) = matches.values_of("files") {
         for file in files {
             let path = Path::new(&file);
@@ -94,23 +93,23 @@ fn main() {
                     }
                     let ext = ext.unwrap().to_str().unwrap().to_string().to_lowercase();
                     if ext == "dat" || ext == "ldr" {
-                        bake(&colors, Rc::clone(&directory), Rc::clone(&cache), &path, &output_path)
+                        bake(&colors, Arc::clone(&directory), Arc::clone(&cache), &path, &output_path)
                     }
                 }
             } else {
-                bake(&colors, Rc::clone(&directory), Rc::clone(&cache), &path, &output_path);
+                bake(&colors, Arc::clone(&directory), Arc::clone(&cache), &path, &output_path);
             }
         }
     } else {
         panic!("Required input files are missing.");
     }
 
-    let collected = cache.borrow_mut().collect(CacheCollectionStrategy::PartsAndPrimitives);
+    let collected = cache.write().unwrap().collect(CacheCollectionStrategy::PartsAndPrimitives);
     println!("Collected {} entries.", collected);
 }
 
 fn bake(colors: &MaterialRegistry,
-        directory: Rc<RefCell<PartDirectoryNative>>, cache: Rc<RefCell<PartCache>>, path: &Path,
+        directory: Arc<RwLock<PartDirectoryNative>>, cache: Arc<RwLock<PartCache>>, path: &Path,
         output_path: &Option<&Path>) {
     println!("{}", path.to_str().unwrap());
 
@@ -118,15 +117,15 @@ fn bake(colors: &MaterialRegistry,
         File::open(path).expect(&format!("Could not open document {}", path.to_str().unwrap()))
     )).expect(&format!("Could not parse document {}", path.to_str().unwrap()));
 
-    let mut resolution = ResolutionMap::new(Rc::clone(&directory), Rc::clone(&cache));
+    let mut resolution = ResolutionMap::new(Arc::clone(&directory), Arc::clone(&cache));
     resolution.resolve(&&document.body, Some(&document));
     loop {
-        let files = match load_files(&colors, Rc::clone(&cache), resolution.get_pending()) {
+        let files = match load_files(&colors, Arc::clone(&cache), resolution.get_pending()) {
             Some(e) => e,
             None => break,
         };
         for key in files {
-            let doc = cache.borrow().query(&key).unwrap();
+            let doc = cache.read().unwrap().query(&key).unwrap();
             resolution.update(&key, doc);
         }
     }
@@ -154,5 +153,5 @@ fn bake(colors: &MaterialRegistry,
 
     drop(resolution);
     drop(document);
-    cache.borrow_mut().collect(CacheCollectionStrategy::Parts);
+    cache.write().unwrap().collect(CacheCollectionStrategy::Parts);
 }

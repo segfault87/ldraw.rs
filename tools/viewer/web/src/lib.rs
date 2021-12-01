@@ -1,11 +1,12 @@
 extern crate console_error_panic_hook;
 
 use std::{
-    cell::{RefCell},
+    cell::RefCell,
     collections::{HashMap, HashSet},
     io::BufReader,
     panic,
     rc::Rc,
+    sync::{Arc, RwLock},
     vec::Vec,
 };
 
@@ -108,8 +109,8 @@ async fn load_document(
         }
     };
 
-    let cache = Rc::new(RefCell::new(PartCache::default()));
-    let mut resolution = ResolutionMap::new(Rc::new(RefCell::new(directory)), Rc::clone(&cache));
+    let cache = Arc::new(RwLock::new(PartCache::default()));
+    let mut resolution = ResolutionMap::new(Arc::new(RwLock::new(directory)), Arc::clone(&cache));
     resolution.resolve(&&document.body, Some(&document));
 
     loop {
@@ -129,8 +130,8 @@ async fn load_document(
             match result {
                 Ok(v) => {
                     console_log!("Loaded subpart {}", &alias.0.original);
-                    cache.borrow_mut().register(alias.1.clone(), alias.0.clone(), v);
-                    resolution.update(&alias.0, cache.borrow().query(&alias.0).unwrap());
+                    cache.write().unwrap().register(alias.1.clone(), alias.0.clone(), v);
+                    resolution.update(&alias.0, cache.read().unwrap().query(&alias.0).unwrap());
                 }
                 Err(_) => {
                     console_error!("Could not load subpart {}", &alias.0.original);
@@ -194,7 +195,8 @@ async fn load_document(
     console_log!(
         "Collected {} entries",
         cache
-            .borrow_mut()
+            .write()
+            .unwrap()
             .collect(CacheCollectionStrategy::PartsAndPrimitives)
     );
 
