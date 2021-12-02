@@ -1,4 +1,7 @@
-use std::rc::Rc;
+use std::{
+    cell::RefCell,
+    rc::Rc,
+};
 
 use glow::{
     Context as GlContext, HasContext, PixelPackData,
@@ -25,7 +28,9 @@ pub struct OlrContext {
     pub height: usize,
 
     pub gl: Rc<GlContext>,
-    pub rendering_context: RenderingContext<GlContext>,
+
+    /// declaring it RefCell for in use within thread locals
+    pub rendering_context: RefCell<RenderingContext<GlContext>>,
     
     _gl_context: Context<PossiblyCurrent>,
 
@@ -152,7 +157,7 @@ fn create_context(
     }
 
     let program_manager = ProgramManager::new(Rc::clone(&gl))?;
-    let rendering_context = RenderingContext::new(Rc::clone(&gl), program_manager);
+    let rendering_context = RefCell::new(RenderingContext::new(Rc::clone(&gl), program_manager));
 
     Ok(OlrContext {
         width,

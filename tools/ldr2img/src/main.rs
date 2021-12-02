@@ -122,12 +122,14 @@ fn main() {
 
     let mut display_list = DisplayList::from_multipart_document(Rc::clone(&gl), &document);
 
-    let rc = &mut context.rendering_context;
+    {
+        let mut rc = context.rendering_context.borrow_mut();
 
-    rc.set_initial_state();
-    rc.resize(size as _, size as _);
-    rc.upload_shading_data();
+        rc.set_initial_state();
+        rc.resize(size as _, size as _);
+        rc.upload_shading_data();
+    }
 
-    let image = render_display_list(&mut context, &parts, &mut display_list);
+    let image = render_display_list(&context, &parts, &mut display_list);
     image.save(&Path::new(output)).unwrap();
 }

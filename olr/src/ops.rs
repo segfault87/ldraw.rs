@@ -18,10 +18,10 @@ use crate::{
     utils::calculate_bounding_box,
 };
 
-pub fn render_single_part(context: &mut OlrContext, part: &Part<GlContext>, material: &Material) -> RgbaImage {
+pub fn render_single_part(context: &OlrContext, part: &Part<GlContext>, material: &Material) -> RgbaImage {
     let gl = &context.gl;
 
-    let rc = &mut context.rendering_context;
+    let mut rc = context.rendering_context.borrow_mut();
 
     unsafe {
         gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
@@ -40,13 +40,13 @@ pub fn render_single_part(context: &mut OlrContext, part: &Part<GlContext>, mate
 }
 
 pub fn render_display_list(
-    context: &mut OlrContext,
+    context: &OlrContext,
     parts: &HashMap<PartAlias, Part<GlContext>>,
     display_list: &mut DisplayList<GlContext>
 ) -> RgbaImage {
     let gl = &context.gl;
 
-    let rc = &mut context.rendering_context;
+    let mut rc = context.rendering_context.borrow_mut();
 
     unsafe {
         gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
