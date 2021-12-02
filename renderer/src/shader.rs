@@ -369,16 +369,18 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
                 );
                 gl.enable_vertex_attrib_array(self.program.position.unwrap());
 
-                gl.bind_buffer(glow::ARRAY_BUFFER, mesh.buffer_normals);
-                gl.vertex_attrib_pointer_f32(
-                    self.program.normal.unwrap(),
-                    3,
-                    glow::FLOAT,
-                    false,
-                    0,
-                    0,
-                );
-                gl.enable_vertex_attrib_array(self.program.normal.unwrap());
+                if let Some(p) = self.program.normal {
+                    gl.bind_buffer(glow::ARRAY_BUFFER, mesh.buffer_normals);
+                    gl.vertex_attrib_pointer_f32(
+                        p,
+                        3,
+                        glow::FLOAT,
+                        false,
+                        0,
+                        0,
+                    );
+                    gl.enable_vertex_attrib_array(self.program.normal.unwrap());
+                }
             }
             true
         } else {
