@@ -155,7 +155,7 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
         },
         "Author:" => match next_token(&mut inner_iterator, true) {
             Ok(msg) => Ok(Line0::Author(msg)),
-            Err(e) => Ok(Line0::Author(String::from(""))),
+            Err(_) => Ok(Line0::Author(String::from(""))),
         },
         "FILE" => match next_token(&mut inner_iterator, true) {
             Ok(msg) => Ok(Line0::File(msg)),
@@ -349,11 +349,8 @@ fn parse_inner<T: BufRead>(
     let mut bfc = BfcCertification::NotApplicable;
     let mut commands = Vec::new();
     let mut headers = Vec::new();
-    let mut last_index: usize = 0;
 
     'read_loop: for (index, line_) in iterator {
-        last_index = index;
-
         let line = match line_ {
             Ok(v) => v,
             Err(e) => {
@@ -474,24 +471,17 @@ fn parse_inner<T: BufRead>(
         }
     }
 
-    if name.is_empty() {
-        Err(DocumentParseError {
-            line: last_index + 1,
-            error: ParseError::InvalidDocumentStructure,
-        })
-    } else {
-        Ok((
-            Document {
-                name,
-                description,
-                author,
-                bfc,
-                headers,
-                commands,
-            },
-            next,
-        ))
-    }
+    Ok((
+        Document {
+            name,
+            description,
+            author,
+            bfc,
+            headers,
+            commands,
+        },
+        next,
+    ))
 }
 
 pub fn parse_single_document<T: BufRead>(

@@ -1,8 +1,4 @@
-use std::{
-    error::Error,
-    fmt,
-    io::Error as IoError,
-};
+use std::{error::Error, fmt, io::Error as IoError};
 
 #[derive(Debug)]
 pub enum ParseError {

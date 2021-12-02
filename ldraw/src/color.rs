@@ -125,7 +125,7 @@ impl Default for Material {
             color: Rgba::new(0x05, 0x13, 0x1d, 0xff),
             edge: Rgba::new(0x59, 0x59, 0x59, 0xff),
             luminance: 0x00,
-            finish: Finish::Plastic
+            finish: Finish::Plastic,
         }
     }
 }
@@ -306,14 +306,14 @@ impl ColorReference {
     pub fn get_color(&self) -> Option<Vector4> {
         match self {
             ColorReference::Material(m) => Some(m.color.into()),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn get_edge_color(&self) -> Option<Vector4> {
         match self {
             ColorReference::Material(m) => Some(m.edge.into()),
-            _ => None
+            _ => None,
         }
     }
 }

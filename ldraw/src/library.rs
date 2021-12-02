@@ -244,34 +244,27 @@ impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
         self.map.get(&elem.name)
     }
 
-    fn traverse_dependencies(
-        &self,
-        document: &Document,
-        list: &mut HashSet<PartAlias>,
-    ) {
+    fn traverse_dependencies(&self, document: &Document, list: &mut HashSet<PartAlias>) {
         for part_ref in document.iter_refs() {
-            match self.get(&part_ref) {
+            match self.get(part_ref) {
                 Some(&ResolutionResult::Subpart(doc)) => {
                     self.traverse_dependencies(doc, list);
-                },
+                }
                 Some(ResolutionResult::Associated(part)) => {
                     if !list.contains(&part_ref.name) {
                         list.insert(part_ref.name.clone());
                     }
-                    self.traverse_dependencies(&part, list);
-                },
-                _ => {},
+                    self.traverse_dependencies(part, list);
+                }
+                _ => {}
             }
         }
     }
 
-    pub fn list_all_dependencies(
-        &self,
-        document: &Document,
-    ) -> HashSet<PartAlias> {
+    pub fn list_all_dependencies(&self, document: &Document) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
-        self.traverse_dependencies(&document, &mut result);
+        self.traverse_dependencies(document, &mut result);
 
         result
     }

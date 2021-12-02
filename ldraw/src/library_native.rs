@@ -105,7 +105,11 @@ where
         };
         let result = match parse_single_document(
             materials,
-            &mut BufReader::new(DecodeReaderBytesBuilder::new().encoding(Some(WINDOWS_1252)).build(file))
+            &mut BufReader::new(
+                DecodeReaderBytesBuilder::new()
+                    .encoding(Some(WINDOWS_1252))
+                    .build(file),
+            ),
         ) {
             Ok(v) => v,
             Err(e) => {
@@ -114,7 +118,10 @@ where
             }
         };
 
-        cache.write().unwrap().register(entry.kind, alias.clone(), result);
+        cache
+            .write()
+            .unwrap()
+            .register(entry.kind, alias.clone(), result);
         loaded.push(alias.clone());
     }
 
