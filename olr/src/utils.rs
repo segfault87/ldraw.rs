@@ -1,12 +1,9 @@
 use std::collections::HashMap;
 
-use glow::{Context as GlContext, HasContext};
+use glow::Context as GlContext;
 use ldraw::PartAlias;
 use ldraw_ir::geometry::BoundingBox3;
-use ldraw_renderer::{
-    display_list::DisplayList,
-    part::Part,
-};
+use ldraw_renderer::{display_list::DisplayList, part::Part};
 
 pub fn calculate_bounding_box(
     parts: &HashMap<PartAlias, Part<GlContext>>,

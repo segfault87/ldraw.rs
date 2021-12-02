@@ -1,25 +1,14 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 
-use glow::{
-    Context as GlContext, HasContext, PixelPackData,
-};
+use glow::{Context as GlContext, HasContext, PixelPackData};
 use glutin::{
-    dpi::PhysicalSize,
-    platform::unix::HeadlessContextExt,
-    event_loop::EventLoop,
-    Context, ContextBuilder, CreationError, GlProfile, GlRequest,
-    NotCurrent, PossiblyCurrent
+    dpi::PhysicalSize, event_loop::EventLoop, platform::unix::HeadlessContextExt, Context,
+    ContextBuilder, CreationError, GlProfile, GlRequest, NotCurrent, PossiblyCurrent,
 };
+use image::RgbaImage;
 use ldraw::Vector2;
 use ldraw_ir::geometry::BoundingBox2;
-use image::RgbaImage;
-use ldraw_renderer::{
-    shader::ProgramManager,
-    state::RenderingContext
-};
+use ldraw_renderer::{shader::ProgramManager, state::RenderingContext};
 
 use crate::error::ContextCreationError;
 
@@ -31,7 +20,7 @@ pub struct OlrContext {
 
     /// declaring it RefCell for in use within thread locals
     pub rendering_context: RefCell<RenderingContext<GlContext>>,
-    
+
     _gl_context: Context<PossiblyCurrent>,
 
     framebuffer: Option<glow::NativeFramebuffer>,
@@ -40,7 +29,6 @@ pub struct OlrContext {
 }
 
 impl OlrContext {
-
     pub fn get_framebuffer_contents(&self, bounds: Option<BoundingBox2>) -> RgbaImage {
         let mut pixels: Vec<u8> = Vec::new();
         pixels.resize(4 * self.width * self.height, 0);
@@ -53,31 +41,51 @@ impl OlrContext {
             let renderbuffer_color = gl.create_renderbuffer().ok();
             gl.bind_renderbuffer(glow::RENDERBUFFER, renderbuffer_color);
             gl.renderbuffer_storage(
-                glow::RENDERBUFFER, glow::RGBA8, self.width as _, self.height as _
+                glow::RENDERBUFFER,
+                glow::RGBA8,
+                self.width as _,
+                self.height as _,
             );
-            gl.framebuffer_renderbuffer(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::RENDERBUFFER, renderbuffer_color);
+            gl.framebuffer_renderbuffer(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::RENDERBUFFER,
+                renderbuffer_color,
+            );
 
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, self.framebuffer);
             gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, framebuffer_wo_multisample);
             gl.blit_framebuffer(
-                0, 0, self.width as _, self.height as _,
-                0, 0, self.width as _, self.height as _,
+                0,
+                0,
+                self.width as _,
+                self.height as _,
+                0,
+                0,
+                self.width as _,
+                self.height as _,
                 glow::COLOR_BUFFER_BIT,
-                glow::NEAREST
+                glow::NEAREST,
             );
-            
+
             gl.bind_framebuffer(glow::FRAMEBUFFER, framebuffer_wo_multisample);
             gl.read_buffer(glow::COLOR_ATTACHMENT0);
             gl.read_pixels(
-                0, 0, self.width as _, self.height as _, glow::RGBA, glow::UNSIGNED_BYTE,
-                PixelPackData::Slice(pixels.as_mut())
+                0,
+                0,
+                self.width as _,
+                self.height as _,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                PixelPackData::Slice(pixels.as_mut()),
             );
 
             gl.delete_renderbuffer(renderbuffer_color.unwrap());
             gl.delete_framebuffer(framebuffer_wo_multisample.unwrap());
         }
 
-        let bounds = bounds.unwrap_or_else(|| BoundingBox2::new(&Vector2::new(0.0, 0.0), &Vector2::new(1.0, 1.0)));
+        let bounds = bounds
+            .unwrap_or_else(|| BoundingBox2::new(&Vector2::new(0.0, 0.0), &Vector2::new(1.0, 1.0)));
 
         let x1 = (bounds.min.x * self.width as f32) as usize;
         let y1 = (bounds.min.y * self.height as f32) as usize;
@@ -101,7 +109,6 @@ impl OlrContext {
 
         RgbaImage::from_raw(cw as _, ch as _, pixels_rearranged).unwrap()
     }
-
 }
 
 impl Drop for OlrContext {
@@ -125,11 +132,14 @@ impl Drop for OlrContext {
 }
 
 fn create_context(
-    context: Context<NotCurrent>, width: usize, height: usize
+    context: Context<NotCurrent>,
+    width: usize,
+    height: usize,
 ) -> Result<OlrContext, ContextCreationError> {
     let context = unsafe { context.make_current().unwrap() };
 
-    let gl = unsafe { GlContext::from_loader_function(|s| context.get_proc_address(s) as *const _) };
+    let gl =
+        unsafe { GlContext::from_loader_function(|s| context.get_proc_address(s) as *const _) };
     let gl = Rc::new(gl);
 
     let framebuffer;
@@ -144,16 +154,34 @@ fn create_context(
         renderbuffer_depth = gl.create_renderbuffer().ok();
         gl.bind_renderbuffer(glow::RENDERBUFFER, renderbuffer_depth);
         gl.renderbuffer_storage_multisample(
-            glow::RENDERBUFFER, 4, glow::DEPTH_COMPONENT32F, width as _, height as _
+            glow::RENDERBUFFER,
+            4,
+            glow::DEPTH_COMPONENT32F,
+            width as _,
+            height as _,
         );
-        gl.framebuffer_renderbuffer(glow::FRAMEBUFFER, glow::DEPTH_ATTACHMENT, glow::RENDERBUFFER, renderbuffer_depth);
+        gl.framebuffer_renderbuffer(
+            glow::FRAMEBUFFER,
+            glow::DEPTH_ATTACHMENT,
+            glow::RENDERBUFFER,
+            renderbuffer_depth,
+        );
 
         renderbuffer_color = gl.create_renderbuffer().ok();
         gl.bind_renderbuffer(glow::RENDERBUFFER, renderbuffer_color);
         gl.renderbuffer_storage_multisample(
-            glow::RENDERBUFFER, 4, glow::RGBA8, width as _, height as _
+            glow::RENDERBUFFER,
+            4,
+            glow::RGBA8,
+            width as _,
+            height as _,
         );
-        gl.framebuffer_renderbuffer(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::RENDERBUFFER, renderbuffer_color);
+        gl.framebuffer_renderbuffer(
+            glow::FRAMEBUFFER,
+            glow::COLOR_ATTACHMENT0,
+            glow::RENDERBUFFER,
+            renderbuffer_color,
+        );
     }
 
     let program_manager = ProgramManager::new(Rc::clone(&gl))?;
@@ -170,12 +198,14 @@ fn create_context(
 
         framebuffer,
         renderbuffer_color,
-        renderbuffer_depth
+        renderbuffer_depth,
     })
 }
 
 pub fn create_headless_context<T: 'static>(
-    ev: EventLoop<T>, width: usize, height: usize
+    ev: EventLoop<T>,
+    width: usize,
+    height: usize,
 ) -> Result<OlrContext, ContextCreationError> {
     let size = PhysicalSize::new(1, 1);
     let cb = ContextBuilder::new()
@@ -188,22 +218,35 @@ pub fn create_headless_context<T: 'static>(
         Err(_) => match cb.clone().build_headless(&ev, size) {
             Ok(e) => e,
             Err(e) => {
-                if cfg!(any(target_os = "linux", target_os = "freebsd", target_os = "dragonfly", target_os = "netbsd", target_os = "openbsd")) {
+                if cfg!(any(
+                    target_os = "linux",
+                    target_os = "freebsd",
+                    target_os = "dragonfly",
+                    target_os = "netbsd",
+                    target_os = "openbsd"
+                )) {
                     cb.build_osmesa(size)?
                 } else {
-                    return Err(ContextCreationError::GlContextError(e))
+                    return Err(ContextCreationError::GlContextError(e));
                 }
             }
-        }
+        },
     };
 
     create_context(context, width, height)
 }
 
 pub fn create_osmesa_context(
-    width: usize, height: usize
+    width: usize,
+    height: usize,
 ) -> Result<OlrContext, ContextCreationError> {
-    if cfg!(any(target_os = "linux", target_os = "freebsd", target_os = "dragonfly", target_os = "netbsd", target_os = "openbsd")) {
+    if cfg!(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )) {
         let size = PhysicalSize::new(1, 1);
         let cb = ContextBuilder::new()
             .with_gl_profile(GlProfile::Core)
@@ -214,6 +257,10 @@ pub fn create_osmesa_context(
 
         create_context(context, width, height)
     } else {
-        Err(ContextCreationError::GlContextError(CreationError::OsError(String::from("Osmesa context is only available for *nix systems."))))
+        Err(ContextCreationError::GlContextError(
+            CreationError::OsError(String::from(
+                "Osmesa context is only available for *nix systems.",
+            )),
+        ))
     }
 }
