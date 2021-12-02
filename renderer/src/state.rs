@@ -1,16 +1,9 @@
 use std::{collections::HashMap, rc::Rc, vec::Vec};
 
-use cgmath::{
-    prelude::*,
-    Deg, Ortho, PerspectiveFov, Point3,
-    Rad, SquareMatrix
-};
+use cgmath::{prelude::*, Deg, Ortho, PerspectiveFov, Point3, Rad, SquareMatrix};
 use glow::HasContext;
-use image::{ImageFormat, load_from_memory_with_format};
-use ldraw::{
-    color::Material,
-    Matrix3, Matrix4, PartAlias, Vector2, Vector3, Vector4
-};
+use image::{load_from_memory_with_format, ImageFormat};
+use ldraw::{color::Material, Matrix3, Matrix4, PartAlias, Vector2, Vector3, Vector4};
 use ldraw_ir::geometry::{BoundingBox2, BoundingBox3};
 
 use crate::{
@@ -184,7 +177,7 @@ impl OrthographicCamera {
             top: view_bounds.max.y,
             bottom: view_bounds.min.y,
             near: 0.1,
-            far: 100000.0
+            far: 100000.0,
         })
     }
 
@@ -207,7 +200,9 @@ pub struct RenderingContext<GL: HasContext> {
 }
 
 fn load_envmap() -> Vec<u8> {
-    let image = load_from_memory_with_format(include_bytes!("../assets/cubemap.png"), ImageFormat::Png).unwrap();
+    let image =
+        load_from_memory_with_format(include_bytes!("../assets/cubemap.png"), ImageFormat::Png)
+            .unwrap();
     let rgba = image.to_rgba8();
     rgba.into_raw()
 }
@@ -273,56 +268,77 @@ impl<GL: HasContext> RenderingContext<GL> {
         self.projection_data.orthographic = false;
     }
 
-    pub fn apply_orthographic_camera(&mut self, camera: &OrthographicCamera, view_bounds: &OrthographicViewBounds) -> Option<BoundingBox2> {
+    pub fn apply_orthographic_camera(
+        &mut self,
+        camera: &OrthographicCamera,
+        view_bounds: &OrthographicViewBounds,
+    ) -> Option<BoundingBox2> {
         self.projection_data
             .update_view_matrix(&camera.derive_view_matrix());
 
         let (view_bounding_box, fraction) = match view_bounds {
             OrthographicViewBounds::BoundingBox3(bb) => {
-                let transformed_bb = self.projection_data.derive_projected_bounding_box_2d(&bb);
+                let transformed_bb = self.projection_data.derive_projected_bounding_box_2d(bb);
 
                 let (adjusted, fraction) = if transformed_bb.len_x() >= transformed_bb.len_y() {
                     let margin = transformed_bb.len_x() * 0.05;
                     let d = (transformed_bb.len_x() - transformed_bb.len_y()) * 0.5;
                     let fd = d / transformed_bb.len_x();
 
-                    (BoundingBox2::new(
-                        &Vector2::new(transformed_bb.min.x - margin, transformed_bb.min.y - d - margin),
-                        &Vector2::new(transformed_bb.max.x + margin, transformed_bb.max.y + d + margin),
-                    ), BoundingBox2::new(
-                        &Vector2::new(0.0, fd),
-                        &Vector2::new(1.0, 1.0 - fd)
-                    ))
+                    (
+                        BoundingBox2::new(
+                            &Vector2::new(
+                                transformed_bb.min.x - margin,
+                                transformed_bb.min.y - d - margin,
+                            ),
+                            &Vector2::new(
+                                transformed_bb.max.x + margin,
+                                transformed_bb.max.y + d + margin,
+                            ),
+                        ),
+                        BoundingBox2::new(&Vector2::new(0.0, fd), &Vector2::new(1.0, 1.0 - fd)),
+                    )
                 } else {
                     let margin = transformed_bb.len_x() * 0.05;
                     let d = (transformed_bb.len_y() - transformed_bb.len_x()) * 0.5;
                     let fd = d / transformed_bb.len_y();
 
-                    (BoundingBox2::new(
-                        &Vector2::new(transformed_bb.min.x - d - margin, transformed_bb.min.y - margin),
-                        &Vector2::new(transformed_bb.max.x + d + margin, transformed_bb.max.y + margin),
-                    ), BoundingBox2::new(
-                        &Vector2::new(fd, 0.0),
-                        &Vector2::new(1.0 - fd, 1.0)
-                    ))
+                    (
+                        BoundingBox2::new(
+                            &Vector2::new(
+                                transformed_bb.min.x - d - margin,
+                                transformed_bb.min.y - margin,
+                            ),
+                            &Vector2::new(
+                                transformed_bb.max.x + d + margin,
+                                transformed_bb.max.y + margin,
+                            ),
+                        ),
+                        BoundingBox2::new(&Vector2::new(fd, 0.0), &Vector2::new(1.0 - fd, 1.0)),
+                    )
                 };
 
                 (adjusted, Some(fraction))
-            },
+            }
             OrthographicViewBounds::BoundingBox2(bb) => (bb.clone(), None),
-            OrthographicViewBounds::Radius(r) => (BoundingBox2::new(
-                &Vector2::new(-(r / self.width as f32), -(r / self.height as f32)),
-                &Vector2::new(r / self.width as f32, r / self.height as f32)
-            ), None),
-            OrthographicViewBounds::None => (BoundingBox2::new(
-                &Vector2::new(-(self.width as f32 * 0.125), -(self.height as f32 * 0.125)),
-                &Vector2::new(self.width as f32 * 0.125, self.height as f32 * 0.125)
-            ), None),
+            OrthographicViewBounds::Radius(r) => (
+                BoundingBox2::new(
+                    &Vector2::new(-(r / self.width as f32), -(r / self.height as f32)),
+                    &Vector2::new(r / self.width as f32, r / self.height as f32),
+                ),
+                None,
+            ),
+            OrthographicViewBounds::None => (
+                BoundingBox2::new(
+                    &Vector2::new(-(self.width as f32 * 0.125), -(self.height as f32 * 0.125)),
+                    &Vector2::new(self.width as f32 * 0.125, self.height as f32 * 0.125),
+                ),
+                None,
+            ),
         };
-        
-        self.projection_data.update_projection_matrix(
-            &camera.derive_projection_matrix(&view_bounding_box),
-        );
+
+        self.projection_data
+            .update_projection_matrix(&camera.derive_projection_matrix(&view_bounding_box));
         self.projection_data.orthographic = true;
 
         fraction
@@ -343,7 +359,12 @@ impl<GL: HasContext> RenderingContext<GL> {
             gl.enable(glow::DEPTH_TEST);
             gl.enable(glow::BLEND);
             gl.depth_func(glow::LEQUAL);
-            gl.blend_func_separate(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+            gl.blend_func_separate(
+                glow::SRC_ALPHA,
+                glow::ONE_MINUS_SRC_ALPHA,
+                glow::ONE,
+                glow::ONE_MINUS_SRC_ALPHA,
+            );
             gl.blend_equation(glow::FUNC_ADD);
             gl.polygon_offset(1.0, 0.0);
             gl.enable(glow::POLYGON_OFFSET_FILL);
@@ -376,7 +397,8 @@ impl<GL: HasContext> RenderingContext<GL> {
         if instance_buffer.count == 0 {
             return;
         } else if instance_buffer.count == 1 {
-            self.projection_data.push_model_matrix(&instance_buffer.model_view_matrices[0]);
+            self.projection_data
+                .push_model_matrix(&instance_buffer.model_view_matrices[0]);
             self.render_single_part(part, &instance_buffer.materials[0], translucent);
             self.projection_data.pop_model_matrix();
             return;
@@ -491,12 +513,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         }
     }
 
-    pub fn render_single_part(
-        &mut self,
-        part: &Part<GL>,
-        material: &Material,
-        translucent: bool,
-    ) {
+    pub fn render_single_part(&mut self, part: &Part<GL>, material: &Material, translucent: bool) {
         let gl = &self.gl;
         let part_buffer = &part.part;
 

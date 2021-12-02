@@ -371,14 +371,7 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
 
                 if let Some(p) = self.program.normal {
                     gl.bind_buffer(glow::ARRAY_BUFFER, mesh.buffer_normals);
-                    gl.vertex_attrib_pointer_f32(
-                        p,
-                        3,
-                        glow::FLOAT,
-                        false,
-                        0,
-                        0,
-                    );
+                    gl.vertex_attrib_pointer_f32(p, 3, glow::FLOAT, false, 0, 0);
                     gl.enable_vertex_attrib_array(self.program.normal.unwrap());
                 }
             }
@@ -651,11 +644,11 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.default_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&color)
+                AsRef::<[f32; 4]>::as_ref(&color),
             );
             gl.uniform_4_f32_slice(
                 self.program.edge_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&edge_color)
+                AsRef::<[f32; 4]>::as_ref(&edge_color),
             );
         }
     }
@@ -902,11 +895,11 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
         unsafe {
             gl.uniform_4_f32_slice(
                 self.program.default_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&color)
+                AsRef::<[f32; 4]>::as_ref(&color),
             );
             gl.uniform_4_f32_slice(
                 self.program.edge_color.as_ref(),
-                AsRef::<[f32; 4]>::as_ref(&edge_color)
+                AsRef::<[f32; 4]>::as_ref(&edge_color),
             );
         }
     }

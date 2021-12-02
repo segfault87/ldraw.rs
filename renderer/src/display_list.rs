@@ -72,7 +72,7 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             for point in bounding_box.points() {
                 let transformed = matrix * point.extend(1.0);
                 bb.update_point(&transformed.truncate());
-            } 
+            }
         }
 
         if bb.is_null() {
@@ -99,7 +99,9 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             }
 
             let mut buffer = Vec::<f32>::new();
-            self.model_view_matrices.iter().for_each(|e| buffer.extend(AsRef::<[f32; 16]>::as_ref(e)));
+            self.model_view_matrices
+                .iter()
+                .for_each(|e| buffer.extend(AsRef::<[f32; 16]>::as_ref(e)));
 
             unsafe {
                 gl.bind_buffer(glow::ARRAY_BUFFER, self.model_view_matrices_buffer);
@@ -119,7 +121,9 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             }
 
             let mut buffer = Vec::<f32>::new();
-            self.colors.iter().for_each(|e| buffer.extend(AsRef::<[f32; 4]>::as_ref(e)));
+            self.colors
+                .iter()
+                .for_each(|e| buffer.extend(AsRef::<[f32; 4]>::as_ref(e)));
 
             unsafe {
                 gl.bind_buffer(glow::ARRAY_BUFFER, self.color_buffer);
@@ -139,7 +143,9 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             }
 
             let mut buffer = Vec::<f32>::new();
-            self.edge_colors.iter().for_each(|e| buffer.extend(AsRef::<[f32; 4]>::as_ref(e)));
+            self.edge_colors
+                .iter()
+                .for_each(|e| buffer.extend(AsRef::<[f32; 4]>::as_ref(e)));
 
             unsafe {
                 gl.bind_buffer(glow::ARRAY_BUFFER, self.edge_color_buffer);
@@ -202,7 +208,7 @@ impl<GL: HasContext> DisplayItem<GL> {
         let mut new_colors = vec![];
         let mut new_edge_colors = vec![];
         for (model_view_matrix, material) in izip!(model_view_matrices, materials) {
-            new_model_view_matrices.push(model_view_matrix.clone());
+            new_model_view_matrices.push(*model_view_matrix);
             new_materials.push(material.clone());
             new_colors.push(material.color.into());
             new_edge_colors.push(material.edge.into());
@@ -229,16 +235,10 @@ impl<GL: HasContext> DisplayItem<GL> {
             &mut self.opaque
         };
 
-        buffer
-            .model_view_matrices
-            .push(matrix.clone());
+        buffer.model_view_matrices.push(*matrix);
         buffer.materials.push(material.clone());
-        buffer
-            .colors
-            .push(Vector4::from(&material.color).into());
-        buffer
-            .edge_colors
-            .push(Vector4::from(&material.edge).into());
+        buffer.colors.push(Vector4::from(&material.color));
+        buffer.edge_colors.push(Vector4::from(&material.edge));
         buffer.count += 1;
         buffer.modified = true;
     }
@@ -295,7 +295,7 @@ fn build_display_list<'a, GL: HasContext>(
             material_stack.pop();
         } else {
             let material = match &e.color {
-                ColorReference::Material(m) => &m,
+                ColorReference::Material(m) => m,
                 _ => material_stack.last().unwrap(),
             };
 
@@ -312,8 +312,7 @@ fn build_display_list<'a, GL: HasContext>(
 impl<GL: HasContext> DisplayList<GL> {
     pub fn from_multipart_document(gl: Rc<GL>, document: &MultipartDocument) -> Self {
         let mut display_list = DisplayList::default();
-        let mut material_stack = Vec::new();
-        material_stack.push(Material::default());
+        let mut material_stack = vec![Material::default()];
 
         build_display_list(
             gl,
