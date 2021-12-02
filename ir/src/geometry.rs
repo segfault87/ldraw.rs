@@ -34,10 +34,7 @@ impl BoundingBox2 {
     }
 
     pub fn is_null(&self) -> bool {
-        self.min.x == 0.0
-            && self.min.y == 0.0
-            && self.max.x == 0.0
-            && self.max.y == 0.0
+        self.min.x == 0.0 && self.min.y == 0.0 && self.max.x == 0.0 && self.max.y == 0.0
     }
 
     pub fn update_point(&mut self, v: &Vector2) {

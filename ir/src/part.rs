@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     f32, mem,
     ops::Deref,
-    rc::Rc,
     sync::Arc,
     vec::Vec,
 };
@@ -199,21 +198,22 @@ impl PartBufferBuilder {
     }
 
     pub fn resolve_colors(&mut self, colors: &MaterialRegistry) {
-        let keys = self.opaque_meshes.keys().map(|e| e.clone()).collect::<Vec<_>>();
+        let keys = self.opaque_meshes.keys().cloned().collect::<Vec<_>>();
         for key in keys.iter() {
-            let val = match self.opaque_meshes.remove(&key) {
+            let val = match self.opaque_meshes.remove(key) {
                 Some(v) => v,
                 None => continue,
             };
             self.opaque_meshes.insert(key.clone_resolved(colors), val);
         }
-        let keys = self.translucent_meshes.keys().map(|e| e.clone()).collect::<Vec<_>>();
+        let keys = self.translucent_meshes.keys().cloned().collect::<Vec<_>>();
         for key in keys.iter() {
-            let val = match self.translucent_meshes.remove(&key) {
+            let val = match self.translucent_meshes.remove(key) {
                 Some(v) => v,
                 None => continue,
             };
-            self.translucent_meshes.insert(key.clone_resolved(colors), val);
+            self.translucent_meshes
+                .insert(key.clone_resolved(colors), val);
         }
     }
 }

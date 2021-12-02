@@ -4,15 +4,13 @@ use std::{
     mem::replace,
 };
 
-use ldraw::{
-    color::{ColorReference, MaterialRegistry}
-};
+use ldraw::color::{ColorReference, MaterialRegistry};
 use serde::{Deserialize, Serialize};
 
 pub mod constraints;
 pub mod document;
-pub mod geometry;
 pub mod editor;
+pub mod geometry;
 pub mod part;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -26,7 +24,7 @@ impl MeshGroup {
         if let ColorReference::Unknown(v) = self.color_ref {
             MeshGroup {
                 color_ref: ColorReference::resolve(v, materials),
-                bfc: self.bfc
+                bfc: self.bfc,
             }
         } else {
             self.clone()
@@ -35,7 +33,7 @@ impl MeshGroup {
 
     pub fn resolve_color(&mut self, materials: &MaterialRegistry) -> bool {
         if let ColorReference::Unknown(v) = self.color_ref {
-            let _ = replace(&mut self.color_ref, ColorReference::resolve(v, &materials));
+            let _ = replace(&mut self.color_ref, ColorReference::resolve(v, materials));
             true
         } else {
             false
