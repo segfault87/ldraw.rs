@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     document::{Document, MultipartDocument},
     elements::PartReference,
-    AliasType, PartAlias,
+    PartAlias,
 };
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]

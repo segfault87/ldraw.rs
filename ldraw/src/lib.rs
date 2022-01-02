@@ -1,5 +1,3 @@
-#![feature(trait_alias)]
-
 use std::cmp;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::hash::{Hash, Hasher};
@@ -29,8 +27,6 @@ pub type Vector3 = Vector3_<f32>;
 pub type Vector4 = Vector4_<f32>;
 pub type Point2 = Point2_<f32>;
 pub type Point3 = Point3_<f32>;
-
-pub trait AliasType = Clone + Debug;
 
 #[derive(Clone, Debug)]
 pub struct PartAlias {

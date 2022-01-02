@@ -1,9 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
-    f32, mem,
+    fmt::Debug,
     ops::Deref,
     sync::Arc,
     vec::Vec,
+    f32, mem,
 };
 
 use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
@@ -13,7 +14,7 @@ use ldraw::{
     document::Document,
     elements::{BfcStatement, Command, Meta},
     library::{ResolutionMap, ResolutionResult},
-    AliasType, Matrix4, PartAlias, Vector3, Vector4, Winding,
+    Matrix4, PartAlias, Vector3, Vector4, Winding,
 };
 use serde::{Deserialize, Serialize};
 
@@ -527,7 +528,7 @@ struct PartBaker<'a, T> {
     bounding_box: BoundingBox3,
 }
 
-impl<'a, T: AliasType> PartBaker<'a, T> {
+impl<'a, T: Clone + Debug> PartBaker<'a, T> {
     pub fn traverse<D: Deref<Target = Document>>(
         &mut self,
         document: &D,
@@ -749,7 +750,7 @@ impl<'a, T: AliasType> PartBaker<'a, T> {
     }
 }
 
-pub fn bake_part<'a, T: AliasType>(
+pub fn bake_part<'a, T: Clone + Debug>(
     resolution: &ResolutionMap<'a, T>,
     enabled_features: Option<&HashSet<PartAlias>>,
     document: &Document,
