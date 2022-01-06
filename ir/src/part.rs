@@ -11,9 +11,9 @@ use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
 use kdtree::{distance::squared_euclidean, KdTree};
 use ldraw::{
     color::{ColorReference, MaterialRegistry},
-    document::Document,
+    document::{Document, MultipartDocument},
     elements::{BfcStatement, Command, Meta},
-    library::{ResolutionMap, ResolutionResult},
+    library::{ResolutionResult, ResolutionState},
     Matrix4, PartAlias, Vector3, Vector4, Winding,
 };
 use serde::{Deserialize, Serialize};
@@ -517,8 +517,8 @@ impl MeshBuilder {
     }
 }
 
-struct PartBaker<'a, T> {
-    resolutions: &'a ResolutionMap<'a, T>,
+struct PartBaker<'a> {
+    resolutions: &'a ResolutionResult,
     enabled_features: Option<&'a HashSet<PartAlias>>,
 
     builder: PartBufferBuilder,
@@ -528,13 +528,15 @@ struct PartBaker<'a, T> {
     bounding_box: BoundingBox3,
 }
 
-impl<'a, T: Clone + Debug> PartBaker<'a, T> {
-    pub fn traverse<D: Deref<Target = Document>>(
+impl<'a> PartBaker<'a> {
+    pub fn traverse<M: Deref<Target = MultipartDocument>>(
         &mut self,
-        document: &D,
+        document: &Document,
+        parent: M,
         matrix: Matrix4,
         cull: bool,
         invert: bool,
+        local: bool,
     ) {
         let mut local_cull = true;
         let mut winding = Winding::Ccw;
@@ -579,18 +581,16 @@ impl<'a, T: Clone + Debug> PartBaker<'a, T> {
                             .or_insert_with(Vec::new))
                         .push((color.clone(), matrix));
                     } else {
-                        match self.resolutions.get(cmd) {
-                            Some(ResolutionResult::Subpart(part)) => {
+                        if let Some(part) = parent.get_subpart(&cmd.name) {
+                            self.color_stack.push(color);
+                            self.traverse(part, &*parent, matrix, cull_next, invert_child, local);
+                            self.color_stack.pop();
+                        } else {
+                            if let Some((document, local)) = self.resolutions.query(&cmd.name, local) {
                                 self.color_stack.push(color);
-                                self.traverse(part, matrix, cull_next, invert_child);
+                                self.traverse(&document.body, Arc::clone(&document), matrix, cull_next, invert_child, local);
                                 self.color_stack.pop();
                             }
-                            Some(ResolutionResult::Associated(part)) => {
-                                self.color_stack.push(color);
-                                self.traverse(&Arc::clone(part), matrix, cull_next, invert_child);
-                                self.color_stack.pop();
-                            }
-                            _ => (),
                         }
                     }
 
@@ -730,7 +730,7 @@ impl<'a, T: Clone + Debug> PartBaker<'a, T> {
     }
 
     pub fn new(
-        resolutions: &'a ResolutionMap<T>,
+        resolutions: &'a ResolutionResult,
         enabled_features: Option<&'a HashSet<PartAlias>>,
     ) -> Self {
         let mut mb = PartBaker {
@@ -751,12 +751,12 @@ impl<'a, T: Clone + Debug> PartBaker<'a, T> {
 }
 
 pub fn bake_part<'a, T: Clone + Debug>(
-    resolution: &ResolutionMap<'a, T>,
+    resolutions: &ResolutionResult,
     enabled_features: Option<&HashSet<PartAlias>>,
-    document: &Document,
+    document: &MultipartDocument,
 ) -> PartBuilder {
-    let mut baker = PartBaker::new(resolution, enabled_features);
+    let mut baker = PartBaker::new(resolutions, enabled_features);
 
-    baker.traverse(&document, Matrix4::identity(), true, false);
+    baker.traverse(&document.body, document, Matrix4::identity(), true, false, true);
     baker.bake()
 }

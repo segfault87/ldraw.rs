@@ -138,6 +138,10 @@ pub struct MultipartDocument {
 }
 
 impl MultipartDocument {
+    pub fn get_subpart(&self, alias: &PartAlias) -> Option<&Document> {
+        self.subparts.get(alias)
+    }
+
     pub fn list_dependencies(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
