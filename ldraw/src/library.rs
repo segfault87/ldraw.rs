@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     color::MaterialRegistry,
     document::{Document, MultipartDocument},
-    error::PartResolutionError,
+    error::ResolutionError,
     PartAlias,
 };
 
@@ -30,7 +30,8 @@ pub enum FileLocation {
 
 #[async_trait]
 pub trait FileLoader {
-    async fn load(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), PartResolutionError>;
+    async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError>;
+    async fn load(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), ResolutionError>;
 }
 
 #[derive(Debug, Default)]
@@ -155,14 +156,6 @@ impl<'a, 'b> DependencyResolver<'a, 'b> {
         }
     }
 
-    pub fn get_state(&self, alias: &PartAlias, local: bool) -> Option<&ResolutionState<'a>> {
-        if local {
-            self.local_map.get(alias)
-        } else {
-            self.map.get(alias)
-        }
-    }
-
     pub fn put_state(&mut self, alias: PartAlias, local: bool, state: ResolutionState<'a>) {
         if local {
             self.local_map.insert(alias, state);
@@ -247,16 +240,6 @@ impl<'a, 'b> DependencyResolver<'a, 'b> {
             }
         })
     }
-
-    fn query_cache(&self, alias: &PartAlias, local: bool) -> Option<(Arc<MultipartDocument>, bool)> {
-        if local {
-            let local_entry = self.local_cache.query(alias);
-            if let Some(e) = local_entry {
-                return Some((Arc::clone(&e), true));
-            }
-        }
-        self.cache.read().unwrap().query(alias).map(|e| (Arc::clone(&e), false))
-    }
 }
 
 #[derive(Debug, Default)]
@@ -285,7 +268,7 @@ pub async fn resolve_dependencies<F, L>(
     on_update: F
 ) -> ResolutionResult
 where
-    F: Fn(PartAlias, Result<(), PartResolutionError>),
+    F: Fn(PartAlias, Result<(), ResolutionError>),
     L: FileLoader {
     let mut resolver = DependencyResolver::new(materials, cache);
     resolver.resolve(loader, &document.body, Some(document), true).await;

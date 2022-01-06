@@ -132,41 +132,50 @@ impl Error for SerializeError {
 }
 
 #[derive(Debug)]
-pub enum PartResolutionError {
+pub enum ResolutionError {
     NoLDrawDir,
     FileNotFound,
     IoError(Box<IoError>),
     DocumentParseError(DocumentParseError),
+    ColorDefinitionParseError(ColorDefinitionParseError),
 }
 
-impl From<IoError> for PartResolutionError {
-    fn from(e: IoError) -> PartResolutionError {
-        PartResolutionError::IoError(Box::new(e))
+impl From<IoError> for ResolutionError {
+    fn from(e: IoError) -> ResolutionError {
+        ResolutionError::IoError(Box::new(e))
     }
 }
 
-impl From<DocumentParseError> for PartResolutionError {
-    fn from(e: DocumentParseError) -> PartResolutionError {
-        PartResolutionError::DocumentParseError(e)
+impl From<DocumentParseError> for ResolutionError {
+    fn from(e: DocumentParseError) -> ResolutionError {
+        ResolutionError::DocumentParseError(e)
     }
 }
 
-impl fmt::Display for PartResolutionError {
+impl From<ColorDefinitionParseError> for ResolutionError {
+    fn from(e: ColorDefinitionParseError) -> ResolutionError {
+        ResolutionError::ColorDefinitionParseError(e)
+    }
+}
+
+impl fmt::Display for ResolutionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PartResolutionError::NoLDrawDir => write!(f, "No LDraw library found."),
-            PartResolutionError::FileNotFound => write!(f, "File not found."),
-            PartResolutionError::IoError(err) => write!(f, "{}", err),
-            PartResolutionError::DocumentParseError(err) => write!(f, "{}", err)
+            ResolutionError::NoLDrawDir => write!(f, "No LDraw library found."),
+            ResolutionError::FileNotFound => write!(f, "File not found."),
+            ResolutionError::IoError(err) => write!(f, "{}", err),
+            ResolutionError::DocumentParseError(err) => write!(f, "{}", err),
+            ResolutionError::ColorDefinitionParseError(err) => write!(f, "{}", err),
         }
     }
 }
 
-impl Error for PartResolutionError {
+impl Error for ResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            PartResolutionError::IoError(e) => Some(e),
-            PartResolutionError::DocumentParseError(e) => Some(e),
+            ResolutionError::IoError(e) => Some(e),
+            ResolutionError::DocumentParseError(e) => Some(e),
+            ResolutionError::ColorDefinitionParseError(e) => Some(e),
             _ => None,
         }
     }
