@@ -1,8 +1,17 @@
-use std::collections::HashMap;
-use std::io::{BufRead, Lines};
-use std::iter::Enumerate;
-use std::str::Chars;
+use std::{
+    collections::HashMap,
+    marker::Unpin,
+    str::Chars,
+};
 
+use futures::{
+    io::Lines,
+    stream::Enumerate,
+    AsyncBufReadExt, StreamExt
+};
+use async_std::{
+    io::BufRead,
+};
 use cgmath::Matrix;
 
 use crate::{
@@ -337,7 +346,7 @@ fn parse_line_5(
     })
 }
 
-fn parse_inner<T: BufRead>(
+async fn parse_inner<T: BufRead + Unpin>(
     materials: &MaterialRegistry,
     iterator: &mut Enumerate<Lines<T>>,
     multipart: bool,
@@ -350,7 +359,7 @@ fn parse_inner<T: BufRead>(
     let mut commands = Vec::new();
     let mut headers = Vec::new();
 
-    'read_loop: for (index, line_) in iterator {
+    'read_loop: while let Some((index, line_)) = iterator.next().await {
         let line = match line_ {
             Ok(v) => v,
             Err(e) => {
@@ -484,26 +493,26 @@ fn parse_inner<T: BufRead>(
     ))
 }
 
-pub fn parse_single_document<T: BufRead>(
+pub async fn parse_single_document<T: BufRead + Unpin>(
     materials: &MaterialRegistry,
     reader: &mut T,
 ) -> Result<Document, DocumentParseError> {
     let mut it = reader.lines().enumerate();
-    let (document, _) = parse_inner(materials, &mut it, false)?;
+    let (document, _) = parse_inner(materials, &mut it, false).await?;
 
     Ok(document)
 }
 
-pub fn parse_multipart_document<T: BufRead>(
+pub async fn parse_multipart_document<T: BufRead + Unpin>(
     materials: &MaterialRegistry,
     reader: &mut T,
 ) -> Result<MultipartDocument, DocumentParseError> {
     let mut it = reader.lines().enumerate();
-    let (document, mut next) = parse_inner(materials, &mut it, true)?;
+    let (document, mut next) = parse_inner(materials, &mut it, true).await?;
     let mut subparts = HashMap::new();
 
     while next.is_some() {
-        let (part, next_) = parse_inner(materials, &mut it, true)?;
+        let (part, next_) = parse_inner(materials, &mut it, true).await?;
 
         subparts.insert(PartAlias::from(&next.unwrap()), part);
         next = next_;
@@ -644,12 +653,12 @@ fn parse_customized_material(
     }
 }
 
-pub fn parse_color_definition<T: BufRead>(
+pub async fn parse_color_definition<T: BufRead + Unpin>(
     reader: &mut T,
 ) -> Result<MaterialRegistry, ColorDefinitionParseError> {
     // Use an empty context here
     let materials = MaterialRegistry::new();
-    let document = parse_single_document(&materials, reader)?;
+    let document = parse_single_document(&materials, reader).await?;
 
     let mut materials = MaterialRegistry::new();
     for Header(_, value) in document.headers.iter().filter(|s| s.0 == "COLOUR") {

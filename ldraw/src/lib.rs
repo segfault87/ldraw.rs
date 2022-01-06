@@ -15,9 +15,8 @@ pub mod document;
 pub mod elements;
 pub mod error;
 pub mod library;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod library_native;
 pub mod parser;
+pub mod resolvers;
 pub mod writer;
 
 pub type Matrix3 = Matrix3_<f32>;

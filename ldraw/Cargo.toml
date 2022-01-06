@@ -5,9 +5,26 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+async-std = "~1.10.0"
+async-trait = "~0.1.52"
 cgmath = { version = "~0.18.0", features = ["serde"] }
+futures = "~0.3.19"
 serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "~0.11.8", optional = true }
 encoding_rs = "~0.8.29"
 encoding_rs_io = "~0.1.4"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
+version = "~0.3.55"
+features = [
+    'Request',
+    'RequestInit',
+    'RequestMode',
+    'Response',
+    'Window'
+]
+
+[features]
+http = ["reqwest"]

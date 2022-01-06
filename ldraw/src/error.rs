@@ -132,30 +132,41 @@ impl Error for SerializeError {
 }
 
 #[derive(Debug)]
-pub enum LibraryError {
+pub enum PartResolutionError {
     NoLDrawDir,
+    FileNotFound,
     IoError(Box<IoError>),
+    DocumentParseError(DocumentParseError),
 }
 
-impl From<IoError> for LibraryError {
-    fn from(e: IoError) -> LibraryError {
-        LibraryError::IoError(Box::new(e))
+impl From<IoError> for PartResolutionError {
+    fn from(e: IoError) -> PartResolutionError {
+        PartResolutionError::IoError(Box::new(e))
     }
 }
 
-impl fmt::Display for LibraryError {
+impl From<DocumentParseError> for PartResolutionError {
+    fn from(e: DocumentParseError) -> PartResolutionError {
+        PartResolutionError::DocumentParseError(e)
+    }
+}
+
+impl fmt::Display for PartResolutionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            LibraryError::NoLDrawDir => write!(f, "No LDraw library found."),
-            LibraryError::IoError(err) => write!(f, "{}", err),
+            PartResolutionError::NoLDrawDir => write!(f, "No LDraw library found."),
+            PartResolutionError::FileNotFound => write!(f, "File not found."),
+            PartResolutionError::IoError(err) => write!(f, "{}", err),
+            PartResolutionError::DocumentParseError(err) => write!(f, "{}", err)
         }
     }
 }
 
-impl Error for LibraryError {
+impl Error for PartResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            LibraryError::IoError(e) => Some(e),
+            PartResolutionError::IoError(e) => Some(e),
+            PartResolutionError::DocumentParseError(e) => Some(e),
             _ => None,
         }
     }

@@ -1,89 +1,42 @@
 use std::{
-    collections::{HashMap, HashSet},
-    hash,
+    collections::HashMap,
     ops::Deref,
+    pin::Pin,
     sync::{Arc, RwLock},
 };
 
+use async_trait::async_trait;
+use futures::future::{Future, join_all};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    color::MaterialRegistry,
     document::{Document, MultipartDocument},
-    elements::PartReference,
+    error::PartResolutionError,
     PartAlias,
 };
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Hash)]
 pub enum PartKind {
     Primitive,
     Part,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PartEntry<T> {
-    pub kind: PartKind,
-    pub locator: T,
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Hash)]
+pub enum FileLocation {
+    Library(PartKind),
+    Local
 }
 
-impl<T> Clone for PartEntry<T>
-where
-    T: Clone,
-{
-    fn clone(&self) -> PartEntry<T> {
-        PartEntry {
-            kind: self.kind,
-            locator: self.locator.clone(),
-        }
-    }
-}
-
-impl<T> hash::Hash for PartEntry<T>
-where
-    T: hash::Hash,
-{
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.locator.hash(state)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PartDirectory<T> {
-    pub primitives: HashMap<PartAlias, PartEntry<T>>,
-    pub parts: HashMap<PartAlias, PartEntry<T>>,
-}
-
-impl<T> Default for PartDirectory<T> {
-    fn default() -> PartDirectory<T> {
-        PartDirectory {
-            primitives: HashMap::new(),
-            parts: HashMap::new(),
-        }
-    }
-}
-
-impl<T> PartDirectory<T> {
-    pub fn add(&mut self, key: PartAlias, entry: PartEntry<T>) {
-        match entry.kind {
-            PartKind::Primitive => self.primitives.insert(key, entry),
-            PartKind::Part => self.parts.insert(key, entry),
-        };
-    }
-
-    pub fn query(&self, key: &PartAlias) -> Option<&PartEntry<T>> {
-        match self.parts.get(key) {
-            Some(v) => Some(v),
-            None => match self.primitives.get(key) {
-                Some(v) => Some(v),
-                None => None,
-            },
-        }
-    }
+#[async_trait]
+pub trait FileLoader {
+    async fn load(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), PartResolutionError>;
 }
 
 #[derive(Debug, Default)]
 pub struct PartCache {
-    primitives: HashMap<PartAlias, Arc<Document>>,
-    parts: HashMap<PartAlias, Arc<Document>>,
+    primitives: HashMap<PartAlias, Arc<MultipartDocument>>,
+    parts: HashMap<PartAlias, Arc<MultipartDocument>>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -100,14 +53,14 @@ impl Drop for PartCache {
 }
 
 impl PartCache {
-    pub fn register(&mut self, kind: PartKind, alias: PartAlias, document: Document) {
+    pub fn register(&mut self, kind: PartKind, alias: PartAlias, document: Arc<MultipartDocument>) {
         match kind {
-            PartKind::Part => self.parts.insert(alias, Arc::new(document)),
-            PartKind::Primitive => self.primitives.insert(alias, Arc::new(document)),
+            PartKind::Part => self.parts.insert(alias, document),
+            PartKind::Primitive => self.primitives.insert(alias, document),
         };
     }
 
-    pub fn query(&self, alias: &PartAlias) -> Option<Arc<Document>> {
+    pub fn query(&self, alias: &PartAlias) -> Option<Arc<MultipartDocument>> {
         match self.parts.get(alias) {
             Some(part) => Some(Arc::clone(part)),
             None => self.primitives.get(alias).map(Arc::clone),
@@ -148,127 +101,207 @@ impl PartCache {
     }
 }
 
+#[derive(Debug, Default)]
+struct TransientDocumentCache {
+    documents: HashMap<PartAlias, Arc<MultipartDocument>>,
+}
+
+impl TransientDocumentCache {
+    pub fn register(&mut self, alias: PartAlias, document: Arc<MultipartDocument>) {
+        self.documents.insert(alias, document);
+    }
+
+    pub fn query(&self, alias: &PartAlias) -> Option<Arc<MultipartDocument>> {
+        self.documents.get(alias).map(Arc::clone)
+    }
+}
+
 #[derive(Clone, Debug)]
-pub enum ResolutionResult<'a, T> {
+pub enum ResolutionState<'a> {
     Missing,
-    Pending(PartEntry<T>),
     Subpart(&'a Document),
-    Associated(Arc<Document>),
+    Associated(Arc<MultipartDocument>),
 }
 
-#[derive(Clone, Debug)]
-pub struct ResolutionMap<'a, T> {
-    directory: Arc<RwLock<PartDirectory<T>>>,
+#[derive(Debug)]
+struct DependencyResolver<'a, 'b> {
+    materials: &'b MaterialRegistry,
     cache: Arc<RwLock<PartCache>>,
-    pub map: HashMap<PartAlias, ResolutionResult<'a, T>>,
+    local_cache: TransientDocumentCache,
+
+    pub map: HashMap<PartAlias, ResolutionState<'a>>,
+    pub local_map: HashMap<PartAlias, ResolutionState<'a>>,
 }
 
-impl<'a, 'b, T: Clone> ResolutionMap<'a, T> {
+impl<'a, 'b> DependencyResolver<'a, 'b> {
     pub fn new(
-        directory: Arc<RwLock<PartDirectory<T>>>,
+        materials: &'b MaterialRegistry,
         cache: Arc<RwLock<PartCache>>,
-    ) -> ResolutionMap<'a, T> {
-        ResolutionMap {
-            directory,
+    ) -> DependencyResolver<'a, 'b> {
+        DependencyResolver {
+            materials,
             cache,
+            local_cache: TransientDocumentCache::default(),
             map: HashMap::new(),
+            local_map: HashMap::new(),
         }
     }
 
-    pub fn get_pending(&'b self) -> impl Iterator<Item = (&'b PartAlias, &'b PartEntry<T>)> {
-        self.map.iter().filter_map(|(key, value)| match value {
-            ResolutionResult::Pending(a) => Some((key, a)),
-            _ => None,
+    pub fn contains_state(&self, alias: &PartAlias, local: bool) -> bool {
+        if local {
+            self.local_map.contains_key(alias)
+        } else {
+            self.map.contains_key(alias)
+        }
+    }
+
+    pub fn get_state(&self, alias: &PartAlias, local: bool) -> Option<&ResolutionState<'a>> {
+        if local {
+            self.local_map.get(alias)
+        } else {
+            self.map.get(alias)
+        }
+    }
+
+    pub fn put_state(&mut self, alias: PartAlias, local: bool, state: ResolutionState<'a>) {
+        if local {
+            self.local_map.insert(alias, state);
+        } else {
+            self.map.insert(alias, state);
+        }
+    }
+
+    pub fn resolve<'x, L: FileLoader, D: 'x + Deref<Target = Document>>(
+        &'x mut self,
+        loader: &'x L,
+        document: D,
+        parent: Option<&'a MultipartDocument>,
+        local: bool
+    ) -> Pin<Box<dyn Future<Output = ()> + 'x>> {
+        Box::pin(async move {
+            let mut pending = vec![];
+            let mut pending_futs = vec![];
+
+            for r in document.iter_refs() {
+                let alias = &r.name;
+
+                if self.contains_state(&alias, local) {
+                    continue;
+                }
+
+                if let Some(e) = parent {
+                    if let Some(subpart) = e.subparts.get(alias) {
+                        self.put_state(alias.clone(), local, ResolutionState::Subpart(subpart));
+                        self.resolve(loader, subpart, parent, local).await;
+                        continue;
+                    }
+                }
+
+                if local {
+                    if let Some(cached) = self.local_cache.query(alias) {
+                        self.put_state(alias.clone(), true, ResolutionState::Associated(Arc::clone(&cached)));
+                        continue;
+                    }
+                }
+
+                let cached = self.cache.read().unwrap().query(alias);
+                if let Some(cached) = cached {
+                    self.put_state(alias.clone(), false, ResolutionState::Associated(Arc::clone(&cached)));
+                    continue;
+                }
+
+                if !pending.contains(alias) {
+                    pending.push(alias.clone());
+                    pending_futs.push(loader.load(self.materials, alias.clone(), local));
+                }
+            }
+
+            let result = join_all(pending_futs).await;
+            for (alias, result) in pending.iter().zip(result.into_iter()) {
+                let mut local = local;
+                let state = match result {
+                    Ok((location, document)) => {
+                        let document = Arc::new(document);
+                        match location {
+                            FileLocation::Library(kind) => {
+                                local = false;
+                                self.cache.write().unwrap().register(kind, alias.clone(), Arc::clone(&document));
+                            },
+                            FileLocation::Local => {
+                                self.local_cache.register(alias.clone(), Arc::clone(&document));
+                            },
+                        };
+
+                        ResolutionState::Associated(document)
+                    },
+                    Err(_) => ResolutionState::Missing,
+                };
+
+                if !self.contains_state(&alias, local) {
+                    self.put_state(alias.clone(), local, state.clone());
+                    if let ResolutionState::Associated(document) = state {
+                        self.resolve(loader, &document.body, None, local).await;
+                    }
+                }
+                
+            }
         })
     }
 
-    pub fn resolve<D: Deref<Target = Document>>(
-        &mut self,
-        document: &D,
-        parent: Option<&'a MultipartDocument>,
-    ) {
-        for i in document.iter_refs() {
-            let name = &i.name;
-
-            if self.map.contains_key(name) {
-                continue;
-            }
-
-            if let Some(e) = parent {
-                if let Some(doc) = e.subparts.get(name) {
-                    self.map
-                        .insert(name.clone(), ResolutionResult::Subpart(doc));
-                    self.resolve(&doc, parent);
-                    continue;
-                }
-            }
-
-            let cached = self.cache.read().unwrap().query(name);
-            if let Some(e) = cached {
-                self.map
-                    .insert(name.clone(), ResolutionResult::Associated(Arc::clone(&e)));
-                self.resolve(&e, None);
-                continue;
-            }
-
-            if let Some(e) = self.directory.read().unwrap().query(name) {
-                self.map
-                    .insert(name.clone(), ResolutionResult::Pending(e.clone()));
-            } else {
-                self.map.insert(name.clone(), ResolutionResult::Missing);
+    fn query_cache(&self, alias: &PartAlias, local: bool) -> Option<(Arc<MultipartDocument>, bool)> {
+        if local {
+            let local_entry = self.local_cache.query(alias);
+            if let Some(e) = local_entry {
+                return Some((Arc::clone(&e), true));
             }
         }
-    }
-
-    pub fn update(&mut self, key: &PartAlias, document: Arc<Document>) {
-        self.resolve(&Arc::clone(&document), None);
-        self.map.insert(
-            key.clone(),
-            ResolutionResult::Associated(Arc::clone(&document)),
-        );
-    }
-
-    pub fn query(&'a self, elem: &PartReference) -> Option<&'a Document> {
-        match self.map.get(&elem.name) {
-            Some(e) => match e {
-                ResolutionResult::Missing => None,
-                ResolutionResult::Pending(_) => None,
-                ResolutionResult::Subpart(e) => Some(e),
-                ResolutionResult::Associated(e) => Some(e),
-            },
-            None => None,
-        }
-    }
-
-    pub fn get(&self, elem: &PartReference) -> Option<&ResolutionResult<T>> {
-        self.map.get(&elem.name)
-    }
-
-    fn traverse_dependencies(&self, document: &Document, list: &mut HashSet<PartAlias>) {
-        for part_ref in document.iter_refs() {
-            match self.get(part_ref) {
-                Some(&ResolutionResult::Subpart(doc)) => {
-                    self.traverse_dependencies(doc, list);
-                }
-                Some(ResolutionResult::Associated(part)) => {
-                    if !list.contains(&part_ref.name) {
-                        list.insert(part_ref.name.clone());
-                    }
-                    self.traverse_dependencies(part, list);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    pub fn list_all_dependencies(&self, document: &Document) -> HashSet<PartAlias> {
-        let mut result = HashSet::new();
-
-        self.traverse_dependencies(document, &mut result);
-
-        result
+        self.cache.read().unwrap().query(alias).map(|e| (Arc::clone(&e), false))
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use crate::library_native::*;
+#[derive(Debug, Default)]
+pub struct ResolutionResult {
+    library_entries: HashMap<PartAlias, Arc<MultipartDocument>>,
+    local_entries: HashMap<PartAlias, Arc<MultipartDocument>>,
+}
+
+impl ResolutionResult {
+    pub fn query(&self, alias: &PartAlias, local: bool) -> Option<(Arc<MultipartDocument>, bool)> {
+        if local {
+            let local_entry = self.local_entries.get(alias);
+            if let Some(e) = local_entry {
+                return Some((Arc::clone(&e), true));
+            }
+        }
+        self.library_entries.get(alias).map(|e| (Arc::clone(e), false))
+    }
+}
+
+pub async fn resolve_dependencies<F, L>(
+    cache: Arc<RwLock<PartCache>>,
+    materials: &MaterialRegistry,
+    loader: &L,
+    document: &MultipartDocument,
+    on_update: F
+) -> ResolutionResult
+where
+    F: Fn(PartAlias, Result<(), PartResolutionError>),
+    L: FileLoader {
+    let mut resolver = DependencyResolver::new(materials, cache);
+    resolver.resolve(loader, &document.body, Some(document), true).await;
+
+    ResolutionResult {
+        library_entries: resolver.map.into_iter().filter_map(|(k, v)|
+            match v {
+                ResolutionState::Associated(e) => Some((k, e)),
+                _ => None,
+            }
+        ).collect::<HashMap<_, _>>(),
+        local_entries: resolver.local_map.into_iter().filter_map(|(k, v)|
+            match v {
+                ResolutionState::Associated(e) => Some((k, e)),
+                _ => None,
+            }
+        ).collect::<HashMap<_, _>>(),
+    }
+}
