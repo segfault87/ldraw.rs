@@ -29,9 +29,10 @@ pub enum FileLocation {
 }
 
 #[async_trait]
-pub trait FileLoader {
+pub trait FileLoader<T> {
     async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError>;
-    async fn load(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), ResolutionError>;
+    async fn load_document(&self, materials: &MaterialRegistry, locator: &T) -> Result<MultipartDocument, ResolutionError>;
+    async fn load_ref(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), ResolutionError>;
 }
 
 #[derive(Debug, Default)]
@@ -164,7 +165,7 @@ impl<'a, 'b> DependencyResolver<'a, 'b> {
         }
     }
 
-    pub fn resolve<'x, L: FileLoader, D: 'x + Deref<Target = Document>>(
+    pub fn resolve<'x, T, L: FileLoader<T>, D: 'x + Deref<Target = Document>>(
         &'x mut self,
         loader: &'x L,
         document: D,
@@ -205,7 +206,7 @@ impl<'a, 'b> DependencyResolver<'a, 'b> {
 
                 if !pending.contains(alias) {
                     pending.push(alias.clone());
-                    pending_futs.push(loader.load(self.materials, alias.clone(), local));
+                    pending_futs.push(loader.load_ref(self.materials, alias.clone(), local));
                 }
             }
 
@@ -260,7 +261,7 @@ impl ResolutionResult {
     }
 }
 
-pub async fn resolve_dependencies<F, L>(
+pub async fn resolve_dependencies<T, F, L>(
     cache: Arc<RwLock<PartCache>>,
     materials: &MaterialRegistry,
     loader: &L,
@@ -269,7 +270,7 @@ pub async fn resolve_dependencies<F, L>(
 ) -> ResolutionResult
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
-    L: FileLoader {
+    L: FileLoader<T> {
     let mut resolver = DependencyResolver::new(materials, cache);
     resolver.resolve(loader, &document.body, Some(document), true).await;
 

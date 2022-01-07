@@ -1,3 +1,5 @@
+use std::ffi::OsString;
+
 use async_std::{
     fs::File,
     io::BufReader,
@@ -31,7 +33,7 @@ impl LocalFileLoader {
 }
 
 #[async_trait]
-impl FileLoader for LocalFileLoader {
+impl FileLoader<OsString> for LocalFileLoader {
 
     async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError> {
         let path = {
@@ -49,7 +51,19 @@ impl FileLoader for LocalFileLoader {
         ).await?)
     }
 
-    async fn load(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
+    async fn load_document(&self, materials: &MaterialRegistry, locator: &OsString) -> Result<MultipartDocument, ResolutionError> {
+        let path = Path::new(locator);
+
+        if !path.exists().await {
+            return Err(ResolutionError::FileNotFound);
+        }
+
+        Ok(parse_multipart_document(
+            materials, &mut BufReader::new(File::open(path).await?)
+        ).await?)
+    }
+
+    async fn load_ref(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
         let cwd_path = {
             let mut path = self.cwd.clone();
             path.push(alias.normalized.clone());
@@ -79,8 +93,7 @@ impl FileLoader for LocalFileLoader {
         };
 
         let document = parse_multipart_document(
-            materials,
-            &mut BufReader::new(File::open(&**path).await?)
+            materials, &mut BufReader::new(File::open(&**path).await?)
         ).await?;
 
         Ok((kind, document))
