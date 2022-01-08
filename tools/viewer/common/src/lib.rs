@@ -125,12 +125,13 @@ enum RenderingOrder {
 
 fn traverse<'a, GL: HasContext>(
     gl: Rc<GL>,
+    parts: &'a HashMap<PartAlias, Part<GL>>,
     orders: &mut Vec<RenderingOrder>,
     bb: &mut BoundingBox3,
     document: &'a Document,
     matrix: Matrix4,
     material_stack: &mut Vec<Material>,
-    parent: &'a MultipartDocument
+    parent: &'a MultipartDocument,
 ) {
     for cmd in document.commands.iter() {
         match cmd {
@@ -148,22 +149,28 @@ fn traverse<'a, GL: HasContext>(
                         ColorReference::Material(m) => m.clone(),
                         _ => material_stack.last().unwrap().clone(),
                     });
-                    traverse(Rc::clone(&gl), orders, bb, parent.subparts.get(&r.name).unwrap(), matrix * r.matrix, material_stack, parent);
+                    traverse(Rc::clone(&gl), parts, orders, bb, parent.subparts.get(&r.name).unwrap(), matrix * r.matrix, material_stack, parent);
                     material_stack.pop();
                 } else {
-                    let material = match &r.color {
-                        ColorReference::Material(m) => &m,
-                        _ => material_stack.last().unwrap(),
-                    };
+                    if let Some(part) = parts.get(&r.name) {
+                        let material = match &r.color {
+                            ColorReference::Material(m) => &m,
+                            _ => material_stack.last().unwrap(),
+                        };
+    
+                        let matrix = matrix * r.matrix;
 
-                    let matrix = matrix * r.matrix;
-                    let center = Vector3::new(matrix[3][0], matrix[3][1], matrix[3][2]);
-                    bb.update_point(&center);
-                    orders.push(RenderingOrder::Item(RenderingOrderItem {
-                        name: r.name.clone(),
-                        matrix,
-                        material: material.clone(),
-                    }));
+                        let tmin = matrix * part.bounding_box.min.extend(1.0);
+                        let tmax = matrix * part.bounding_box.max.extend(1.0);
+                        bb.update_point(&tmin.truncate());
+                        bb.update_point(&tmax.truncate());
+
+                        orders.push(RenderingOrder::Item(RenderingOrderItem {
+                            name: r.name.clone(),
+                            matrix,
+                            material: material.clone(),
+                        }));
+                    }
                 }
             },
             _ => (),
@@ -171,14 +178,20 @@ fn traverse<'a, GL: HasContext>(
     }
 }
 
-fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, document: &MultipartDocument) -> (Vec<RenderingOrder>, BoundingBox3) {
+fn create_rendering_list<GL: HasContext>(gl: Rc<GL>, parts: &HashMap<PartAlias, Part<GL>>, document: &MultipartDocument) -> (Vec<RenderingOrder>, BoundingBox3) {
     let mut order = Vec::new();
     let mut bb = BoundingBox3::zero();
     let mut material_stack = Vec::new();
 
     material_stack.push(Material::default());
 
-    traverse(gl, &mut order, &mut bb, &document.body, Matrix4::identity(), &mut material_stack, document);
+    traverse(gl, parts, &mut order, &mut bb, &document.body, Matrix4::identity(), &mut material_stack, document);
+
+    // FIXME: workaround for empty bounding box
+    if bb.min == bb.max {
+        bb.update_point(&(bb.min - Vector3::new(100.0, 100.0, 100.0)));
+        bb.update_point(&(bb.max + Vector3::new(100.0, 100.0, 100.0)));
+    }
 
     (order, bb)
 }
@@ -288,7 +301,7 @@ impl<GL: HasContext, T, L> App<GL, T, L> where L: FileLoader<T> {
         self.display_list = DisplayList::default();
         self.pointer = None;
         self.last_time = None;
-        let (rendering_order, bounding_box) = create_rendering_list(Rc::clone(&self.gl), &document);
+        let (rendering_order, bounding_box) = create_rendering_list(Rc::clone(&self.gl), &self.parts, &document);
         self.rendering_order = rendering_order;
         let center = bounding_box.center();
         self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
