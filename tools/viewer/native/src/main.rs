@@ -1,14 +1,13 @@
 use std::{
-    collections::{HashMap, HashSet},
     env,
-    fs::File,
-    io::BufReader,
-    path::Path,
     rc::Rc,
-    sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
+use async_std::{
+    path::{Path, PathBuf},
+};
+use futures::executor::block_on;
 use glow::{self, Context};
 use glutin::{
     event::{ElementState, Event, MouseButton, StartCause, VirtualKeyCode, WindowEvent},
@@ -17,149 +16,17 @@ use glutin::{
     ContextBuilder, GlProfile, GlRequest,
 };
 use ldraw::{
-    color::MaterialRegistry,
-    document::MultipartDocument,
-    library::{
-        load_files, scan_ldraw_directory, CacheCollectionStrategy, PartCache,
-        ResolutionMap, ResolutionResult,
-    },
-    parser::{parse_color_definition, parse_multipart_document},
-    PartAlias
-};
-use ldraw_ir::{
-    part::{PartBuilder, bake_part},
+    library::FileLoader,
+    resolvers::local::LocalFileLoader,
 };
 use ldraw_renderer::{
     shader::ProgramManager,
 };
 use viewer_common::App;
 
-struct NativeLoader {
-    ldrawdir: String,
-    colors: MaterialRegistry,
-    enabled_features: HashSet<PartAlias>,
-}
-
-fn get_part_size(part: &PartBuilder) -> usize {
-    let mut bytes = 0;
-
-    bytes += part.part_builder.uncolored_mesh.len() * 3 * 4 * 2;
-    bytes += part.part_builder.uncolored_without_bfc_mesh.len() * 3 * 4 * 2;
-    for (_, mesh) in part.part_builder.opaque_meshes.iter() {
-        bytes += mesh.len() * 3 * 4 * 2;
-    }
-    for (_, mesh) in part.part_builder.translucent_meshes.iter() {
-        bytes += mesh.len() * 3 * 4 * 2;
-    }
-    bytes += part.part_builder.edges.len() * 3 * 4 * 2;
-    bytes += part.part_builder.optional_edges.len() * 3 * 4 * 2;
-
-    bytes
-}
-
-impl NativeLoader {
-
-    fn load(
-        &mut self, locator: &String, loaded: &HashSet<&PartAlias>
-    ) -> (MultipartDocument, HashMap<PartAlias, PartBuilder>, HashMap<PartAlias, PartBuilder>) {
-        println!("Scanning LDraw directory...");
-        let directory = Arc::new(RwLock::new(scan_ldraw_directory(&self.ldrawdir).unwrap()));
-
-        println!("Parsing document...");
-        let document =
-            parse_multipart_document(&self.colors, &mut BufReader::new(File::open(&locator).unwrap())).unwrap();
-
-        println!("Resolving dependencies...");
-        let cache = Arc::new(RwLock::new(PartCache::default()));
-        let mut resolution = ResolutionMap::new(directory, Arc::clone(&cache));
-        resolution.resolve(&&document.body, Some(&document));
-        loop {
-            let files = match load_files(&self.colors, Arc::clone(&cache), resolution.get_pending()) {
-                Some(e) => e,
-                None => break,
-            };
-            for key in files {
-                let doc = cache.read().unwrap().query(&key).unwrap();
-                
-                resolution.update(&key, doc);
-            }
-        }
-
-        println!("Baking model...");
-
-        let mut features = HashMap::new();
-        let mut deps = HashMap::new();
-        for feature in self.enabled_features.iter() {
-            if loaded.contains(&feature) {
-                continue;
-            }
-            let part = resolution.map.get(&feature);
-            if part.is_none() {
-                println!("Dependency {} has not been found", feature);
-                continue;
-            }
-            let part = part.unwrap();
-            let element = match part {
-                ResolutionResult::Associated(e) => {
-                    e
-                }
-                _ => {
-                    println!("Could not bake dependency {}", feature);
-                    continue;
-                }
-            };
-            features.insert(feature.clone(), bake_part(&resolution, None, &element));
-        }
-        for dep in document.list_dependencies() {
-            if loaded.contains(&dep) {
-                continue;
-            }
-            let part = resolution.map.get(&dep);
-            if part.is_none() {
-                println!("Dependency {} has not been found", dep);
-                continue;
-            }
-            let part = part.unwrap();
-            let element = match part {
-                ResolutionResult::Associated(e) => {
-                    e
-                }
-                _ => {
-                    println!("Could not bake dependency {}", dep);
-                    continue;
-                }
-            };
-            deps.insert(dep.clone(), bake_part(&resolution, Some(&self.enabled_features), &element));
-        }
-
-        drop(resolution);
-
-        println!(
-            "Collected {} entries",
-            cache
-                .write()
-                .unwrap()
-                .collect(CacheCollectionStrategy::PartsAndPrimitives)
-        );
-
-        let mut total_bytes: usize = 0;
-        for (_, part) in features.iter() {
-            total_bytes += get_part_size(&part);
-        }
-        for (_, part) in deps.iter() {
-            total_bytes += get_part_size(&part);
-        }
-
-        println!("Total bytes: {:.2} MB", total_bytes as f32 / 1048576.0);
-
-        (document, features, deps)
-    }
-
-}
-
 fn main_loop(
-    locator: &String,
-    mut resource_loader: NativeLoader
+    loader: LocalFileLoader,
+    locator: &Path,
 ) {
     let evloop = EventLoop::new();
     let window_builder = WindowBuilder::new()
@@ -180,10 +47,19 @@ fn main_loop(
         Err(e) => panic!("{}", e),
     };
 
-    let mut app = App::new(Rc::clone(&gl), program_manager);
+    let materials = block_on(loader.load_materials()).unwrap();
 
-    let (document, features, parts) = resource_loader.load(&locator, &HashSet::new());
-    app.set_document(&document, &features, &parts);
+    let mut app = App::new(Rc::clone(&gl), loader, materials, program_manager);
+    block_on(app.set_document(&PathBuf::from(locator), &|alias, result| {
+        match result {
+            Ok(()) => {
+                println!("Loaded part {}.", alias);
+            },
+            Err(e) => {
+                println!("Could not load part {}: {}", alias, e);
+            }
+        };
+    })).unwrap();
 
     let window = windowed_context.window();
     let size = window.inner_size();
@@ -242,15 +118,6 @@ fn main_loop(
         
 }
 
-fn get_features_list() -> HashSet<PartAlias> {
-    //let mut features = HashSet::new();
-    //features.insert(PartAlias::from(String::from("stud.dat")));
-
-    //features
-
-    HashSet::new()
-}
-
 fn main() {
     let ldrawdir = match env::var("LDRAWDIR") {
         Ok(val) => val,
@@ -258,21 +125,14 @@ fn main() {
     };
     let ldrawpath = Path::new(&ldrawdir);
 
-    println!("Loading color definition...");
-    let colors = parse_color_definition(&mut BufReader::new(
-        File::open(ldrawpath.join("LDConfig.ldr")).unwrap(),
-    ))
-    .unwrap();
-
-    let ldrpath = match env::args().nth(1) {
-        Some(e) => e,
+    let filedir = match env::args().nth(1) {
+        Some(val) => val,
         None => panic!("usage: loader [filename]"),
     };
+    let filepath = Path::new(&filedir);
 
-    let enabled_features = get_features_list();
-    let resource_loader = NativeLoader {
-        ldrawdir, colors, enabled_features
-    };
 
-    main_loop(&ldrpath, resource_loader);
+    let file_loader = LocalFileLoader::new(&ldrawpath, filepath.parent().unwrap());
+
+    main_loop(file_loader, &filepath);
 }

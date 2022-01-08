@@ -126,24 +126,27 @@ pub enum ResolutionState<'a> {
 }
 
 #[derive(Debug)]
-struct DependencyResolver<'a, 'b> {
+struct DependencyResolver<'a, 'b, F> {
     materials: &'b MaterialRegistry,
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
+    on_update: &'b F,
 
     pub map: HashMap<PartAlias, ResolutionState<'a>>,
     pub local_map: HashMap<PartAlias, ResolutionState<'a>>,
 }
 
-impl<'a, 'b> DependencyResolver<'a, 'b> {
+impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)> DependencyResolver<'a, 'b, F> {
     pub fn new(
         materials: &'b MaterialRegistry,
         cache: Arc<RwLock<PartCache>>,
-    ) -> DependencyResolver<'a, 'b> {
+        on_update: &'b F,
+    ) -> DependencyResolver<'a, 'b, F> {
         DependencyResolver {
             materials,
             cache,
             local_cache: TransientDocumentCache::default(),
+            on_update,
             map: HashMap::new(),
             local_map: HashMap::new(),
         }
@@ -206,7 +209,21 @@ impl<'a, 'b> DependencyResolver<'a, 'b> {
 
                 if !pending.contains(alias) {
                     pending.push(alias.clone());
-                    pending_futs.push(loader.load_ref(self.materials, alias.clone(), local));
+                    let on_update = &*self.on_update;
+                    let materials = &*self.materials;
+                    pending_futs.push(async move {
+                        let res = loader.load_ref(&materials, alias.clone(), local).await;
+                        match res {
+                            Err(e) => {
+                                on_update(alias.clone(), Err(e));
+                                None
+                            }
+                            Ok(v) => {
+                                on_update(alias.clone(), Ok(()));
+                                Some(v)
+                            }
+                        }
+                    });
                 }
             }
 
@@ -214,7 +231,7 @@ impl<'a, 'b> DependencyResolver<'a, 'b> {
             for (alias, result) in pending.iter().zip(result.into_iter()) {
                 let mut local = local;
                 let state = match result {
-                    Ok((location, document)) => {
+                    Some((location, document)) => {
                         let document = Arc::new(document);
                         match location {
                             FileLocation::Library(kind) => {
@@ -228,7 +245,7 @@ impl<'a, 'b> DependencyResolver<'a, 'b> {
 
                         ResolutionState::Associated(document)
                     },
-                    Err(_) => ResolutionState::Missing,
+                    None => ResolutionState::Missing,
                 };
 
                 if !self.contains_state(&alias, local) {
@@ -266,12 +283,12 @@ pub async fn resolve_dependencies<T, F, L>(
     materials: &MaterialRegistry,
     loader: &L,
     document: &MultipartDocument,
-    on_update: F
+    on_update: &F,
 ) -> ResolutionResult
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
     L: FileLoader<T> {
-    let mut resolver = DependencyResolver::new(materials, cache);
+    let mut resolver = DependencyResolver::new(materials, cache, on_update);
     resolver.resolve(loader, &document.body, Some(document), true).await;
 
     ResolutionResult {

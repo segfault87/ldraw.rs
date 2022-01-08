@@ -1,21 +1,25 @@
 use std::{
     collections::{HashSet, HashMap},
     f32,
+    marker::PhantomData,
     rc::Rc,
+    sync::{Arc, RwLock},
     vec::Vec,
 };
 
 use cgmath::{Deg, SquareMatrix};
 use glow::HasContext;
 use ldraw::{
-    color::{ColorReference, Material},
+    color::{ColorReference, Material, MaterialRegistry},
     elements::{Command, Meta},
+    error::ResolutionError,
     document::{Document, MultipartDocument},
+    library::{FileLoader, PartCache, resolve_dependencies},
     Matrix4, PartAlias, Point2, Point3, Vector2, Vector3,
 };
 use ldraw_ir::{
     geometry::BoundingBox3,
-    part::PartBuilder,
+    part::bake_part,
 };
 use ldraw_renderer::{
     display_list::DisplayList,
@@ -186,10 +190,11 @@ pub enum State {
     Finished,
 }
 
-pub struct App<GL: HasContext> {
+pub struct App<GL: HasContext, T, L> {
     gl: Rc<GL>,
 
-    features: HashMap<PartAlias, Part<GL>>,
+    loader: L,
+    materials: MaterialRegistry,
     parts: HashMap<PartAlias, Part<GL>>,
 
     context: RenderingContext<GL>,
@@ -203,16 +208,20 @@ pub struct App<GL: HasContext> {
     fall_interval: f32,
     last_time: Option<f32>,
     frames: usize,
+
+    _p: PhantomData<T>,
 }
 
 const FALL_INTERVAL: f32 = 0.2;
 const FALL_INTERVAL_UPPER_BOUND: f32 = 5.0;
 const FALL_DURATION: f32 = 0.5;
 
-impl<GL: HasContext> App<GL> {
+impl<GL: HasContext, T, L> App<GL, T, L> where L: FileLoader<T> {
 
     pub fn new(
         gl: Rc<GL>,
+        loader: L,
+        materials: MaterialRegistry,
         program_manager: ProgramManager<GL>
     ) -> Self {
         let context = RenderingContext::new(Rc::clone(&gl), program_manager);
@@ -220,7 +229,8 @@ impl<GL: HasContext> App<GL> {
 
         App {
             gl,
-            features: HashMap::new(),
+            loader,
+            materials,
             parts: HashMap::new(),
             context,
             display_list: DisplayList::default(),
@@ -232,6 +242,7 @@ impl<GL: HasContext> App<GL> {
             fall_interval: FALL_INTERVAL,
             last_time: None,
             frames: 0,
+            _p: PhantomData,
         }
     }
 
@@ -250,26 +261,27 @@ impl<GL: HasContext> App<GL> {
     pub fn loaded_parts(&self) -> HashSet<&PartAlias> {
         let mut result = HashSet::new();
 
-        result.extend(self.features.keys());
         result.extend(self.parts.keys());
 
         result
     }
 
-    pub fn set_document(
+    pub async fn set_document<F: Fn(PartAlias, Result<(), ResolutionError>)>(
         &mut self,
-        document: &MultipartDocument,
-        features: &HashMap<PartAlias, PartBuilder>,
-        parts: &HashMap<PartAlias, PartBuilder>,
-    ) {
-        let mut cache = HashSet::new();
-        cache.extend(self.features.keys());
-        cache.extend(self.parts.keys());
+        locator: &T,
+        on_update: &F,
+    ) -> Result<(), ResolutionError> {
+        let part_cache = Arc::new(RwLock::new(PartCache::default()));
 
-        let features = features.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&self.gl)))).collect::<HashMap<_, _>>();
-        let parts = parts.iter().map(|(k, v)| (k.clone(), Part::create(&v, Rc::clone(&self.gl)))).collect::<HashMap<_, _>>();
+        let document = self.loader.load_document(&self.materials, locator).await?;
+        let resolution_result = resolve_dependencies(part_cache, &self.materials, &self.loader, &document, on_update).await;
 
-        self.features.extend(features);
+        let parts = document.list_dependencies().into_iter().filter_map(|alias| {
+            resolution_result.query(&alias, true).map(|(part, local)|
+                (alias.clone(), Part::create(&bake_part(&resolution_result, None, part, local), Rc::clone(&self.gl)))
+            )
+        }).collect::<HashMap<_, _>>();
+        
         self.parts.extend(parts);
         self.state = State::Playing;
         self.animating = Vec::new();
@@ -285,6 +297,8 @@ impl<GL: HasContext> App<GL> {
             bounding_box.len_y() * bounding_box.len_y() +
             bounding_box.len_z() * bounding_box.len_z()
         ).sqrt() * 2.0;
+
+        Ok(())
     }
 
     pub fn set_up(&self) {

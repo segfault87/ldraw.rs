@@ -13,7 +13,7 @@ use ldraw::{
     color::{ColorReference, MaterialRegistry},
     document::{Document, MultipartDocument},
     elements::{BfcStatement, Command, Meta},
-    library::{ResolutionResult, ResolutionState},
+    library::ResolutionResult,
     Matrix4, PartAlias, Vector3, Vector4, Winding,
 };
 use serde::{Deserialize, Serialize};
@@ -750,13 +750,14 @@ impl<'a> PartBaker<'a> {
     }
 }
 
-pub fn bake_part<'a, T: Clone + Debug>(
+pub fn bake_part<D: Deref<Target = MultipartDocument>>(
     resolutions: &ResolutionResult,
     enabled_features: Option<&HashSet<PartAlias>>,
-    document: &MultipartDocument,
+    document: D,
+    local: bool,
 ) -> PartBuilder {
     let mut baker = PartBaker::new(resolutions, enabled_features);
 
-    baker.traverse(&document.body, document, Matrix4::identity(), true, false, true);
+    baker.traverse(&document.body, &*document, Matrix4::identity(), true, false, local);
     baker.bake()
 }
