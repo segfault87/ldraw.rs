@@ -1,10 +1,11 @@
 use std::{
     collections::{HashMap, HashSet},
+    f32,
     fmt::Debug,
+    mem,
     ops::Deref,
     sync::Arc,
     vec::Vec,
-    f32, mem,
 };
 
 use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
@@ -580,18 +581,22 @@ impl<'a> PartBaker<'a> {
                             .entry(cmd.name.clone())
                             .or_insert_with(Vec::new))
                         .push((color.clone(), matrix));
-                    } else {
-                        if let Some(part) = parent.get_subpart(&cmd.name) {
-                            self.color_stack.push(color);
-                            self.traverse(part, &*parent, matrix, cull_next, invert_child, local);
-                            self.color_stack.pop();
-                        } else {
-                            if let Some((document, local)) = self.resolutions.query(&cmd.name, local) {
-                                self.color_stack.push(color);
-                                self.traverse(&document.body, Arc::clone(&document), matrix, cull_next, invert_child, local);
-                                self.color_stack.pop();
-                            }
-                        }
+                    } else if let Some(part) = parent.get_subpart(&cmd.name) {
+                        self.color_stack.push(color);
+                        self.traverse(part, &*parent, matrix, cull_next, invert_child, local);
+                        self.color_stack.pop();
+                    } else if let Some((document, local)) = self.resolutions.query(&cmd.name, local)
+                    {
+                        self.color_stack.push(color);
+                        self.traverse(
+                            &document.body,
+                            Arc::clone(&document),
+                            matrix,
+                            cull_next,
+                            invert_child,
+                            local,
+                        );
+                        self.color_stack.pop();
                     }
 
                     invert_next = false;
@@ -758,6 +763,13 @@ pub fn bake_part<D: Deref<Target = MultipartDocument>>(
 ) -> PartBuilder {
     let mut baker = PartBaker::new(resolutions, enabled_features);
 
-    baker.traverse(&document.body, &*document, Matrix4::identity(), true, false, local);
+    baker.traverse(
+        &document.body,
+        &*document,
+        Matrix4::identity(),
+        true,
+        false,
+        local,
+    );
     baker.bake()
 }
