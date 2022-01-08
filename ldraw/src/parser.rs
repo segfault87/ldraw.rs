@@ -1,18 +1,8 @@
-use std::{
-    collections::HashMap,
-    marker::Unpin,
-    str::Chars,
-};
+use std::{collections::HashMap, marker::Unpin, str::Chars};
 
-use futures::{
-    io::Lines,
-    stream::Enumerate,
-    AsyncBufReadExt, StreamExt
-};
-use async_std::{
-    io::BufRead,
-};
+use async_std::io::BufRead;
 use cgmath::Matrix;
+use futures::{io::Lines, stream::Enumerate, AsyncBufReadExt, StreamExt};
 
 use crate::{
     color::{

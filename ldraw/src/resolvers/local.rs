@@ -20,19 +20,16 @@ pub struct LocalFileLoader {
 }
 
 impl LocalFileLoader {
-
     pub fn new(ldrawdir: &Path, cwd: &Path) -> Self {
         LocalFileLoader {
             ldrawdir: Box::new(ldrawdir.to_owned()),
             cwd: Box::new(cwd.to_owned()),
         }
     }
-
 }
 
 #[async_trait]
 impl FileLoader<PathBuf> for LocalFileLoader {
-
     async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError> {
         let path = {
             let mut path = self.ldrawdir.clone();
@@ -44,22 +41,30 @@ impl FileLoader<PathBuf> for LocalFileLoader {
             return Err(ResolutionError::FileNotFound);
         }
 
-        Ok(parse_color_definition(
-            &mut BufReader::new(File::open(&**path).await?)
-        ).await?)
+        Ok(parse_color_definition(&mut BufReader::new(File::open(&**path).await?)).await?)
     }
 
-    async fn load_document(&self, materials: &MaterialRegistry, locator: &PathBuf) -> Result<MultipartDocument, ResolutionError> {
+    async fn load_document(
+        &self,
+        materials: &MaterialRegistry,
+        locator: &PathBuf,
+    ) -> Result<MultipartDocument, ResolutionError> {
         if !locator.exists().await {
             return Err(ResolutionError::FileNotFound);
         }
 
-        Ok(parse_multipart_document(
-            materials, &mut BufReader::new(File::open(locator).await?)
-        ).await?)
+        Ok(
+            parse_multipart_document(materials, &mut BufReader::new(File::open(locator).await?))
+                .await?,
+        )
     }
 
-    async fn load_ref(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
+    async fn load_ref(
+        &self,
+        materials: &MaterialRegistry,
+        alias: PartAlias,
+        local: bool,
+    ) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
         let cwd_path = {
             let mut path = self.cwd.clone();
             path.push(alias.normalized.clone());
@@ -88,11 +93,10 @@ impl FileLoader<PathBuf> for LocalFileLoader {
             return Err(ResolutionError::FileNotFound);
         };
 
-        let document = parse_multipart_document(
-            materials, &mut BufReader::new(File::open(&**path).await?)
-        ).await?;
+        let document =
+            parse_multipart_document(materials, &mut BufReader::new(File::open(&**path).await?))
+                .await?;
 
         Ok((kind, document))
     }
-
 }

@@ -7,7 +7,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::{Future, join_all};
+use futures::future::{join_all, Future};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -26,14 +26,23 @@ pub enum PartKind {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Hash)]
 pub enum FileLocation {
     Library(PartKind),
-    Local
+    Local,
 }
 
 #[async_trait]
 pub trait FileLoader<T> {
     async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError>;
-    async fn load_document(&self, materials: &MaterialRegistry, locator: &T) -> Result<MultipartDocument, ResolutionError>;
-    async fn load_ref(&self, materials: &MaterialRegistry, alias: PartAlias, local: bool) -> Result<(FileLocation, MultipartDocument), ResolutionError>;
+    async fn load_document(
+        &self,
+        materials: &MaterialRegistry,
+        locator: &T,
+    ) -> Result<MultipartDocument, ResolutionError>;
+    async fn load_ref(
+        &self,
+        materials: &MaterialRegistry,
+        alias: PartAlias,
+        local: bool,
+    ) -> Result<(FileLocation, MultipartDocument), ResolutionError>;
 }
 
 #[derive(Debug, Default)]
@@ -127,7 +136,10 @@ pub enum ResolutionState<'a> {
 }
 
 #[derive(Debug)]
-struct DependencyResolver<'a, 'b, F, L, T> where L: FileLoader<T> {
+struct DependencyResolver<'a, 'b, F, L, T>
+where
+    L: FileLoader<T>,
+{
     materials: &'b MaterialRegistry,
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
@@ -140,7 +152,9 @@ struct DependencyResolver<'a, 'b, F, L, T> where L: FileLoader<T> {
     _p: PhantomData<T>,
 }
 
-impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T> DependencyResolver<'a, 'b, F, L, T> {
+impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T>
+    DependencyResolver<'a, 'b, F, L, T>
+{
     pub fn new(
         materials: &'b MaterialRegistry,
         cache: Arc<RwLock<PartCache>>,
@@ -179,7 +193,7 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T>
         &'x mut self,
         document: D,
         parent: Option<&'a MultipartDocument>,
-        local: bool
+        local: bool,
     ) -> Pin<Box<dyn Future<Output = ()> + 'x>> {
         Box::pin(async move {
             let mut pending = vec![];
@@ -188,7 +202,7 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T>
             for r in document.iter_refs() {
                 let alias = &r.name;
 
-                if self.contains_state(&alias, local) {
+                if self.contains_state(alias, local) {
                     continue;
                 }
 
@@ -202,14 +216,22 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T>
 
                 if local {
                     if let Some(cached) = self.local_cache.query(alias) {
-                        self.put_state(alias.clone(), true, ResolutionState::Associated(Arc::clone(&cached)));
+                        self.put_state(
+                            alias.clone(),
+                            true,
+                            ResolutionState::Associated(Arc::clone(&cached)),
+                        );
                         continue;
                     }
                 }
 
                 let cached = self.cache.read().unwrap().query(alias);
                 if let Some(cached) = cached {
-                    self.put_state(alias.clone(), false, ResolutionState::Associated(Arc::clone(&cached)));
+                    self.put_state(
+                        alias.clone(),
+                        false,
+                        ResolutionState::Associated(Arc::clone(&cached)),
+                    );
                     continue;
                 }
 
@@ -219,7 +241,7 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T>
                     let materials = &*self.materials;
                     let loader = &*self.loader;
                     pending_futs.push(async move {
-                        let res = loader.load_ref(&materials, alias.clone(), local).await;
+                        let res = loader.load_ref(materials, alias.clone(), local).await;
                         match res {
                             Err(e) => {
                                 on_update(alias.clone(), Err(e));
@@ -243,25 +265,29 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T>
                         match location {
                             FileLocation::Library(kind) => {
                                 local = false;
-                                self.cache.write().unwrap().register(kind, alias.clone(), Arc::clone(&document));
-                            },
+                                self.cache.write().unwrap().register(
+                                    kind,
+                                    alias.clone(),
+                                    Arc::clone(&document),
+                                );
+                            }
                             FileLocation::Local => {
-                                self.local_cache.register(alias.clone(), Arc::clone(&document));
-                            },
+                                self.local_cache
+                                    .register(alias.clone(), Arc::clone(&document));
+                            }
                         };
 
                         ResolutionState::Associated(document)
-                    },
+                    }
                     None => ResolutionState::Missing,
                 };
 
-                if !self.contains_state(&alias, local) {
+                if !self.contains_state(alias, local) {
                     self.put_state(alias.clone(), local, state.clone());
                     if let ResolutionState::Associated(document) = state {
                         self.resolve(&document.body, None, local).await;
                     }
                 }
-                
             }
         })
     }
@@ -278,10 +304,12 @@ impl ResolutionResult {
         if local {
             let local_entry = self.local_entries.get(alias);
             if let Some(e) = local_entry {
-                return Some((Arc::clone(&e), true));
+                return Some((Arc::clone(e), true));
             }
         }
-        self.library_entries.get(alias).map(|e| (Arc::clone(e), false))
+        self.library_entries
+            .get(alias)
+            .map(|e| (Arc::clone(e), false))
     }
 }
 
@@ -294,22 +322,27 @@ pub async fn resolve_dependencies<T, F, L>(
 ) -> ResolutionResult
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
-    L: FileLoader<T> {
+    L: FileLoader<T>,
+{
     let mut resolver = DependencyResolver::new(materials, cache, on_update, loader);
     resolver.resolve(&document.body, Some(document), true).await;
 
     ResolutionResult {
-        library_entries: resolver.map.into_iter().filter_map(|(k, v)|
-            match v {
+        library_entries: resolver
+            .map
+            .into_iter()
+            .filter_map(|(k, v)| match v {
                 ResolutionState::Associated(e) => Some((k, e)),
                 _ => None,
-            }
-        ).collect::<HashMap<_, _>>(),
-        local_entries: resolver.local_map.into_iter().filter_map(|(k, v)|
-            match v {
+            })
+            .collect::<HashMap<_, _>>(),
+        local_entries: resolver
+            .local_map
+            .into_iter()
+            .filter_map(|(k, v)| match v {
                 ResolutionState::Associated(e) => Some((k, e)),
                 _ => None,
-            }
-        ).collect::<HashMap<_, _>>(),
+            })
+            .collect::<HashMap<_, _>>(),
     }
 }
