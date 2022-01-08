@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    marker::PhantomData,
     ops::Deref,
     pin::Pin,
     sync::{Arc, RwLock},
@@ -126,29 +127,35 @@ pub enum ResolutionState<'a> {
 }
 
 #[derive(Debug)]
-struct DependencyResolver<'a, 'b, F> {
+struct DependencyResolver<'a, 'b, F, L, T> where L: FileLoader<T> {
     materials: &'b MaterialRegistry,
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
     on_update: &'b F,
+    loader: &'b L,
 
     pub map: HashMap<PartAlias, ResolutionState<'a>>,
     pub local_map: HashMap<PartAlias, ResolutionState<'a>>,
+
+    _p: PhantomData<T>,
 }
 
-impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)> DependencyResolver<'a, 'b, F> {
+impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T> DependencyResolver<'a, 'b, F, L, T> {
     pub fn new(
         materials: &'b MaterialRegistry,
         cache: Arc<RwLock<PartCache>>,
         on_update: &'b F,
-    ) -> DependencyResolver<'a, 'b, F> {
+        loader: &'b L,
+    ) -> DependencyResolver<'a, 'b, F, L, T> {
         DependencyResolver {
             materials,
             cache,
             local_cache: TransientDocumentCache::default(),
             on_update,
+            loader,
             map: HashMap::new(),
             local_map: HashMap::new(),
+            _p: PhantomData,
         }
     }
 
@@ -168,9 +175,8 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)> DependencyResolver<'
         }
     }
 
-    pub fn resolve<'x, T, L: FileLoader<T>, D: 'x + Deref<Target = Document>>(
+    pub fn resolve<'x, D: 'x + Deref<Target = Document>>(
         &'x mut self,
-        loader: &'x L,
         document: D,
         parent: Option<&'a MultipartDocument>,
         local: bool
@@ -189,7 +195,7 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)> DependencyResolver<'
                 if let Some(e) = parent {
                     if let Some(subpart) = e.subparts.get(alias) {
                         self.put_state(alias.clone(), local, ResolutionState::Subpart(subpart));
-                        self.resolve(loader, subpart, parent, local).await;
+                        self.resolve(subpart, parent, local).await;
                         continue;
                     }
                 }
@@ -211,6 +217,7 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)> DependencyResolver<'
                     pending.push(alias.clone());
                     let on_update = &*self.on_update;
                     let materials = &*self.materials;
+                    let loader = &*self.loader;
                     pending_futs.push(async move {
                         let res = loader.load_ref(&materials, alias.clone(), local).await;
                         match res {
@@ -251,7 +258,7 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)> DependencyResolver<'
                 if !self.contains_state(&alias, local) {
                     self.put_state(alias.clone(), local, state.clone());
                     if let ResolutionState::Associated(document) = state {
-                        self.resolve(loader, &document.body, None, local).await;
+                        self.resolve(&document.body, None, local).await;
                     }
                 }
                 
@@ -288,8 +295,8 @@ pub async fn resolve_dependencies<T, F, L>(
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
     L: FileLoader<T> {
-    let mut resolver = DependencyResolver::new(materials, cache, on_update);
-    resolver.resolve(loader, &document.body, Some(document), true).await;
+    let mut resolver = DependencyResolver::new(materials, cache, on_update, loader);
+    resolver.resolve(&document.body, Some(document), true).await;
 
     ResolutionResult {
         library_entries: resolver.map.into_iter().filter_map(|(k, v)|
