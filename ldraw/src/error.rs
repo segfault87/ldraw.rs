@@ -1,5 +1,31 @@
 use std::{error::Error, fmt, io::Error as IoError};
 
+#[cfg(any(target_arch = "wasm32", feature = "http"))]
+use reqwest::Error as ReqwestError;
+
+#[cfg(not(any(target_arch = "wasm32", feature = "http")))]
+mod stub {
+    use super::{Error, fmt};
+
+    #[derive(Debug)]
+    pub struct ReqwestError;
+
+    impl fmt::Display for ReqwestError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "")
+        }
+    }
+
+    impl Error for ReqwestError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            None
+        }
+    }
+}
+
+#[cfg(not(any(target_arch = "wasm32", feature = "http")))]
+use stub::ReqwestError;
+
 #[derive(Debug)]
 pub enum ParseError {
     TypeMismatch(&'static str, String),
@@ -138,6 +164,7 @@ pub enum ResolutionError {
     IoError(Box<IoError>),
     DocumentParseError(DocumentParseError),
     ColorDefinitionParseError(ColorDefinitionParseError),
+    RemoteError(ReqwestError),
 }
 
 impl From<IoError> for ResolutionError {
@@ -158,6 +185,12 @@ impl From<ColorDefinitionParseError> for ResolutionError {
     }
 }
 
+impl From<ReqwestError> for ResolutionError {
+    fn from(e: ReqwestError) -> ResolutionError {
+        ResolutionError::RemoteError(e)
+    }
+}
+
 impl fmt::Display for ResolutionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -166,6 +199,7 @@ impl fmt::Display for ResolutionError {
             ResolutionError::IoError(err) => write!(f, "{}", err),
             ResolutionError::DocumentParseError(err) => write!(f, "{}", err),
             ResolutionError::ColorDefinitionParseError(err) => write!(f, "{}", err),
+            ResolutionError::RemoteError(err) => write!(f, "{}", err),
         }
     }
 }
@@ -176,6 +210,7 @@ impl Error for ResolutionError {
             ResolutionError::IoError(e) => Some(e),
             ResolutionError::DocumentParseError(e) => Some(e),
             ResolutionError::ColorDefinitionParseError(e) => Some(e),
+            ResolutionError::RemoteError(e) => Some(e),
             _ => None,
         }
     }
