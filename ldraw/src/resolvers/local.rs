@@ -1,5 +1,3 @@
-use std::ffi::OsString;
-
 use async_std::{
     fs::File,
     io::BufReader,
@@ -33,7 +31,7 @@ impl LocalFileLoader {
 }
 
 #[async_trait]
-impl FileLoader<OsString> for LocalFileLoader {
+impl FileLoader<PathBuf> for LocalFileLoader {
 
     async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError> {
         let path = {
@@ -51,15 +49,13 @@ impl FileLoader<OsString> for LocalFileLoader {
         ).await?)
     }
 
-    async fn load_document(&self, materials: &MaterialRegistry, locator: &OsString) -> Result<MultipartDocument, ResolutionError> {
-        let path = Path::new(locator);
-
-        if !path.exists().await {
+    async fn load_document(&self, materials: &MaterialRegistry, locator: &PathBuf) -> Result<MultipartDocument, ResolutionError> {
+        if !locator.exists().await {
             return Err(ResolutionError::FileNotFound);
         }
 
         Ok(parse_multipart_document(
-            materials, &mut BufReader::new(File::open(path).await?)
+            materials, &mut BufReader::new(File::open(locator).await?)
         ).await?)
     }
 
