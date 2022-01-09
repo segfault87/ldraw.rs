@@ -9,41 +9,26 @@ use crate::{
     color::MaterialRegistry,
     document::MultipartDocument,
     error::ResolutionError,
-    library::{FileLoader, FileLocation, PartKind},
+    library::{DocumentLoader, LibraryLoader, FileLocation, PartKind},
     parser::{parse_color_definition, parse_multipart_document},
     PartAlias,
 };
 
-pub struct LocalFileLoader {
-    ldrawdir: Box<PathBuf>,
-    cwd: Box<PathBuf>,
+pub struct LocalLoader {
+    ldrawdir: Option<PathBuf>,
+    cwd: Option<PathBuf>,
 }
 
-impl LocalFileLoader {
-    pub fn new(ldrawdir: &Path, cwd: &Path) -> Self {
-        LocalFileLoader {
-            ldrawdir: Box::new(ldrawdir.to_owned()),
-            cwd: Box::new(cwd.to_owned()),
+impl LocalLoader {
+    pub fn new(ldrawdir: Option<PathBuf>, cwd: Option<PathBuf>) -> Self {
+        LocalLoader {
+            ldrawdir, cwd
         }
     }
 }
 
 #[async_trait]
-impl FileLoader<PathBuf> for LocalFileLoader {
-    async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError> {
-        let path = {
-            let mut path = self.ldrawdir.clone();
-            path.push("LDConfig.ldr");
-            path
-        };
-
-        if !path.exists().await {
-            return Err(ResolutionError::FileNotFound);
-        }
-
-        Ok(parse_color_definition(&mut BufReader::new(File::open(&**path).await?)).await?)
-    }
-
+impl DocumentLoader<PathBuf> for LocalLoader {
     async fn load_document(
         &self,
         materials: &MaterialRegistry,
@@ -58,6 +43,28 @@ impl FileLoader<PathBuf> for LocalFileLoader {
                 .await?,
         )
     }
+}
+
+#[async_trait]
+impl LibraryLoader for LocalLoader {
+    async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError> {
+        let ldrawdir = match self.ldrawdir.clone() {
+            Some(e) => e,
+            None => return Err(ResolutionError::NoLDrawDir),
+        };
+
+        let path = {
+            let mut path = ldrawdir.clone();
+            path.push("LDConfig.ldr");
+            path
+        };
+
+        if !path.exists().await {
+            return Err(ResolutionError::FileNotFound);
+        }
+
+        Ok(parse_color_definition(&mut BufReader::new(File::open(&*path).await?)).await?)
+    }
 
     async fn load_ref(
         &self,
@@ -65,26 +72,31 @@ impl FileLoader<PathBuf> for LocalFileLoader {
         alias: PartAlias,
         local: bool,
     ) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
-        let cwd_path = {
-            let mut path = self.cwd.clone();
+        let ldrawdir = match self.ldrawdir.clone() {
+            Some(e) => e,
+            None => return Err(ResolutionError::NoLDrawDir),
+        };
+
+        let cwd_path = self.cwd.as_ref().map(|v| {
+            let mut path = v.clone();
             path.push(alias.normalized.clone());
             path
-        };
+        });
         let parts_path = {
-            let mut path = self.ldrawdir.clone();
+            let mut path = ldrawdir.clone();
             path.push("parts");
             path.push(alias.normalized.clone());
             path
         };
         let p_path = {
-            let mut path = self.ldrawdir.clone();
+            let mut path = ldrawdir.clone();
             path.push("p");
             path.push(alias.normalized.clone());
             path
         };
 
-        let (kind, path) = if local && cwd_path.exists().await {
-            (FileLocation::Local, &cwd_path)
+        let (kind, path) = if local && cwd_path.is_some() && cwd_path.as_ref().unwrap().exists().await {
+            (FileLocation::Local, cwd_path.as_ref().unwrap())
         } else if parts_path.exists().await {
             (FileLocation::Library(PartKind::Part), &parts_path)
         } else if p_path.exists().await {

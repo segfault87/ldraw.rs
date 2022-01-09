@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_std::path::{Path, PathBuf};
-use futures::executor::block_on;
+use clap::{Arg, App as ClapApp};
 use glow::{self, Context};
 use glutin::{
     event::{ElementState, Event, MouseButton, StartCause, VirtualKeyCode, WindowEvent},
@@ -13,11 +13,20 @@ use glutin::{
     window::WindowBuilder,
     ContextBuilder, GlProfile, GlRequest,
 };
-use ldraw::{library::FileLoader, resolvers::local::LocalFileLoader};
+use ldraw::{
+    color::MaterialRegistry,
+    document::MultipartDocument,
+    library::{DocumentLoader, LibraryLoader},
+    resolvers::{
+        local::LocalLoader,
+        http::HttpLoader,
+    },
+};
 use ldraw_renderer::shader::ProgramManager;
+use reqwest::Url;
 use viewer_common::App;
 
-fn main_loop(loader: LocalFileLoader, locator: &Path) {
+async fn main_loop(materials: MaterialRegistry, document: MultipartDocument, dependency_loader: Box<dyn LibraryLoader>) {
     let evloop = EventLoop::new();
     let window_builder = WindowBuilder::new().with_title("ldraw.rs demo");
     let windowed_context = ContextBuilder::new()
@@ -38,10 +47,8 @@ fn main_loop(loader: LocalFileLoader, locator: &Path) {
         Err(e) => panic!("{}", e),
     };
 
-    let materials = block_on(loader.load_materials()).unwrap();
-
-    let mut app = App::new(Rc::clone(&gl), loader, materials, program_manager);
-    block_on(app.set_document(&PathBuf::from(locator), &|alias, result| {
+    let mut app = App::new(Rc::clone(&gl), dependency_loader, materials, program_manager);
+    app.set_document(&document, &|alias, result| {
         match result {
             Ok(()) => {
                 println!("Loaded part {}.", alias);
@@ -50,7 +57,8 @@ fn main_loop(loader: LocalFileLoader, locator: &Path) {
                 println!("Could not load part {}: {}", alias, e);
             }
         };
-    }))
+    })
+    .await
     .unwrap();
 
     let window = windowed_context.window();
@@ -108,20 +116,76 @@ fn main_loop(loader: LocalFileLoader, locator: &Path) {
     });
 }
 
-fn main() {
-    let ldrawdir = match env::var("LDRAWDIR") {
-        Ok(val) => val,
-        Err(e) => panic!("{}", e),
+#[tokio::main]
+async fn main() {
+    let matches = ClapApp::new("viewer")
+        .about("LDraw Model Viewer")
+        .arg(Arg::with_name("ldraw_dir")
+             .long("ldraw-dir")
+             .value_name("PATH_OR_URL")
+             .takes_value(true)
+             .help("Path or URL to LDraw directory"))
+        .arg(Arg::with_name("file")
+             .takes_value(true)
+             .required(true)
+             .value_name("PATH_OR_URL")
+             .help("Path or URL to model file"))
+        .get_matches();
+
+    let ldrawdir = match matches.value_of("ldraw_dir") {
+        Some(v) => v.to_string(),
+        None => {
+            match env::var("LDRAWDIR") {
+                Ok(v) => v,
+                Err(_) => {
+                    panic!("--ldraw-dir option or LDRAWDIR environment variable is required.");
+                }
+            }
+        }
     };
-    let ldrawpath = Path::new(&ldrawdir);
 
-    let filedir = match env::args().nth(1) {
-        Some(val) => val,
-        None => panic!("usage: loader [filename]"),
+    let path = String::from(matches.value_of("file").expect("Path is required"));
+
+    // FIXME: There should be better ways than this
+
+    let is_library_remote = ldrawdir.starts_with("http://") || ldrawdir.starts_with("https://");
+    let is_document_remote = path.starts_with("http://") || path.starts_with("https://");
+
+    let (ldraw_url, ldraw_path) = if is_library_remote {
+        (Url::parse(&ldrawdir).ok(), None)
+    } else {
+        (None, Some(PathBuf::from(&ldrawdir)))
     };
-    let filepath = Path::new(&filedir);
+    
+    let (document_base_url, document_base_path) = if is_document_remote {
+        let mut url = Url::parse(&path).unwrap();
+        url.path_segments_mut().unwrap().pop();
+        (Some(url), None)
+    } else {
+        (None, PathBuf::from(&path).parent().map(|e| PathBuf::from(e)))
+    };
 
-    let file_loader = LocalFileLoader::new(ldrawpath, filepath.parent().unwrap());
+    let http_loader = HttpLoader::new(ldraw_url, document_base_url);
+    let local_loader = LocalLoader::new(ldraw_path, document_base_path);
 
-    main_loop(file_loader, filepath);
+    let materials = if is_library_remote {
+        http_loader.load_materials().await
+    } else {
+        local_loader.load_materials().await
+    }.unwrap();
+
+    let path_local = PathBuf::from(&path);
+    let document = if is_document_remote {
+        http_loader.load_document(&materials, &path).await
+    } else {
+        local_loader.load_document(&materials, &path_local).await
+    }.unwrap();
+
+    let loader: Box<dyn LibraryLoader> = if is_library_remote {
+        Box::new(http_loader)
+    } else {
+        Box::new(local_loader)
+    };
+
+    main_loop(materials, document, loader).await;
 }

@@ -14,7 +14,7 @@ use ldraw::{
     document::{Document, MultipartDocument},
     elements::{Command, Meta},
     error::ResolutionError,
-    library::{resolve_dependencies, FileLoader, PartCache},
+    library::{resolve_dependencies, LibraryLoader, PartCache},
     Matrix4, PartAlias, Point2, Point3, Vector2, Vector3,
 };
 use ldraw_ir::{geometry::BoundingBox3, part::bake_part};
@@ -228,10 +228,10 @@ pub enum State {
     Finished,
 }
 
-pub struct App<GL: HasContext, T, L> {
+pub struct App<GL: HasContext> {
     gl: Rc<GL>,
 
-    loader: L,
+    loader: Box<dyn LibraryLoader>,
     materials: MaterialRegistry,
     parts: HashMap<PartAlias, Part<GL>>,
 
@@ -246,21 +246,17 @@ pub struct App<GL: HasContext, T, L> {
     fall_interval: f32,
     last_time: Option<f32>,
     frames: usize,
-
-    _p: PhantomData<T>,
 }
 
 const FALL_INTERVAL: f32 = 0.2;
 const FALL_INTERVAL_UPPER_BOUND: f32 = 5.0;
 const FALL_DURATION: f32 = 0.5;
 
-impl<GL: HasContext, T, L> App<GL, T, L>
-where
-    L: FileLoader<T>,
+impl<GL: HasContext> App<GL>
 {
     pub fn new(
         gl: Rc<GL>,
-        loader: L,
+        loader: Box<dyn LibraryLoader>,
         materials: MaterialRegistry,
         program_manager: ProgramManager<GL>,
     ) -> Self {
@@ -282,7 +278,6 @@ where
             fall_interval: FALL_INTERVAL,
             last_time: None,
             frames: 0,
-            _p: PhantomData,
         }
     }
 
@@ -308,12 +303,10 @@ where
 
     pub async fn set_document<F: Fn(PartAlias, Result<(), ResolutionError>)>(
         &mut self,
-        locator: &T,
+        document: &MultipartDocument,
         on_update: &F,
     ) -> Result<(), ResolutionError> {
         let part_cache = Arc::new(RwLock::new(PartCache::default()));
-
-        let document = self.loader.load_document(&self.materials, locator).await?;
         let resolution_result = resolve_dependencies(
             part_cache,
             &self.materials,

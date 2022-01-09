@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    marker::PhantomData,
     ops::Deref,
     pin::Pin,
     sync::{Arc, RwLock},
@@ -30,13 +29,18 @@ pub enum FileLocation {
 }
 
 #[async_trait]
-pub trait FileLoader<T> {
-    async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError>;
+pub trait DocumentLoader<T> {
     async fn load_document(
         &self,
         materials: &MaterialRegistry,
         locator: &T,
     ) -> Result<MultipartDocument, ResolutionError>;
+}
+
+#[async_trait]
+pub trait LibraryLoader {
+    async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError>;
+
     async fn load_ref(
         &self,
         materials: &MaterialRegistry,
@@ -135,32 +139,26 @@ pub enum ResolutionState<'a> {
     Associated(Arc<MultipartDocument>),
 }
 
-#[derive(Debug)]
-struct DependencyResolver<'a, 'b, F, L, T>
-where
-    L: FileLoader<T>,
-{
+struct DependencyResolver<'a, 'b, F> {
     materials: &'b MaterialRegistry,
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
     on_update: &'b F,
-    loader: &'b L,
+    loader: &'b Box<dyn LibraryLoader>,
 
     pub map: HashMap<PartAlias, ResolutionState<'a>>,
     pub local_map: HashMap<PartAlias, ResolutionState<'a>>,
-
-    _p: PhantomData<T>,
 }
 
-impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T>
-    DependencyResolver<'a, 'b, F, L, T>
+impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)>
+    DependencyResolver<'a, 'b, F>
 {
     pub fn new(
         materials: &'b MaterialRegistry,
         cache: Arc<RwLock<PartCache>>,
         on_update: &'b F,
-        loader: &'b L,
-    ) -> DependencyResolver<'a, 'b, F, L, T> {
+        loader: &'b Box<dyn LibraryLoader>,
+    ) -> DependencyResolver<'a, 'b, F> {
         DependencyResolver {
             materials,
             cache,
@@ -169,7 +167,6 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>), L: FileLoader<T>, T>
             loader,
             map: HashMap::new(),
             local_map: HashMap::new(),
-            _p: PhantomData,
         }
     }
 
@@ -313,18 +310,17 @@ impl ResolutionResult {
     }
 }
 
-pub async fn resolve_dependencies<T, F, L>(
+pub async fn resolve_dependencies<F>(
     cache: Arc<RwLock<PartCache>>,
     materials: &MaterialRegistry,
-    loader: &L,
+    loader: &Box<dyn LibraryLoader>,
     document: &MultipartDocument,
     on_update: &F,
 ) -> ResolutionResult
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
-    L: FileLoader<T>,
 {
-    let mut resolver = DependencyResolver::new(materials, cache, on_update, loader);
+    let mut resolver = DependencyResolver::new(materials, cache, on_update, &loader);
     resolver.resolve(&document.body, Some(document), true).await;
 
     ResolutionResult {
