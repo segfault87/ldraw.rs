@@ -28,7 +28,7 @@ pub enum FileLocation {
     Local,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait DocumentLoader<T> {
     async fn load_document(
         &self,
@@ -37,7 +37,7 @@ pub trait DocumentLoader<T> {
     ) -> Result<MultipartDocument, ResolutionError>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait LibraryLoader {
     async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError>;
 
