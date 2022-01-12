@@ -69,12 +69,19 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
         .expect("should register `requestAnimationFrame` OK");
 }
 
-async fn fetch_raw_data(url: &String) -> Option<String> {
+async fn fetch_raw_data(base_url: &Url, path: &String) -> Option<String> {
     let client = Client::new();
-    let url = match Url::parse(url) {
+
+    let url = if path.starts_with("http://") || path.starts_with("https://") {
+        Url::parse(&path)
+    } else {
+        base_url.join(path)
+    };
+
+    let url = match url {
         Ok(e) => e,
         Err(err) => {
-            alert(&format!("Could not build url: {}", err));
+            alert(&format!("Could not build url {}: {}", path, err));
             return None;
         }
     };
@@ -145,7 +152,10 @@ pub async fn run(path: JsValue) -> JsValue {
 
     let document_view = web_document.get_element_by_id("document").unwrap().dyn_into::<HtmlTextAreaElement>().unwrap();
 
-    let loader: Rc<Box<dyn LibraryLoader>> = Rc::new(Box::new(HttpLoader::new(Some(Url::parse("ldraw/").unwrap()), Some(Url::parse("").unwrap()))));
+    let mut location = Url::parse(&window.location().href().unwrap()).unwrap();
+    location.set_fragment(None);
+    
+    let loader: Rc<Box<dyn LibraryLoader>> = Rc::new(Box::new(HttpLoader::new(Some(location.join("ldraw/").unwrap()), Some(location.clone()))));
 
     let materials = match loader.load_materials().await {
         Ok(e) => Rc::new(e),
@@ -176,7 +186,7 @@ pub async fn run(path: JsValue) -> JsValue {
         let document_view = document_view.clone();
         if path.is_string() {
             let path = path.as_string().unwrap();
-            let document_text = match fetch_raw_data(&path).await {
+            let document_text = match fetch_raw_data(&location, &path).await {
                 Some(v) => v,
                 None => {
                     return JsValue::undefined();
