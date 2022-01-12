@@ -227,6 +227,8 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
 
             if local {
                 if let Some(cached) = self.local_cache.query(alias) {
+                    self.scan_dependencies(None, Arc::clone(&cached), true);
+
                     self.put_state(
                         alias.clone(),
                         true,
@@ -238,6 +240,8 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
 
             let cached = self.cache.read().unwrap().query(alias);
             if let Some(cached) = cached {
+                self.scan_dependencies(None, Arc::clone(&cached), false);
+
                 self.put_state(
                     alias.clone(),
                     false,
