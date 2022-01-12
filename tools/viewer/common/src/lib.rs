@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     f32,
-    marker::PhantomData,
     rc::Rc,
     sync::{Arc, RwLock},
     vec::Vec,
@@ -231,8 +230,9 @@ pub enum State {
 pub struct App<GL: HasContext> {
     gl: Rc<GL>,
 
-    loader: Box<dyn LibraryLoader>,
-    materials: MaterialRegistry,
+    loader: Rc<Box<dyn LibraryLoader>>,
+    materials: Rc<MaterialRegistry>,
+
     parts: HashMap<PartAlias, Part<GL>>,
 
     context: RenderingContext<GL>,
@@ -256,8 +256,8 @@ impl<GL: HasContext> App<GL>
 {
     pub fn new(
         gl: Rc<GL>,
-        loader: Box<dyn LibraryLoader>,
-        materials: MaterialRegistry,
+        loader: Rc<Box<dyn LibraryLoader>>,
+        materials: Rc<MaterialRegistry>,
         program_manager: ProgramManager<GL>,
     ) -> Self {
         let context = RenderingContext::new(Rc::clone(&gl), program_manager);
@@ -303,12 +303,12 @@ impl<GL: HasContext> App<GL>
 
     pub async fn set_document<F: Fn(PartAlias, Result<(), ResolutionError>)>(
         &mut self,
+        cache: Arc<RwLock<PartCache>>,
         document: &MultipartDocument,
         on_update: &F,
     ) -> Result<(), ResolutionError> {
-        let part_cache = Arc::new(RwLock::new(PartCache::default()));
         let resolution_result = resolve_dependencies(
-            part_cache,
+            cache,
             &self.materials,
             &self.loader,
             &document,

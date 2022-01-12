@@ -1,6 +1,7 @@
 use std::{
     env,
     rc::Rc,
+    sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
@@ -16,7 +17,7 @@ use glutin::{
 use ldraw::{
     color::MaterialRegistry,
     document::MultipartDocument,
-    library::{DocumentLoader, LibraryLoader},
+    library::{DocumentLoader, LibraryLoader, PartCache},
     resolvers::{
         local::LocalLoader,
         http::HttpLoader,
@@ -47,8 +48,9 @@ async fn main_loop(materials: MaterialRegistry, document: MultipartDocument, dep
         Err(e) => panic!("{}", e),
     };
 
-    let mut app = App::new(Rc::clone(&gl), dependency_loader, materials, program_manager);
-    app.set_document(&document, &|alias, result| {
+    let mut app = App::new(Rc::clone(&gl), Rc::new(dependency_loader), Rc::new(materials), program_manager);
+    let cache = Arc::new(RwLock::new(PartCache::new()));
+    app.set_document(cache, &document, &|alias, result| {
         match result {
             Ok(()) => {
                 println!("Loaded part {}.", alias);
