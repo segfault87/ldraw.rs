@@ -5,7 +5,7 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-async-std = "~1.10.0"
+async-std = "1"
 async-trait = "~0.1.52"
 cgmath = { version = "~0.18.0", features = ["serde"] }
 futures = "~0.3.19"

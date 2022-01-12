@@ -1,17 +1,16 @@
 use std::{
     collections::HashMap,
     ops::Deref,
-    pin::Pin,
     sync::{Arc, RwLock},
 };
 
 use async_trait::async_trait;
-use futures::future::{join_all, Future};
+use futures::future::{join_all};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     color::MaterialRegistry,
-    document::{Document, MultipartDocument},
+    document::{MultipartDocument},
     error::ResolutionError,
     PartAlias,
 };
@@ -69,6 +68,10 @@ impl Drop for PartCache {
 }
 
 impl PartCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn register(&mut self, kind: PartKind, alias: PartAlias, document: Arc<MultipartDocument>) {
         match kind {
             PartKind::Part => self.parts.insert(alias, document),
@@ -133,32 +136,33 @@ impl TransientDocumentCache {
 }
 
 #[derive(Clone, Debug)]
-pub enum ResolutionState<'a> {
+pub enum ResolutionState {
     Missing,
-    Subpart(&'a Document),
+    Pending,
+    Subpart,
     Associated(Arc<MultipartDocument>),
 }
 
-struct DependencyResolver<'a, 'b, F> {
-    materials: &'b MaterialRegistry,
+struct DependencyResolver<'a, F> {
+    materials: &'a MaterialRegistry,
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
-    on_update: &'b F,
-    loader: &'b Box<dyn LibraryLoader>,
+    on_update: &'a F,
+    loader: &'a Box<dyn LibraryLoader>,
 
-    pub map: HashMap<PartAlias, ResolutionState<'a>>,
-    pub local_map: HashMap<PartAlias, ResolutionState<'a>>,
+    pub map: HashMap<PartAlias, ResolutionState>,
+    pub local_map: HashMap<PartAlias, ResolutionState>,
 }
 
-impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)>
-    DependencyResolver<'a, 'b, F>
+impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
+    DependencyResolver<'a, F>
 {
     pub fn new(
-        materials: &'b MaterialRegistry,
+        materials: &'a MaterialRegistry,
         cache: Arc<RwLock<PartCache>>,
-        on_update: &'b F,
-        loader: &'b Box<dyn LibraryLoader>,
-    ) -> DependencyResolver<'a, 'b, F> {
+        on_update: &'a F,
+        loader: &'a Box<dyn LibraryLoader>,
+    ) -> DependencyResolver<'a, F> {
         DependencyResolver {
             materials,
             cache,
@@ -178,7 +182,7 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)>
         }
     }
 
-    pub fn put_state(&mut self, alias: PartAlias, local: bool, state: ResolutionState<'a>) {
+    pub fn put_state(&mut self, alias: PartAlias, local: bool, state: ResolutionState) {
         if local {
             self.local_map.insert(alias, state);
         } else {
@@ -186,108 +190,133 @@ impl<'a, 'b, F: Fn(PartAlias, Result<(), ResolutionError>)>
         }
     }
 
-    pub fn resolve<'x, D: 'x + Deref<Target = Document>>(
-        &'x mut self,
-        document: D,
-        parent: Option<&'a MultipartDocument>,
-        local: bool,
-    ) -> Pin<Box<dyn Future<Output = ()> + 'x>> {
-        Box::pin(async move {
-            let mut pending = vec![];
-            let mut pending_futs = vec![];
+    pub fn clear_state(&mut self, alias: &PartAlias, local: bool) {
+        if local {
+            self.local_map.remove(alias);
+        } else {
+            self.map.remove(alias);
+        }
+    }
 
-            for r in document.iter_refs() {
-                let alias = &r.name;
+    pub fn scan_dependencies<D: Deref<Target = MultipartDocument> + Clone>(
+        &mut self,
+        alias: Option<&PartAlias>,
+        parent: D,
+        local: bool
+    ) {
+        let document = match alias {
+            Some(e) => match parent.subparts.get(e) {
+                Some(e) => e,
+                None => return,
+            },
+            None => &parent.body,
+        };
 
-                if self.contains_state(alias, local) {
-                    continue;
-                }
+        for r in document.iter_refs() {
+            let alias = &r.name;
 
-                if let Some(e) = parent {
-                    if let Some(subpart) = e.subparts.get(alias) {
-                        self.put_state(alias.clone(), local, ResolutionState::Subpart(subpart));
-                        self.resolve(subpart, parent, local).await;
-                        continue;
-                    }
-                }
+            if self.contains_state(alias, local) {
+                continue;
+            }
 
-                if local {
-                    if let Some(cached) = self.local_cache.query(alias) {
-                        self.put_state(
-                            alias.clone(),
-                            true,
-                            ResolutionState::Associated(Arc::clone(&cached)),
-                        );
-                        continue;
-                    }
-                }
+            if parent.subparts.contains_key(alias) {
+                self.put_state(alias.clone(), local, ResolutionState::Subpart);
+                self.scan_dependencies(Some(alias), parent.clone(), local);
+                continue;
+            }
 
-                let cached = self.cache.read().unwrap().query(alias);
-                if let Some(cached) = cached {
+            if local {
+                if let Some(cached) = self.local_cache.query(alias) {
                     self.put_state(
                         alias.clone(),
-                        false,
+                        true,
                         ResolutionState::Associated(Arc::clone(&cached)),
                     );
                     continue;
                 }
-
-                if !pending.contains(alias) {
-                    pending.push(alias.clone());
-                    let on_update = &*self.on_update;
-                    let materials = &*self.materials;
-                    let loader = &*self.loader;
-                    pending_futs.push(async move {
-                        let res = loader.load_ref(materials, alias.clone(), local).await;
-                        match res {
-                            Err(e) => {
-                                on_update(alias.clone(), Err(e));
-                                None
-                            }
-                            Ok(v) => {
-                                on_update(alias.clone(), Ok(()));
-                                Some(v)
-                            }
-                        }
-                    });
-                }
             }
 
-            let result = join_all(pending_futs).await;
-            for (alias, result) in pending.iter().zip(result.into_iter()) {
-                let mut local = local;
-                let state = match result {
-                    Some((location, document)) => {
-                        let document = Arc::new(document);
-                        match location {
-                            FileLocation::Library(kind) => {
-                                local = false;
-                                self.cache.write().unwrap().register(
-                                    kind,
-                                    alias.clone(),
-                                    Arc::clone(&document),
-                                );
-                            }
-                            FileLocation::Local => {
-                                self.local_cache
-                                    .register(alias.clone(), Arc::clone(&document));
-                            }
-                        };
-
-                        ResolutionState::Associated(document)
-                    }
-                    None => ResolutionState::Missing,
-                };
-
-                if !self.contains_state(alias, local) {
-                    self.put_state(alias.clone(), local, state.clone());
-                    if let ResolutionState::Associated(document) = state {
-                        self.resolve(&document.body, None, local).await;
-                    }
-                }
+            let cached = self.cache.read().unwrap().query(alias);
+            if let Some(cached) = cached {
+                self.put_state(
+                    alias.clone(),
+                    false,
+                    ResolutionState::Associated(Arc::clone(&cached)),
+                );
+                continue;
             }
-        })
+
+            self.put_state(
+                alias.clone(),
+                local,
+                ResolutionState::Pending
+            );
+        }
     }
+
+    pub async fn resolve_pending_dependencies(&mut self) -> bool {
+        let mut pending = self.local_map.iter().filter_map(|(k, v)| {
+            match v {
+                ResolutionState::Pending => Some((k.clone(), true)),
+                _ => None,
+            }
+        }).collect::<Vec<_>>();
+        pending.extend(self.map.iter().filter_map(|(k, v)| {
+            match v {
+                ResolutionState::Pending => Some((k.clone(), false)),
+                _ => None,
+            }
+        }));
+
+        if pending.len() == 0 {
+            return false;
+        }
+
+        let futs = pending.iter().map(
+            |(alias, local)| self.loader.load_ref(&self.materials, alias.clone(), *local)
+        ).collect::<Vec<_>>();
+        
+        let result = join_all(futs).await;
+
+        for ((alias, mut local), result) in pending.iter().zip(result) {
+            let state = match result {
+                Ok((location, document)) => {
+                    (self.on_update)(alias.clone(), Ok(()));
+                    let document = Arc::new(document);
+                    match location {
+                        FileLocation::Library(kind) => {
+                            if local {
+                                self.clear_state(&alias, true);
+                            }
+                            local = false;
+                            self.cache.write().unwrap().register(
+                                kind,
+                                alias.clone(),
+                                Arc::clone(&document),
+                            );
+                            
+                        }
+                        FileLocation::Local => {
+                            self.local_cache
+                                .register(alias.clone(), Arc::clone(&document));
+                        }
+                    };
+
+                    self.scan_dependencies(None, Arc::clone(&document), local);
+
+                    ResolutionState::Associated(document)
+                },
+                Err(err) => {
+                    (self.on_update)(alias.clone(), Err(err));
+                    ResolutionState::Missing
+                }
+            };
+            self.put_state(alias.clone(), local, state);
+        }
+
+        true
+    }
+
 }
 
 #[derive(Debug, Default)]
@@ -297,6 +326,10 @@ pub struct ResolutionResult {
 }
 
 impl ResolutionResult {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn query(&self, alias: &PartAlias, local: bool) -> Option<(Arc<MultipartDocument>, bool)> {
         if local {
             let local_entry = self.local_entries.get(alias);
@@ -321,7 +354,9 @@ where
     F: Fn(PartAlias, Result<(), ResolutionError>),
 {
     let mut resolver = DependencyResolver::new(materials, cache, on_update, &loader);
-    resolver.resolve(&document.body, Some(document), true).await;
+
+    resolver.scan_dependencies(None, document, true);
+    while resolver.resolve_pending_dependencies().await {}
 
     ResolutionResult {
         library_entries: resolver
