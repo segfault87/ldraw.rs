@@ -1,6 +1,7 @@
 use std::fmt;
-use std::io::Write;
 
+use async_std::io::{Write, WriteExt};
+use async_trait::async_trait;
 use cgmath::{Matrix, Vector4};
 
 use crate::color::ColorReference;
@@ -27,113 +28,120 @@ impl fmt::Display for ColorReference {
     }
 }
 
+#[async_trait]
 trait LDrawWriter {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError>;
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError>;
 }
 
+#[async_trait]
 impl LDrawWriter for Header {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
-        writer.write_all(format!("0 !{} {}\n", self.0, self.1).as_bytes())?;
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+        writer.write_all(format!("0 !{} {}\n", self.0, self.1).as_bytes()).await?;
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for BfcCertification {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         match self {
-            BfcCertification::NoCertify => writer.write_all(b"0 BFC NOCERTIFY\n")?,
-            BfcCertification::Certify(Winding::Ccw) => writer.write_all(b"0 BFC CERTIFY CCW\n")?,
-            BfcCertification::Certify(Winding::Cw) => writer.write_all(b"0 BFC CERTIFY CW\n")?,
+            BfcCertification::NoCertify => writer.write_all(b"0 BFC NOCERTIFY\n").await?,
+            BfcCertification::Certify(Winding::Ccw) => writer.write_all(b"0 BFC CERTIFY CCW\n").await?,
+            BfcCertification::Certify(Winding::Cw) => writer.write_all(b"0 BFC CERTIFY CW\n").await?,
             _ => return Err(SerializeError::NoSerializable),
         };
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for BfcStatement {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         match self {
-            BfcStatement::Winding(Winding::Cw) => writer.write_all(b"0 BFC CW\n")?,
-            BfcStatement::Winding(Winding::Ccw) => writer.write_all(b"0 BFC CCW\n")?,
-            BfcStatement::Clip(None) => writer.write_all(b"0 BFC CLIP\n")?,
-            BfcStatement::Clip(Some(Winding::Cw)) => writer.write_all(b"0 BFC CLIP CW\n")?,
-            BfcStatement::Clip(Some(Winding::Ccw)) => writer.write_all(b"0 BFC CLIP CW\n")?,
-            BfcStatement::NoClip => writer.write_all(b"0 BFC NOCLIP\n")?,
-            BfcStatement::InvertNext => writer.write_all(b"0 BFC INVERTNEXT\n")?,
+            BfcStatement::Winding(Winding::Cw) => writer.write_all(b"0 BFC CW\n").await?,
+            BfcStatement::Winding(Winding::Ccw) => writer.write_all(b"0 BFC CCW\n").await?,
+            BfcStatement::Clip(None) => writer.write_all(b"0 BFC CLIP\n").await?,
+            BfcStatement::Clip(Some(Winding::Cw)) => writer.write_all(b"0 BFC CLIP CW\n").await?,
+            BfcStatement::Clip(Some(Winding::Ccw)) => writer.write_all(b"0 BFC CLIP CW\n").await?,
+            BfcStatement::NoClip => writer.write_all(b"0 BFC NOCLIP\n").await?,
+            BfcStatement::InvertNext => writer.write_all(b"0 BFC INVERTNEXT\n").await?,
         };
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for Document {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
-        writer.write_all(format!("0 {}\n", self.description).as_bytes())?;
-        writer.write_all(format!("0 Name: {}\n", self.name).as_bytes())?;
-        writer.write_all(format!("0 Author: {}\n", self.author).as_bytes())?;
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+        writer.write_all(format!("0 {}\n", self.description).as_bytes()).await?;
+        writer.write_all(format!("0 Name: {}\n", self.name).as_bytes()).await?;
+        writer.write_all(format!("0 Author: {}\n", self.author).as_bytes()).await?;
         for header in &self.headers {
-            header.write(writer)?;
+            header.write(writer).await?;
         }
-        writer.write_all(b"\n")?;
-        match self.bfc.write(writer) {
+        writer.write_all(b"\n").await?;
+        match self.bfc.write(writer).await {
             Ok(()) => {
-                writer.write_all(b"\n")?;
+                writer.write_all(b"\n").await?;
             }
             Err(SerializeError::NoSerializable) => {}
             Err(e) => return Err(e),
         };
         for command in &self.commands {
-            command.write(writer)?;
+            command.write(writer).await?;
         }
-        writer.write_all(b"0\n\n")?;
+        writer.write_all(b"0\n\n").await?;
 
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for MultipartDocument {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
-        self.body.write(writer)?;
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+        self.body.write(writer).await?;
         for subpart in self.subparts.values() {
-            writer.write_all(format!("0 FILE {}\n", subpart.name).as_bytes())?;
-            subpart.write(writer)?;
+            writer.write_all(format!("0 FILE {}\n", subpart.name).as_bytes()).await?;
+            subpart.write(writer).await?;
         }
 
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for Meta {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         match self {
             Meta::Comment(message) => {
                 for line in message.lines() {
-                    writer.write_all(format!("0 {}\n", line).as_bytes())?;
+                    writer.write_all(format!("0 {}\n", line).as_bytes()).await?;
                 }
             }
             Meta::Step => {
-                writer.write_all(b"0 STEP\n")?;
+                writer.write_all(b"0 STEP\n").await?;
             }
             Meta::Write(message) => {
                 for line in message.lines() {
-                    writer.write_all(format!("0 WRITE {}\n", line).as_bytes())?;
+                    writer.write_all(format!("0 WRITE {}\n", line).as_bytes()).await?;
                 }
             }
             Meta::Print(message) => {
                 for line in message.lines() {
-                    writer.write_all(format!("0 PRINT {}\n", line).as_bytes())?;
+                    writer.write_all(format!("0 PRINT {}\n", line).as_bytes()).await?;
                 }
             }
             Meta::Clear => {
-                writer.write_all(b"0 CLEAR\n")?;
+                writer.write_all(b"0 CLEAR\n").await?;
             }
             Meta::Pause => {
-                writer.write_all(b"0 PAUSE\n")?;
+                writer.write_all(b"0 PAUSE\n").await?;
             }
             Meta::Save => {
-                writer.write_all(b"0 SAVE\n")?;
+                writer.write_all(b"0 SAVE\n").await?;
             }
             Meta::Bfc(bfc) => {
-                bfc.write(writer)?;
+                bfc.write(writer).await?;
             }
         };
 
@@ -141,8 +149,9 @@ impl LDrawWriter for Meta {
     }
 }
 
+#[async_trait]
 impl LDrawWriter for PartReference {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         let m = self.matrix.transpose();
         writer.write_all(
             format!(
@@ -162,13 +171,14 @@ impl LDrawWriter for PartReference {
                 m.z.z
             )
             .as_bytes(),
-        )?;
+        ).await?;
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for Line {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
                 "2 {} {} {}\n",
@@ -177,13 +187,14 @@ impl LDrawWriter for Line {
                 serialize_vec3(&self.b)
             )
             .as_bytes(),
-        )?;
+        ).await?;
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for Triangle {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
                 "2 {} {} {} {}\n",
@@ -193,13 +204,14 @@ impl LDrawWriter for Triangle {
                 serialize_vec3(&self.c)
             )
             .as_bytes(),
-        )?;
+        ).await?;
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for Quad {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
                 "2 {} {} {} {} {}\n",
@@ -210,13 +222,14 @@ impl LDrawWriter for Quad {
                 serialize_vec3(&self.d)
             )
             .as_bytes(),
-        )?;
+        ).await?;
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for OptionalLine {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         writer.write_all(
             format!(
                 "2 {} {} {} {} {}\n",
@@ -227,20 +240,21 @@ impl LDrawWriter for OptionalLine {
                 serialize_vec3(&self.d)
             )
             .as_bytes(),
-        )?;
+        ).await?;
         Ok(())
     }
 }
 
+#[async_trait]
 impl LDrawWriter for Command {
-    fn write(&self, writer: &mut dyn Write) -> Result<(), SerializeError> {
+    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         match self {
-            Command::Meta(meta) => meta.write(writer),
-            Command::PartReference(ref_) => ref_.write(writer),
-            Command::Line(line) => line.write(writer),
-            Command::Triangle(triangle) => triangle.write(writer),
-            Command::Quad(quad) => quad.write(writer),
-            Command::OptionalLine(optional_line) => optional_line.write(writer),
+            Command::Meta(meta) => meta.write(writer).await,
+            Command::PartReference(ref_) => ref_.write(writer).await,
+            Command::Line(line) => line.write(writer).await,
+            Command::Triangle(triangle) => triangle.write(writer).await,
+            Command::Quad(quad) => quad.write(writer).await,
+            Command::OptionalLine(optional_line) => optional_line.write(writer).await,
         }
     }
 }
