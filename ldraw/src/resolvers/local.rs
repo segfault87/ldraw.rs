@@ -1,7 +1,7 @@
 use async_std::{
     fs::File,
     io::BufReader,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 use async_trait::async_trait;
 

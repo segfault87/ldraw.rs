@@ -24,11 +24,11 @@ use ldraw::{
         PartCache,
         resolve_dependencies,
     },
-    resolvers::local::LocalLoader,
     parser::{
         parse_color_definition,
         parse_multipart_document
     },
+    resolvers::local::LocalLoader,
 };
 use ldraw_ir::part::bake_part;
 use tokio::task::spawn_blocking;
@@ -87,7 +87,7 @@ async fn main() {
 
     let mut tasks = vec![];
 
-    let cache = Arc::new(RwLock::new(PartCache::default()));
+    let cache = Arc::new(RwLock::new(PartCache::new()));
     if let Some(files) = matches.values_of("files") {
         for file in files {
             let path = PathBuf::from(&file);
