@@ -5,9 +5,14 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+async-std = "1"
 bincode = "~1.3.3"
 cgmath = "~0.18.0"
 clap = "~2.33.0"
+futures = "~0.3.19"
+itertools = "~0.10.3"
 ldraw = { path = "../../ldraw" }
 ldraw_ir = { path = "../../ir" }
+num_cpus = "~1.13.1"
 serde_json = "~1.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
