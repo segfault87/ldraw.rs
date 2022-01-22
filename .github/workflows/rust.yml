@@ -19,16 +19,16 @@ jobs:
     - name: Install wasm target
       run: rustup target add wasm32-unknown-unknown
     - name: Build
-      run: >
-        cargo build -p renderer_web --target wasm32-unknown-unknown --verbose && \
+      run: |
+        cargo build -p renderer_web --target wasm32-unknown-unknown --verbose
         cargo build -p ldraw_ir -p ldraw -p ldraw_olr -p ldraw_renderer \
         -p baker -p ldr2img -p viewer_common -p viewer_native --verbose
     - name: Lint
-      run: >
-        cargo clippy -p renderer_web --target wasm32-unknown-unknown --verbose && \
+      run: |
+        cargo clippy -p renderer_web --target wasm32-unknown-unknown --verbose
         cargo clippy -p ldraw_ir -p ldraw -p ldraw_olr -p ldraw_renderer \
         -p baker -p ldr2img -p viewer_common -p viewer_native --verbose
     - name: Run tests
-      run: >
+      run: |
         cargo test -p ldraw_ir -p ldraw -p ldraw_olr -p ldraw_renderer \
         -p baker -p ldr2img -p viewer_common -p viewer_native --verbose
