@@ -1322,10 +1322,7 @@ mod tests {
             .unwrap();
         let mut subparts = HashMap::new();
         subparts.insert(
-            PartAlias {
-                normalized: "apple.ldr".into(),
-                original: "apple.ldr".into(),
-            },
+            PartAlias::from("apple.ldr".to_string()),
             Document {
                 name: "apple.ldr".into(),
                 description: "Apple".into(),
