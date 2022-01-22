@@ -1,9 +1,11 @@
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     f32,
     fmt::Debug,
     mem,
     ops::Deref,
+    rc::Rc,
     sync::Arc,
     vec::Vec,
 };
@@ -247,9 +249,15 @@ impl PartBuilder {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+struct FaceVertex {
+    position: Vector3,
+    normal: Vector3,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 enum FaceVertices {
-    Triangle([Vector3; 3]),
-    Quad([Vector3; 4]),
+    Triangle([FaceVertex; 3]),
+    Quad([FaceVertex; 4]),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -268,26 +276,17 @@ impl AbsDiffEq for FaceVertices {
     fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
         match (self, other) {
             (FaceVertices::Triangle(lhs), FaceVertices::Triangle(rhs)) => {
-                lhs[0].abs_diff_eq(&rhs[0], epsilon)
-                    && lhs[1].abs_diff_eq(&rhs[1], epsilon)
-                    && lhs[2].abs_diff_eq(&rhs[2], epsilon)
+                lhs[0].position.abs_diff_eq(&rhs[0].position, epsilon)
+                    && lhs[1].position.abs_diff_eq(&rhs[1].position, epsilon)
+                    && lhs[2].position.abs_diff_eq(&rhs[2].position, epsilon)
             }
             (FaceVertices::Quad(lhs), FaceVertices::Quad(rhs)) => {
-                lhs[0].abs_diff_eq(&rhs[0], epsilon)
-                    && lhs[1].abs_diff_eq(&rhs[1], epsilon)
-                    && lhs[2].abs_diff_eq(&rhs[2], epsilon)
-                    && lhs[3].abs_diff_eq(&rhs[3], epsilon)
+                lhs[0].position.abs_diff_eq(&rhs[0].position, epsilon)
+                    && lhs[1].position.abs_diff_eq(&rhs[1].position, epsilon)
+                    && lhs[2].position.abs_diff_eq(&rhs[2].position, epsilon)
+                    && lhs[3].position.abs_diff_eq(&rhs[3].position, epsilon)
             }
             (_, _) => false,
-        }
-    }
-}
-
-impl AsRef<[Vector3]> for FaceVertices {
-    fn as_ref(&self) -> &[Vector3] {
-        match self {
-            FaceVertices::Triangle(v) => v.as_ref(),
-            FaceVertices::Quad(v) => v.as_ref(),
         }
     }
 }
@@ -296,16 +295,19 @@ const TRIANGLE_INDEX_ORDER: &[usize] = &[0, 1, 2];
 const QUAD_INDEX_ORDER: &[usize] = &[0, 1, 2, 2, 3, 0];
 
 struct FaceIterator<'a> {
-    face: &'a [Vector3],
+    face: &'a FaceVertices,
     iterator: Box<dyn Iterator<Item = &'static usize>>,
 }
 
 impl<'a> Iterator for FaceIterator<'a> {
-    type Item = &'a Vector3;
+    type Item = &'a FaceVertex;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.iterator.next() {
-            Some(e) => Some(&self.face[*e]),
+            Some(e) => Some(match self.face {
+                FaceVertices::Triangle(v) => &v[*e],
+                FaceVertices::Quad(v) => &v[*e],
+            }),
             None => None,
         }
     }
@@ -314,8 +316,8 @@ impl<'a> Iterator for FaceIterator<'a> {
 impl<'a> FaceVertices {
     pub fn center(&self) -> Vector3 {
         match self {
-            FaceVertices::Triangle(a) => (a[0] + a[1] + a[2]) / 3.0,
-            FaceVertices::Quad(a) => (a[0] + a[1] + a[2] + a[3]) / 4.0,
+            FaceVertices::Triangle(a) => (a[0].position + a[1].position + a[2].position) / 3.0,
+            FaceVertices::Quad(a) => (a[0].position + a[1].position + a[2].position + a[3].position) / 4.0,
         }
     }
 
@@ -332,15 +334,8 @@ impl<'a> FaceVertices {
         };
 
         FaceIterator {
-            face: self.as_ref(),
+            face: self,
             iterator,
-        }
-    }
-
-    pub fn edge(&'a self, index: usize) -> (&'a Vector3, &'a Vector3) {
-        match self {
-            FaceVertices::Triangle(v) => (&v[index], &v[(index + 1) % 3]),
-            FaceVertices::Quad(v) => (&v[index], &v[(index + 1) % 4]),
         }
     }
 
@@ -348,14 +343,14 @@ impl<'a> FaceVertices {
         match self {
             FaceVertices::Triangle(v) => {
                 for i in v {
-                    if abs_diff_eq!(vec, i) {
+                    if abs_diff_eq!(vec, &i.position) {
                         return true;
                     }
                 }
             }
             FaceVertices::Quad(v) => {
                 for i in v {
-                    if abs_diff_eq!(vec, i) {
+                    if abs_diff_eq!(vec, &i.position) {
                         return true;
                     }
                 }
@@ -363,21 +358,12 @@ impl<'a> FaceVertices {
         }
         false
     }
-
-    pub fn normal(&self) -> Vector3 {
-        let r = match self {
-            FaceVertices::Triangle(v) => v.as_ref(),
-            FaceVertices::Quad(v) => v.as_ref(),
-        };
-
-        (r[1] - r[2]).cross(r[1] - r[0]).normalize()
-    }
 }
 
 #[derive(Debug)]
 struct Adjacency {
     pub position: Vector3,
-    pub faces: Vec<Face>,
+    pub faces: Vec<Rc<RefCell<Face>>>,
 }
 
 impl<'a> Adjacency {
@@ -388,9 +374,13 @@ impl<'a> Adjacency {
         }
     }
 
-    pub fn add(&mut self, face: &Face) {
-        self.faces.push(face.clone());
+    pub fn add(&mut self, face: Rc<RefCell<Face>>) {
+        self.faces.push(Rc::clone(&face));
     }
+}
+
+fn calculate_normal(v1: &Vector3, v2: &Vector3, v3: &Vector3) -> Vector3 {
+    (v2 - v3).cross(v2 - v1).normalize()
 }
 
 #[derive(Debug)]
@@ -411,8 +401,10 @@ impl MeshBuilder {
         let list = self.faces.entry(group_key.clone()).or_insert_with(Vec::new);
         list.push(face.clone());
 
-        for vertex in face.vertices.triangles(false) {
-            let r: &[f32; 3] = vertex.as_ref();
+        let face = Rc::new(RefCell::new(face));
+
+        for vertex in face.borrow().vertices.triangles(false) {
+            let r: &[f32; 3] = vertex.position.as_ref();
             let nearest = match self.point_cloud.iter_nearest_mut(r, &squared_euclidean) {
                 Ok(mut v) => match v.next() {
                     Some(vv) => {
@@ -429,15 +421,19 @@ impl MeshBuilder {
 
             match nearest {
                 Some(e) => {
-                    e.add(&face);
+                    e.add(Rc::clone(&face));
                 }
                 None => {
-                    let mut adjacency = Adjacency::new(vertex);
-                    adjacency.add(&face);
-                    self.point_cloud.add(*vertex.as_ref(), adjacency).unwrap();
+                    let mut adjacency = Adjacency::new(&vertex.position);
+                    adjacency.add(Rc::clone(&face));
+                    self.point_cloud.add(*vertex.position.as_ref(), adjacency).unwrap();
                 }
             };
         }
+    }
+
+    pub fn smooth_normals(&mut self) {
+
     }
 
     pub fn bake(&self, builder: &mut PartBufferBuilder, bounding_box: &mut BoundingBox3) {
@@ -453,48 +449,46 @@ impl MeshBuilder {
             let mesh = mesh.unwrap();
 
             for face in faces.iter() {
-                let mut normal = face.vertices.normal();
-
                 for vertex in face.vertices.triangles(false) {
                     match bounding_box_min {
                         None => {
-                            bounding_box_min = Some(*vertex);
+                            bounding_box_min = Some(vertex.position);
                         }
                         Some(ref mut e) => {
-                            if e.x > vertex.x {
-                                e.x = vertex.x;
+                            if e.x > vertex.position.x {
+                                e.x = vertex.position.x;
                             }
-                            if e.y > vertex.y {
-                                e.y = vertex.y;
+                            if e.y > vertex.position.y {
+                                e.y = vertex.position.y;
                             }
-                            if e.z > vertex.z {
-                                e.z = vertex.z;
+                            if e.z > vertex.position.z {
+                                e.z = vertex.position.z;
                             }
                         }
                     }
                     match bounding_box_max {
                         None => {
-                            bounding_box_max = Some(*vertex);
+                            bounding_box_max = Some(vertex.position);
                         }
                         Some(ref mut e) => {
-                            if e.x < vertex.x {
-                                e.x = vertex.x;
+                            if e.x < vertex.position.x {
+                                e.x = vertex.position.x;
                             }
-                            if e.y < vertex.y {
-                                e.y = vertex.y;
+                            if e.y < vertex.position.y {
+                                e.y = vertex.position.y;
                             }
-                            if e.z < vertex.z {
-                                e.z = vertex.z;
+                            if e.z < vertex.position.z {
+                                e.z = vertex.position.z;
                             }
                         }
                     }
 
-                    let r: &[f32; 3] = vertex.as_ref();
+                    /*let r: &[f32; 3] = vertex.as_ref();
                     if let Ok(mut matches) = self.point_cloud.iter_nearest(r, &squared_euclidean) {
                         if let Some(first_match) = matches.next() {
                             if first_match.0 < f32::default_epsilon() {
                                 for face in first_match.1.faces.iter() {
-                                    let fnormal = face.vertices.normal();
+                                    let fnormal = face.borrow().vertices.normal();
                                     if normal.angle(fnormal) < NORMAL_BLEND_THRESHOLD {
                                         normal = (normal + fnormal) * 0.5;
                                     }
@@ -502,9 +496,9 @@ impl MeshBuilder {
                                 normal = normal.normalize();
                             }
                         }
-                    };
+                    };*/
 
-                    mesh.add(vertex, &normal);
+                    mesh.add(&vertex.position, &vertex.normal);
                 }
             }
         }
@@ -630,21 +624,51 @@ impl<'a> PartBaker<'a> {
                     };
 
                     let face = match winding {
-                        Winding::Ccw => Face {
-                            vertices: FaceVertices::Triangle([
-                                (matrix * cmd.a).truncate(),
-                                (matrix * cmd.b).truncate(),
-                                (matrix * cmd.c).truncate(),
-                            ]),
-                            winding: Winding::Ccw,
+                        Winding::Ccw => {
+                            let v1 = (matrix * cmd.a).truncate();
+                            let v2 = (matrix * cmd.b).truncate();
+                            let v3 = (matrix * cmd.c).truncate();
+                            let normal = calculate_normal(&v1, &v2, &v3);
+                            Face {
+                                vertices: FaceVertices::Triangle([
+                                    FaceVertex {
+                                        position: v1,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v2,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v3,
+                                        normal: normal.clone(),
+                                    },
+                                ]),
+                                winding: Winding::Ccw,
+                            }
                         },
-                        Winding::Cw => Face {
-                            vertices: FaceVertices::Triangle([
-                                (matrix * cmd.c).truncate(),
-                                (matrix * cmd.b).truncate(),
-                                (matrix * cmd.a).truncate(),
-                            ]),
-                            winding: Winding::Cw,
+                        Winding::Cw => {
+                            let v1 = (matrix * cmd.c).truncate();
+                            let v2 = (matrix * cmd.b).truncate();
+                            let v3 = (matrix * cmd.a).truncate();
+                            let normal = calculate_normal(&v1, &v2, &v3);
+                            Face {
+                                vertices: FaceVertices::Triangle([
+                                    FaceVertex {
+                                        position: v1,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v2,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v3,
+                                        normal: normal.clone(),
+                                    },
+                                ]),
+                                winding: Winding::Cw,
+                            }
                         },
                     };
 
@@ -666,23 +690,61 @@ impl<'a> PartBaker<'a> {
                     };
 
                     let face = match winding {
-                        Winding::Ccw => Face {
-                            vertices: FaceVertices::Quad([
-                                (matrix * cmd.a).truncate(),
-                                (matrix * cmd.b).truncate(),
-                                (matrix * cmd.c).truncate(),
-                                (matrix * cmd.d).truncate(),
-                            ]),
-                            winding: Winding::Ccw,
+                        Winding::Ccw => {
+                            let v1 = (matrix * cmd.a).truncate();
+                            let v2 = (matrix * cmd.b).truncate();
+                            let v3 = (matrix * cmd.c).truncate();
+                            let v4 = (matrix * cmd.d).truncate();
+                            let normal = calculate_normal(&v1, &v2, &v3);
+                            Face {
+                                vertices: FaceVertices::Quad([
+                                    FaceVertex {
+                                        position: v1,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v2,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v3,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v4,
+                                        normal: normal.clone(),
+                                    },
+                                ]),
+                                winding: Winding::Ccw,
+                            }
                         },
-                        Winding::Cw => Face {
-                            vertices: FaceVertices::Quad([
-                                (matrix * cmd.d).truncate(),
-                                (matrix * cmd.c).truncate(),
-                                (matrix * cmd.b).truncate(),
-                                (matrix * cmd.a).truncate(),
-                            ]),
-                            winding: Winding::Cw,
+                        Winding::Cw => {
+                            let v1 = (matrix * cmd.d).truncate();
+                            let v2 = (matrix * cmd.c).truncate();
+                            let v3 = (matrix * cmd.b).truncate();
+                            let v4 = (matrix * cmd.a).truncate();
+                            let normal = calculate_normal(&v1, &v2, &v3);
+                            Face {
+                                vertices: FaceVertices::Quad([
+                                    FaceVertex {
+                                        position: v1,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v2,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v3,
+                                        normal: normal.clone(),
+                                    },
+                                    FaceVertex {
+                                        position: v4,
+                                        normal: normal.clone(),
+                                    },
+                                ]),
+                                winding: Winding::Cw,
+                            }
                         },
                     };
 
@@ -724,6 +786,7 @@ impl<'a> PartBaker<'a> {
 
     pub fn bake(&mut self) -> PartBuilder {
         let mut bounding_box = BoundingBox3::zero();
+        self.mesh_builder.smooth_normals();
         self.mesh_builder.bake(&mut self.builder, &mut bounding_box);
 
         PartBuilder::new(
