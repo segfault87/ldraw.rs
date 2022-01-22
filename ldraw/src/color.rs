@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Vector4;
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rgba {
     value: [u8; 4],
 }
@@ -70,8 +69,7 @@ impl From<Rgba> for Vector4 {
     }
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MaterialGlitter {
     pub value: Rgba,
     pub luminance: u8,
@@ -82,8 +80,7 @@ pub struct MaterialGlitter {
     pub maxsize: f32,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MaterialSpeckle {
     pub value: Rgba,
     pub luminance: u8,
@@ -93,15 +90,13 @@ pub struct MaterialSpeckle {
     pub maxsize: f32,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CustomizedMaterial {
     Glitter(MaterialGlitter),
     Speckle(MaterialSpeckle),
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Finish {
     Plastic,
     Chrome,
@@ -112,8 +107,7 @@ pub enum Finish {
     Custom(CustomizedMaterial),
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Material {
     pub code: u32,
     pub name: String,

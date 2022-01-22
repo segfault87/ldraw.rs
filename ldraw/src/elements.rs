@@ -1,12 +1,10 @@
 use crate::color::ColorReference;
 use crate::{Matrix4, PartAlias, Vector4, Winding};
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Header(pub String, pub String);
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BfcStatement {
     Winding(Winding),
     Clip(Option<Winding>),
@@ -14,8 +12,7 @@ pub enum BfcStatement {
     InvertNext,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Meta {
     Comment(String),
     Step,

@@ -17,8 +17,7 @@ use crate::{
     {Matrix4, PartAlias, Vector4, Winding},
 };
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Line0 {
     Header(Header),
     Meta(Meta),

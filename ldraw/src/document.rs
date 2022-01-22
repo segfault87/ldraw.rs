@@ -9,8 +9,7 @@ use crate::{
     PartAlias, Winding,
 };
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BfcCertification {
     NotApplicable,
     NoCertify,
