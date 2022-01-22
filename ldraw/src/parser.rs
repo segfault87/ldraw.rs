@@ -914,4 +914,235 @@ mod tests {
         let parsed_file = parse_line_0_or_panic(file);
         assert_eq!(parsed_file, Line0::File("main.ldr".into()));
     }
+
+    #[test]
+    fn parse_customized_material_parses_glitter() {
+        let cases = [
+            ("GLITTER VALUE #122334 FRACTION 0.3 VFRACTION 2.4 SIZE 1", MaterialGlitter {
+                value: Rgba::new(0x12, 0x23, 0x34, 255),
+                luminance: 0,
+                fraction: 0.3,
+                vfraction: 2.4,
+                size: 1,
+                minsize: 0.,
+                maxsize: 0.,
+            }),
+            ("GLITTER VALUE #00DEAD LUMINANCE 128 FRACTION 0.5 VFRACTION 0.4 MINSIZE 2 MAXSIZE 3", MaterialGlitter {
+                value: Rgba::new(0x00, 0xde, 0xad, 255),
+                luminance: 128,
+                fraction: 0.5,
+                vfraction: 0.4,
+                size: 0,
+                minsize: 2.,
+                maxsize: 3.,
+            }),
+            ("GLITTER VALUE #BEEF00 ALPHA 240 FRACTION 0.1 VFRACTION 0.12 SIZE 7", MaterialGlitter {
+                value: Rgba::new(0xbe, 0xef, 0x00, 240),
+                luminance: 0,
+                fraction: 0.1,
+                vfraction: 0.12,
+                size: 7,
+                minsize: 0.,
+                maxsize: 0.,
+            }),
+            ("GLITTER VALUE #677889 ALPHA 5 LUMINANCE 10 FRACTION 1 VFRACTION 2 MINSIZE 1.1 MAXSIZE 4.3", MaterialGlitter {
+                value: Rgba::new(0x67, 0x78, 0x89, 5),
+                luminance: 10,
+                fraction: 1.,
+                vfraction: 2.,
+                size: 0,
+                minsize: 1.1,
+                maxsize: 4.3,
+            }),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_customized_material(&mut input.chars()).unwrap();
+            match parsed {
+                CustomizedMaterial::Glitter(glitter) => assert_eq!(glitter, output),
+                _ => panic!(
+                    "expected CustomizedMaterial::Glitter(...), got: {:?}",
+                    parsed
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn parse_customized_material_parses_speckle() {
+        let cases = [
+            ("SPECKLE VALUE #122334 FRACTION 0.3 SIZE 1", MaterialSpeckle {
+                value: Rgba::new(0x12, 0x23, 0x34, 255),
+                luminance: 0,
+                fraction: 0.3,
+                size: 1,
+                minsize: 0.,
+                maxsize: 0.,
+            }),
+            ("SPECKLE VALUE #00DEAD LUMINANCE 128 FRACTION 0.5 MINSIZE 2 MAXSIZE 3", MaterialSpeckle {
+                value: Rgba::new(0x00, 0xde, 0xad, 255),
+                luminance: 128,
+                fraction: 0.5,
+                size: 0,
+                minsize: 2.,
+                maxsize: 3.,
+            }),
+            ("SPECKLE VALUE #BEEF00 ALPHA 240 FRACTION 0.1 SIZE 7", MaterialSpeckle {
+                value: Rgba::new(0xbe, 0xef, 0x00, 240),
+                luminance: 0,
+                fraction: 0.1,
+                size: 7,
+                minsize: 0.,
+                maxsize: 0.,
+            }),
+            ("SPECKLE VALUE #677889 ALPHA 5 LUMINANCE 10 FRACTION 1 MINSIZE 1.1 MAXSIZE 4.3", MaterialSpeckle {
+                value: Rgba::new(0x67, 0x78, 0x89, 5),
+                luminance: 10,
+                fraction: 1.,
+                size: 0,
+                minsize: 1.1,
+                maxsize: 4.3,
+            }),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_customized_material(&mut input.chars()).unwrap();
+            match parsed {
+                CustomizedMaterial::Speckle(speckle) => assert_eq!(speckle, output),
+                _ => panic!(
+                    "expected CustomizedMaterial::Speckle(...), got: {:?}",
+                    parsed
+                ),
+            }
+        }
+    }
+
+    const COLOR_DEFINITIONS: &str =
+"0 Color Definition for testing
+0 Name: LDConfig.ldr
+0 Author: LDraw.rs
+
+0 !COLOUR Solid                                                 CODE   0   VALUE #000000   EDGE #595959
+0 !COLOUR Transparent                                           CODE   1   VALUE #FF0000   EDGE #00FF00   ALPHA 128
+0 !COLOUR Chrome                                                CODE   2   VALUE #00FF00   EDGE #FF0000   CHROME
+0 !COLOUR Pearl                                                 CODE   3   VALUE #0000FF   EDGE #00FF00   PEARLESCENT
+0 !COLOUR Metal                                                 CODE   4   VALUE #FF0000   EDGE #0000FF   METAL
+0 !COLOUR Phosphorescent                                        CODE   5   VALUE #FF00FF   EDGE #00FF00   ALPHA 240   LUMINANCE 15
+0 !COLOUR Glitter                                               CODE   6   VALUE #FFFF00   EDGE #00FFFF   MATERIAL GLITTER VALUE #FF00FF FRACTION 0.17 VFRACTION 0.2 SIZE 1
+0 !COLOUR Glitter_Transparent                                   CODE   7   VALUE #00FFFF   EDGE #FFFF00   ALPHA 128   MATERIAL GLITTER VALUE #FF00FF FRACTION 0.17 VFRACTION 0.2 SIZE 1
+0 !COLOUR Speckle                                               CODE   8   VALUE #123456   EDGE #654321   MATERIAL SPECKLE VALUE #898788 FRACTION 0.4 MINSIZE 1 MAXSIZE 3
+0 !COLOUR Rubber                                                CODE   9   VALUE #ABCDEF   EDGE #FEDCBA   RUBBER";
+
+    #[async_std::test]
+    async fn test_parse_color_definition() {
+        let parsed = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let materials = [
+            Material {
+                code: 0,
+                name: "Solid".into(),
+                color: Rgba::new(0x00, 0x00, 0x00, 255),
+                edge: Rgba::new(0x59, 0x59, 0x59, 255),
+                luminance: 0,
+                finish: Finish::Plastic,
+            },
+            Material {
+                code: 1,
+                name: "Transparent".into(),
+                color: Rgba::new(0xff, 0x00, 0x00, 128),
+                edge: Rgba::new(0x00, 0xff, 0x00, 255),
+                luminance: 0,
+                finish: Finish::Plastic,
+            },
+            Material {
+                code: 2,
+                name: "Chrome".into(),
+                color: Rgba::new(0x00, 0xff, 0x00, 255),
+                edge: Rgba::new(0xff, 0x00, 0x00, 255),
+                luminance: 0,
+                finish: Finish::Chrome,
+            },
+            Material {
+                code: 3,
+                name: "Pearl".into(),
+                color: Rgba::new(0x00, 0x00, 0xff, 255),
+                edge: Rgba::new(0x00, 0xff, 0x00, 255),
+                luminance: 0,
+                finish: Finish::Pearlescent,
+            },
+            Material {
+                code: 4,
+                name: "Metal".into(),
+                color: Rgba::new(0xff, 0x00, 0x00, 255),
+                edge: Rgba::new(0x00, 0x00, 0xff, 255),
+                luminance: 0,
+                finish: Finish::Metal,
+            },
+            Material {
+                code: 5,
+                name: "Phosphorescent".into(),
+                color: Rgba::new(0xff, 0x00, 0xff, 240),
+                edge: Rgba::new(0x00, 0xff, 0x00, 255),
+                luminance: 15,
+                finish: Finish::Plastic,
+            },
+            Material {
+                code: 6,
+                name: "Glitter".into(),
+                color: Rgba::new(0xff, 0xff, 0x00, 255),
+                edge: Rgba::new(0x00, 0xff, 0xff, 255),
+                luminance: 0,
+                finish: Finish::Custom(CustomizedMaterial::Glitter(MaterialGlitter {
+                    value: Rgba::new(0xff, 0x00, 0xff, 255),
+                    luminance: 0,
+                    fraction: 0.17,
+                    vfraction: 0.2,
+                    size: 1,
+                    minsize: 0.,
+                    maxsize: 0.,
+                })),
+            },
+            Material {
+                code: 7,
+                name: "Glitter_Transparent".into(),
+                color: Rgba::new(0x00, 0xff, 0xff, 128),
+                edge: Rgba::new(0xff, 0xff, 0x00, 255),
+                luminance: 0,
+                finish: Finish::Custom(CustomizedMaterial::Glitter(MaterialGlitter {
+                    value: Rgba::new(0xff, 0x00, 0xff, 255),
+                    luminance: 0,
+                    fraction: 0.17,
+                    vfraction: 0.2,
+                    size: 1,
+                    minsize: 0.,
+                    maxsize: 0.,
+                })),
+            },
+            Material {
+                code: 8,
+                name: "Speckle".into(),
+                color: Rgba::new(0x12, 0x34, 0x56, 255),
+                edge: Rgba::new(0x65, 0x43, 0x21, 255),
+                luminance: 0,
+                finish: Finish::Custom(CustomizedMaterial::Speckle(MaterialSpeckle {
+                    value: Rgba::new(0x89, 0x87, 0x88, 255),
+                    luminance: 0,
+                    fraction: 0.4,
+                    size: 0,
+                    minsize: 1.,
+                    maxsize: 3.,
+                })),
+            },
+            Material {
+                code: 9,
+                name: "Rubber".into(),
+                color: Rgba::new(0xab, 0xcd, 0xef, 255),
+                edge: Rgba::new(0xfe, 0xdc, 0xba, 255),
+                luminance: 0,
+                finish: Finish::Rubber,
+            },
+        ];
+        for material in materials {
+            assert_eq!(parsed[&material.code], material);
+        }
+    }
 }
