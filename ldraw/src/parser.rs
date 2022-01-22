@@ -970,38 +970,50 @@ mod tests {
     #[test]
     fn parse_customized_material_parses_speckle() {
         let cases = [
-            ("SPECKLE VALUE #122334 FRACTION 0.3 SIZE 1", MaterialSpeckle {
-                value: Rgba::new(0x12, 0x23, 0x34, 255),
-                luminance: 0,
-                fraction: 0.3,
-                size: 1,
-                minsize: 0.,
-                maxsize: 0.,
-            }),
-            ("SPECKLE VALUE #00DEAD LUMINANCE 128 FRACTION 0.5 MINSIZE 2 MAXSIZE 3", MaterialSpeckle {
-                value: Rgba::new(0x00, 0xde, 0xad, 255),
-                luminance: 128,
-                fraction: 0.5,
-                size: 0,
-                minsize: 2.,
-                maxsize: 3.,
-            }),
-            ("SPECKLE VALUE #BEEF00 ALPHA 240 FRACTION 0.1 SIZE 7", MaterialSpeckle {
-                value: Rgba::new(0xbe, 0xef, 0x00, 240),
-                luminance: 0,
-                fraction: 0.1,
-                size: 7,
-                minsize: 0.,
-                maxsize: 0.,
-            }),
-            ("SPECKLE VALUE #677889 ALPHA 5 LUMINANCE 10 FRACTION 1 MINSIZE 1.1 MAXSIZE 4.3", MaterialSpeckle {
-                value: Rgba::new(0x67, 0x78, 0x89, 5),
-                luminance: 10,
-                fraction: 1.,
-                size: 0,
-                minsize: 1.1,
-                maxsize: 4.3,
-            }),
+            (
+                "SPECKLE VALUE #122334 FRACTION 0.3 SIZE 1",
+                MaterialSpeckle {
+                    value: Rgba::new(0x12, 0x23, 0x34, 255),
+                    luminance: 0,
+                    fraction: 0.3,
+                    size: 1,
+                    minsize: 0.,
+                    maxsize: 0.,
+                },
+            ),
+            (
+                "SPECKLE VALUE #00DEAD LUMINANCE 128 FRACTION 0.5 MINSIZE 2 MAXSIZE 3",
+                MaterialSpeckle {
+                    value: Rgba::new(0x00, 0xde, 0xad, 255),
+                    luminance: 128,
+                    fraction: 0.5,
+                    size: 0,
+                    minsize: 2.,
+                    maxsize: 3.,
+                },
+            ),
+            (
+                "SPECKLE VALUE #BEEF00 ALPHA 240 FRACTION 0.1 SIZE 7",
+                MaterialSpeckle {
+                    value: Rgba::new(0xbe, 0xef, 0x00, 240),
+                    luminance: 0,
+                    fraction: 0.1,
+                    size: 7,
+                    minsize: 0.,
+                    maxsize: 0.,
+                },
+            ),
+            (
+                "SPECKLE VALUE #677889 ALPHA 5 LUMINANCE 10 FRACTION 1 MINSIZE 1.1 MAXSIZE 4.3",
+                MaterialSpeckle {
+                    value: Rgba::new(0x67, 0x78, 0x89, 5),
+                    luminance: 10,
+                    fraction: 1.,
+                    size: 0,
+                    minsize: 1.1,
+                    maxsize: 4.3,
+                },
+            ),
         ];
         for (input, output) in cases {
             let parsed = parse_customized_material(&mut input.chars()).unwrap();
@@ -1144,5 +1156,98 @@ mod tests {
         for material in materials {
             assert_eq!(parsed[&material.code], material);
         }
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_1() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_1 = "1 11 -0.25 -16 2 0 0 0 1 0 0 0 -2 1-4disc.dat";
+        let parsed = parse_line_1(&colors, &mut line_1.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            PartReference {
+                color: ColorReference::Material(colors[&1].clone()),
+                matrix: Matrix4::new(
+                    2., 0., 0., 0., 0., 1., 0., 0., 0., 0., -2., 0., 11., -0.25, -16., 1.,
+                ),
+                name: "1-4disc.dat".into(),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_2() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_2 = "16 3 2.7 8 -12.23 4.17 .67";
+        let parsed = parse_line_2(&colors, &mut line_2.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            Line {
+                color: ColorReference::Current,
+                a: Vector4::new(3., 2.7, 8., 1.),
+                b: Vector4::new(-12.23, 4.17, 0.67, 1.),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_3() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_3 = "15 22.04 -.25 -1.16 23.72 -.25 -4.49 23.72 -.25 -2.61";
+        let parsed = parse_line_3(&colors, &mut line_3.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            Triangle {
+                color: ColorReference::Unknown(15),
+                a: Vector4::new(22.04, -0.25, -1.16, 1.),
+                b: Vector4::new(23.72, -0.25, -4.49, 1.),
+                c: Vector4::new(23.72, -0.25, -2.61, 1.),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_4() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_4 = "1 -11 -0.25 -18 11 -0.25 -18 11 -0.25 -12.7 -11 -0.25 -12.7";
+        let parsed = parse_line_4(&colors, &mut line_4.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            Quad {
+                color: ColorReference::Material(colors[&1].clone()),
+                a: Vector4::new(-11., -0.25, -18., 1.),
+                b: Vector4::new(11., -0.25, -18., 1.),
+                c: Vector4::new(11., -0.25, -12.7, 1.),
+                d: Vector4::new(-11., -0.25, -12.7, 1.),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_5() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_5 =
+            "24 0 -55.673 -15.623 0 -59.974 -18.831 4.233 -59.338 -18.968 -4.233 -59.338 -18.968";
+        let parsed = parse_line_5(&colors, &mut line_5.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            OptionalLine {
+                color: ColorReference::Complement,
+                a: Vector4::new(0., -55.673, -15.623, 1.),
+                b: Vector4::new(0., -59.974, -18.831, 1.),
+                c: Vector4::new(4.233, -59.338, -18.968, 1.),
+                d: Vector4::new(-4.233, -59.338, -18.968, 1.),
+            }
+        );
     }
 }
