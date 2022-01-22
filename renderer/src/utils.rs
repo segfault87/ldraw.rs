@@ -53,7 +53,7 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_normal_matrix_1() {
+    fn test_derive_normal_matrix() {
         let matrix = Matrix4::new(
             1.0, 1.0, 0.0, 1.0,
             1.0, 0.0, 1.0, 1.0,
