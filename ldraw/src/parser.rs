@@ -17,7 +17,7 @@ use crate::{
     {Matrix4, PartAlias, Vector4, Winding},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Line0 {
     Header(Header),
     Meta(Meta),
@@ -747,72 +747,626 @@ pub async fn parse_color_definition<T: BufRead + Unpin>(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_color_definition, parse_multipart_document, parse_single_document};
-    use crate::color::MaterialRegistry;
-    use crate::error::{ColorDefinitionParseError, ParseError};
-    use std::fs::File;
-    use std::io::BufReader;
+    use super::*;
 
-    const PATH_LDCONFIG: &str = "/home/segfault/.ldraw/LDConfig.ldr";
-    const PATH_PART: &str = "/home/segfault/.ldraw/parts/u9318.dat";
-    const PATH_MPD: &str = "/home/segfault/Downloads/6973.ldr";
-
-    fn set_up_materials() -> Result<MaterialRegistry, ColorDefinitionParseError> {
-        let mut reader = BufReader::new(File::open(PATH_LDCONFIG).unwrap());
-        match parse_color_definition::<BufReader<File>>(&mut reader) {
-            Ok(m) => Ok(m),
-            Err(e) => Err(e),
+    fn parse_line_0_or_panic(input: &str) -> Line0 {
+        match parse_line_0(&mut input.chars()) {
+            Ok(line0) => line0,
+            Err(e) => {
+                panic!("cannot parse {}: {}", input, e);
+            }
         }
     }
 
     #[test]
-    fn test_parse_color_definition() {
-        let materials = set_up_materials().unwrap();
+    fn parse_line_0_parses_comment() {
+        let cases = [
+            ("// This is a comment", "This is a comment"),
+            ("This is also a comment", "This is also a comment"),
+        ];
 
-        println!("{:#?}\n", materials);
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::Meta(Meta::Comment(comment)) => assert_eq!(comment, output),
+                _ => panic!("expected Line0::Meta(Meta::Comment(...)), got {:?}", parsed),
+            }
+        }
     }
 
     #[test]
-    fn test_parse_single_document() {
-        let materials = set_up_materials().unwrap();
-        let mut reader_part = BufReader::new(File::open(PATH_PART).unwrap());
-        match parse_single_document::<BufReader<File>>(&materials, &mut reader_part) {
-            Ok(model) => {
-                println!("{:#?}\n", model);
+    fn parse_line_0_parses_offical_meta_commands_without_bfc() {
+        let cases = [
+            ("STEP", Meta::Step),
+            (
+                "WRITE any length of string",
+                Meta::Write("any length of string".into()),
+            ),
+            (
+                "PRINT also any length of string",
+                Meta::Print("also any length of string".into()),
+            ),
+            ("CLEAR", Meta::Clear),
+            ("PAUSE", Meta::Pause),
+            ("SAVE", Meta::Save),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::Meta(meta) => assert_eq!(meta, output),
+                _ => panic!("expected Line0::Meta(...), got {:?}", parsed),
             }
-            Err(e) => {
-                assert!(false, "{}", e);
-            }
-        };
-
-        let mut reader_mpd = BufReader::new(File::open(PATH_MPD).unwrap());
-        match parse_single_document::<BufReader<File>>(&materials, &mut reader_mpd) {
-            Ok(_) => {
-                assert!(false, "Should not read properly");
-            }
-            Err(e) => {
-                assert!(if let ParseError::MultipartDocument = e.error {
-                    true
-                } else {
-                    false
-                });
-            }
-        };
+        }
     }
 
     #[test]
-    fn test_parse_multipart_document() {
-        let materials = set_up_materials().unwrap();
-        let f = File::open(PATH_MPD).unwrap();
-        let mut reader = BufReader::new(f);
+    fn parse_line_0_parses_bfc_statements() {
+        let cases = [
+            ("BFC CW", BfcStatement::Winding(Winding::Cw)),
+            ("BFC CCW", BfcStatement::Winding(Winding::Ccw)),
+            ("BFC CLIP", BfcStatement::Clip(None)),
+            ("BFC CLIP CW", BfcStatement::Clip(Some(Winding::Cw))),
+            ("BFC CLIP CCW", BfcStatement::Clip(Some(Winding::Ccw))),
+            ("BFC CW CLIP", BfcStatement::Clip(Some(Winding::Cw))),
+            ("BFC CCW CLIP", BfcStatement::Clip(Some(Winding::Ccw))),
+            ("BFC NOCLIP", BfcStatement::NoClip),
+            ("BFC INVERTNEXT", BfcStatement::InvertNext),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::Meta(Meta::Bfc(bfc)) => assert_eq!(bfc, output),
+                _ => panic!("expected Line0::Meta(Meta::Bfc(...)) got {:?}", parsed),
+            }
+        }
+    }
 
-        match parse_multipart_document::<BufReader<File>>(&materials, &mut reader) {
-            Ok(model) => {
-                println!("{:#?}\n", model);
+    #[test]
+    fn parse_line_0_parses_bfc_certificates() {
+        let cases = [
+            ("BFC NOCERTIFY", BfcCertification::NoCertify),
+            ("BFC CERTIFY CW", BfcCertification::Certify(Winding::Cw)),
+            ("BFC CERTIFY", BfcCertification::Certify(Winding::Ccw)),
+            ("BFC CERTIFY CCW", BfcCertification::Certify(Winding::Ccw)),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::BfcCertification(certification) => assert_eq!(certification, output),
+                _ => panic!("expected Line0::BfsCertification(...), got {:?}", parsed),
             }
-            Err(e) => {
-                assert!(false, "{}", e);
+        }
+    }
+
+    #[test]
+    fn parse_line_0_parses_headers() {
+        let cases = [
+            (
+                "!LDRAW_ORG Part UPDATE 2006-01",
+                Header("LDRAW_ORG".into(), "Part UPDATE 2006-01".into()),
+            ),
+            (
+                "!LICENSE Redistributable under CCAL version 2.: see CAreadme.txt",
+                Header(
+                    "LICENSE".into(),
+                    "Redistributable under CCAL version 2.: see CAreadme.txt".into(),
+                ),
+            ),
+            (
+                "!HELP Obviously there is no need for additional",
+                Header(
+                    "HELP".into(),
+                    "Obviously there is no need for additional".into(),
+                ),
+            ),
+            ("!HELP", Header("HELP".into(), "".into())),
+            (
+                "!CATEGORY Animal",
+                Header("CATEGORY".into(), "Animal".into()),
+            ),
+            (
+                "!KEYWORDS Sting, Poison, Adventurers, Egypt",
+                Header(
+                    "KEYWORDS".into(),
+                    "Sting, Poison, Adventurers, Egypt".into(),
+                ),
+            ),
+            ("!CMDLINE -c1", Header("CMDLINE".into(), "-c1".into())),
+            (
+                "!HISTORY 2000-08-?? {Axel Poque} fixes to resolve L3P error messages",
+                Header(
+                    "HISTORY".into(),
+                    "2000-08-?? {Axel Poque} fixes to resolve L3P error messages".into(),
+                ),
+            ),
+            (
+                "!HISTORY 2002-04-25 [PTadmin] Official update 2002-02",
+                Header(
+                    "HISTORY".into(),
+                    "2002-04-25 [PTadmin] Official update 2002-02".into(),
+                ),
+            ),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::Header(header) => assert_eq!(header, output),
+                _ => panic!("expected Line0::Header(...), got {:?}", parsed),
             }
-        };
+        }
+    }
+
+    #[test]
+    fn parse_line_0_parses_name_author() {
+        let name = "Name: 193a.dat";
+        let parsed_name = parse_line_0_or_panic(name);
+        assert_eq!(parsed_name, Line0::Name("193a.dat".into()));
+
+        let author = "Author: Chris Dee [cwdee]";
+        let parsed_author = parse_line_0_or_panic(author);
+        assert_eq!(parsed_author, Line0::Author("Chris Dee [cwdee]".into()));
+    }
+
+    #[test]
+    fn parse_line_0_parses_file() {
+        let file = "FILE main.ldr";
+        let parsed_file = parse_line_0_or_panic(file);
+        assert_eq!(parsed_file, Line0::File("main.ldr".into()));
+    }
+
+    #[test]
+    fn parse_customized_material_parses_glitter() {
+        let cases = [
+            ("GLITTER VALUE #122334 FRACTION 0.3 VFRACTION 2.4 SIZE 1", MaterialGlitter {
+                value: Rgba::new(0x12, 0x23, 0x34, 255),
+                luminance: 0,
+                fraction: 0.3,
+                vfraction: 2.4,
+                size: 1,
+                minsize: 0.,
+                maxsize: 0.,
+            }),
+            ("GLITTER VALUE #00DEAD LUMINANCE 128 FRACTION 0.5 VFRACTION 0.4 MINSIZE 2 MAXSIZE 3", MaterialGlitter {
+                value: Rgba::new(0x00, 0xde, 0xad, 255),
+                luminance: 128,
+                fraction: 0.5,
+                vfraction: 0.4,
+                size: 0,
+                minsize: 2.,
+                maxsize: 3.,
+            }),
+            ("GLITTER VALUE #BEEF00 ALPHA 240 FRACTION 0.1 VFRACTION 0.12 SIZE 7", MaterialGlitter {
+                value: Rgba::new(0xbe, 0xef, 0x00, 240),
+                luminance: 0,
+                fraction: 0.1,
+                vfraction: 0.12,
+                size: 7,
+                minsize: 0.,
+                maxsize: 0.,
+            }),
+            ("GLITTER VALUE #677889 ALPHA 5 LUMINANCE 10 FRACTION 1 VFRACTION 2 MINSIZE 1.1 MAXSIZE 4.3", MaterialGlitter {
+                value: Rgba::new(0x67, 0x78, 0x89, 5),
+                luminance: 10,
+                fraction: 1.,
+                vfraction: 2.,
+                size: 0,
+                minsize: 1.1,
+                maxsize: 4.3,
+            }),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_customized_material(&mut input.chars()).unwrap();
+            match parsed {
+                CustomizedMaterial::Glitter(glitter) => assert_eq!(glitter, output),
+                _ => panic!(
+                    "expected CustomizedMaterial::Glitter(...), got: {:?}",
+                    parsed
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn parse_customized_material_parses_speckle() {
+        let cases = [
+            (
+                "SPECKLE VALUE #122334 FRACTION 0.3 SIZE 1",
+                MaterialSpeckle {
+                    value: Rgba::new(0x12, 0x23, 0x34, 255),
+                    luminance: 0,
+                    fraction: 0.3,
+                    size: 1,
+                    minsize: 0.,
+                    maxsize: 0.,
+                },
+            ),
+            (
+                "SPECKLE VALUE #00DEAD LUMINANCE 128 FRACTION 0.5 MINSIZE 2 MAXSIZE 3",
+                MaterialSpeckle {
+                    value: Rgba::new(0x00, 0xde, 0xad, 255),
+                    luminance: 128,
+                    fraction: 0.5,
+                    size: 0,
+                    minsize: 2.,
+                    maxsize: 3.,
+                },
+            ),
+            (
+                "SPECKLE VALUE #BEEF00 ALPHA 240 FRACTION 0.1 SIZE 7",
+                MaterialSpeckle {
+                    value: Rgba::new(0xbe, 0xef, 0x00, 240),
+                    luminance: 0,
+                    fraction: 0.1,
+                    size: 7,
+                    minsize: 0.,
+                    maxsize: 0.,
+                },
+            ),
+            (
+                "SPECKLE VALUE #677889 ALPHA 5 LUMINANCE 10 FRACTION 1 MINSIZE 1.1 MAXSIZE 4.3",
+                MaterialSpeckle {
+                    value: Rgba::new(0x67, 0x78, 0x89, 5),
+                    luminance: 10,
+                    fraction: 1.,
+                    size: 0,
+                    minsize: 1.1,
+                    maxsize: 4.3,
+                },
+            ),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_customized_material(&mut input.chars()).unwrap();
+            match parsed {
+                CustomizedMaterial::Speckle(speckle) => assert_eq!(speckle, output),
+                _ => panic!(
+                    "expected CustomizedMaterial::Speckle(...), got: {:?}",
+                    parsed
+                ),
+            }
+        }
+    }
+
+    const COLOR_DEFINITIONS: &str =
+"0 Color Definition for testing
+0 Name: LDConfig.ldr
+0 Author: LDraw.rs
+
+0 !COLOUR Solid                                                 CODE   0   VALUE #000000   EDGE #595959
+0 !COLOUR Transparent                                           CODE   1   VALUE #FF0000   EDGE #00FF00   ALPHA 128
+0 !COLOUR Chrome                                                CODE   2   VALUE #00FF00   EDGE #FF0000   CHROME
+0 !COLOUR Pearl                                                 CODE   3   VALUE #0000FF   EDGE #00FF00   PEARLESCENT
+0 !COLOUR Metal                                                 CODE   4   VALUE #FF0000   EDGE #0000FF   METAL
+0 !COLOUR Phosphorescent                                        CODE   5   VALUE #FF00FF   EDGE #00FF00   ALPHA 240   LUMINANCE 15
+0 !COLOUR Glitter                                               CODE   6   VALUE #FFFF00   EDGE #00FFFF   MATERIAL GLITTER VALUE #FF00FF FRACTION 0.17 VFRACTION 0.2 SIZE 1
+0 !COLOUR Glitter_Transparent                                   CODE   7   VALUE #00FFFF   EDGE #FFFF00   ALPHA 128   MATERIAL GLITTER VALUE #FF00FF FRACTION 0.17 VFRACTION 0.2 SIZE 1
+0 !COLOUR Speckle                                               CODE   8   VALUE #123456   EDGE #654321   MATERIAL SPECKLE VALUE #898788 FRACTION 0.4 MINSIZE 1 MAXSIZE 3
+0 !COLOUR Rubber                                                CODE   9   VALUE #ABCDEF   EDGE #FEDCBA   RUBBER";
+
+    #[async_std::test]
+    async fn test_parse_color_definition() {
+        let parsed = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let materials = [
+            Material {
+                code: 0,
+                name: "Solid".into(),
+                color: Rgba::new(0x00, 0x00, 0x00, 255),
+                edge: Rgba::new(0x59, 0x59, 0x59, 255),
+                luminance: 0,
+                finish: Finish::Plastic,
+            },
+            Material {
+                code: 1,
+                name: "Transparent".into(),
+                color: Rgba::new(0xff, 0x00, 0x00, 128),
+                edge: Rgba::new(0x00, 0xff, 0x00, 255),
+                luminance: 0,
+                finish: Finish::Plastic,
+            },
+            Material {
+                code: 2,
+                name: "Chrome".into(),
+                color: Rgba::new(0x00, 0xff, 0x00, 255),
+                edge: Rgba::new(0xff, 0x00, 0x00, 255),
+                luminance: 0,
+                finish: Finish::Chrome,
+            },
+            Material {
+                code: 3,
+                name: "Pearl".into(),
+                color: Rgba::new(0x00, 0x00, 0xff, 255),
+                edge: Rgba::new(0x00, 0xff, 0x00, 255),
+                luminance: 0,
+                finish: Finish::Pearlescent,
+            },
+            Material {
+                code: 4,
+                name: "Metal".into(),
+                color: Rgba::new(0xff, 0x00, 0x00, 255),
+                edge: Rgba::new(0x00, 0x00, 0xff, 255),
+                luminance: 0,
+                finish: Finish::Metal,
+            },
+            Material {
+                code: 5,
+                name: "Phosphorescent".into(),
+                color: Rgba::new(0xff, 0x00, 0xff, 240),
+                edge: Rgba::new(0x00, 0xff, 0x00, 255),
+                luminance: 15,
+                finish: Finish::Plastic,
+            },
+            Material {
+                code: 6,
+                name: "Glitter".into(),
+                color: Rgba::new(0xff, 0xff, 0x00, 255),
+                edge: Rgba::new(0x00, 0xff, 0xff, 255),
+                luminance: 0,
+                finish: Finish::Custom(CustomizedMaterial::Glitter(MaterialGlitter {
+                    value: Rgba::new(0xff, 0x00, 0xff, 255),
+                    luminance: 0,
+                    fraction: 0.17,
+                    vfraction: 0.2,
+                    size: 1,
+                    minsize: 0.,
+                    maxsize: 0.,
+                })),
+            },
+            Material {
+                code: 7,
+                name: "Glitter_Transparent".into(),
+                color: Rgba::new(0x00, 0xff, 0xff, 128),
+                edge: Rgba::new(0xff, 0xff, 0x00, 255),
+                luminance: 0,
+                finish: Finish::Custom(CustomizedMaterial::Glitter(MaterialGlitter {
+                    value: Rgba::new(0xff, 0x00, 0xff, 255),
+                    luminance: 0,
+                    fraction: 0.17,
+                    vfraction: 0.2,
+                    size: 1,
+                    minsize: 0.,
+                    maxsize: 0.,
+                })),
+            },
+            Material {
+                code: 8,
+                name: "Speckle".into(),
+                color: Rgba::new(0x12, 0x34, 0x56, 255),
+                edge: Rgba::new(0x65, 0x43, 0x21, 255),
+                luminance: 0,
+                finish: Finish::Custom(CustomizedMaterial::Speckle(MaterialSpeckle {
+                    value: Rgba::new(0x89, 0x87, 0x88, 255),
+                    luminance: 0,
+                    fraction: 0.4,
+                    size: 0,
+                    minsize: 1.,
+                    maxsize: 3.,
+                })),
+            },
+            Material {
+                code: 9,
+                name: "Rubber".into(),
+                color: Rgba::new(0xab, 0xcd, 0xef, 255),
+                edge: Rgba::new(0xfe, 0xdc, 0xba, 255),
+                luminance: 0,
+                finish: Finish::Rubber,
+            },
+        ];
+        for material in materials {
+            assert_eq!(parsed[&material.code], material);
+        }
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_1() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_1 = "1 11 -0.25 -16 2 0 0 0 1 0 0 0 -2 1-4disc.dat";
+        let parsed = parse_line_1(&colors, &mut line_1.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            PartReference {
+                color: ColorReference::Material(colors[&1].clone()),
+                matrix: Matrix4::new(
+                    2., 0., 0., 0., 0., 1., 0., 0., 0., 0., -2., 0., 11., -0.25, -16., 1.,
+                ),
+                name: "1-4disc.dat".into(),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_2() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_2 = "16 3 2.7 8 -12.23 4.17 .67";
+        let parsed = parse_line_2(&colors, &mut line_2.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            Line {
+                color: ColorReference::Current,
+                a: Vector4::new(3., 2.7, 8., 1.),
+                b: Vector4::new(-12.23, 4.17, 0.67, 1.),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_3() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_3 = "15 22.04 -.25 -1.16 23.72 -.25 -4.49 23.72 -.25 -2.61";
+        let parsed = parse_line_3(&colors, &mut line_3.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            Triangle {
+                color: ColorReference::Unknown(15),
+                a: Vector4::new(22.04, -0.25, -1.16, 1.),
+                b: Vector4::new(23.72, -0.25, -4.49, 1.),
+                c: Vector4::new(23.72, -0.25, -2.61, 1.),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_4() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_4 = "1 -11 -0.25 -18 11 -0.25 -18 11 -0.25 -12.7 -11 -0.25 -12.7";
+        let parsed = parse_line_4(&colors, &mut line_4.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            Quad {
+                color: ColorReference::Material(colors[&1].clone()),
+                a: Vector4::new(-11., -0.25, -18., 1.),
+                b: Vector4::new(11., -0.25, -18., 1.),
+                c: Vector4::new(11., -0.25, -12.7, 1.),
+                d: Vector4::new(-11., -0.25, -12.7, 1.),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_line_5() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let line_5 =
+            "24 0 -55.673 -15.623 0 -59.974 -18.831 4.233 -59.338 -18.968 -4.233 -59.338 -18.968";
+        let parsed = parse_line_5(&colors, &mut line_5.chars()).unwrap();
+        assert_eq!(
+            parsed,
+            OptionalLine {
+                color: ColorReference::Complement,
+                a: Vector4::new(0., -55.673, -15.623, 1.),
+                b: Vector4::new(0., -59.974, -18.831, 1.),
+                c: Vector4::new(4.233, -59.338, -18.968, 1.),
+                d: Vector4::new(-4.233, -59.338, -18.968, 1.),
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_single_document() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let document = "0 Boat Base 8 x 10
+0 Name: 2622.dat
+0 Author: Chris Alano
+0 !LDRAW_ORG Part UPDATE 2000-02
+0 !LICENSE Not redistributable : see NonCAreadme.txt
+
+0 BFC NOCERTIFY
+
+0 !KEYWORDS Pirates, Caribbean, Ship
+
+2 24 100 24 80 80 24 20";
+        let parsed = parse_single_document(&colors, &mut document.as_bytes())
+            .await
+            .unwrap();
+        assert_eq!(
+            parsed,
+            Document {
+                name: "2622.dat".into(),
+                description: "Boat Base 8 x 10".into(),
+                author: "Chris Alano".into(),
+                bfc: BfcCertification::NoCertify,
+                headers: vec![
+                    Header("LDRAW_ORG".into(), "Part UPDATE 2000-02".into()),
+                    Header(
+                        "LICENSE".into(),
+                        "Not redistributable : see NonCAreadme.txt".into()
+                    ),
+                    Header("KEYWORDS".into(), "Pirates, Caribbean, Ship".into()),
+                ],
+                commands: vec![Command::Line(Line {
+                    color: ColorReference::Complement,
+                    a: Vector4::new(100., 24., 80., 1.),
+                    b: Vector4::new(80., 24., 20., 1.),
+                }),]
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_multipart_document() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let document = "0 FILE test.ldr
+0 LDraw.rs
+0 Name: test.ldr
+0 Author: kiwiyou
+
+
+0 Unofficial Model
+0 ROTATION CENTER 0 0 0 1 \"Custom\"
+3 7 22.04 -.25 -1.16 23.72 -.25 -4.49 23.72 -.25 -2.61
+1 3 0 0 0 0 0 0 0 0 0 0 0 0 apple.ldr
+
+0 FILE apple.ldr
+0 Apple
+0 Name: apple.ldr
+0 Author: kiwiyou
+0 BFC CERTIFY CCW
+
+
+5 24 0 -55.673 -15.623 0 -59.974 -18.831 4.233 -59.338 -18.968 -4.233 -59.338 -18.968";
+        let parsed = parse_multipart_document(&colors, &mut document.as_bytes())
+            .await
+            .unwrap();
+        let mut subparts = HashMap::new();
+        subparts.insert(
+            PartAlias::from("apple.ldr".to_string()),
+            Document {
+                name: "apple.ldr".into(),
+                description: "Apple".into(),
+                author: "kiwiyou".into(),
+                bfc: BfcCertification::Certify(Winding::Ccw),
+                headers: vec![],
+                commands: vec![Command::OptionalLine(OptionalLine {
+                    color: ColorReference::Complement,
+                    a: Vector4::new(0., -55.673, -15.623, 1.),
+                    b: Vector4::new(0., -59.974, -18.831, 1.),
+                    c: Vector4::new(4.233, -59.338, -18.968, 1.),
+                    d: Vector4::new(-4.233, -59.338, -18.968, 1.),
+                })],
+            },
+        );
+        assert_eq!(
+            parsed,
+            MultipartDocument {
+                body: Document {
+                    name: "test.ldr".into(),
+                    description: "LDraw.rs".into(),
+                    author: "kiwiyou".into(),
+                    bfc: BfcCertification::NotApplicable,
+                    headers: vec![],
+                    commands: vec![
+                        Command::Meta(Meta::Comment("Unofficial Model".into())),
+                        Command::Meta(Meta::Comment("ROTATION CENTER 0 0 0 1 \"Custom\"".into())),
+                        Command::Triangle(Triangle {
+                            color: ColorReference::Material(colors[&7].clone()),
+                            a: Vector4::new(22.04, -0.25, -1.16, 1.),
+                            b: Vector4::new(23.72, -0.25, -4.49, 1.),
+                            c: Vector4::new(23.72, -0.25, -2.61, 1.),
+                        }),
+                        Command::PartReference(PartReference {
+                            color: ColorReference::Material(colors[&3].clone()),
+                            matrix: Matrix4::new(
+                                0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.,
+                            ),
+                            name: "apple.ldr".into(),
+                        }),
+                    ]
+                },
+                subparts,
+            }
+        )
     }
 }

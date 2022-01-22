@@ -1,10 +1,10 @@
 use crate::color::ColorReference;
 use crate::{Matrix4, PartAlias, Vector4, Winding};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Header(pub String, pub String);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BfcStatement {
     Winding(Winding),
     Clip(Option<Winding>),
@@ -12,7 +12,7 @@ pub enum BfcStatement {
     InvertNext,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Meta {
     Comment(String),
     Step,
@@ -24,21 +24,21 @@ pub enum Meta {
     Bfc(BfcStatement),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PartReference {
     pub color: ColorReference,
     pub matrix: Matrix4,
     pub name: PartAlias,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     pub color: ColorReference,
     pub a: Vector4,
     pub b: Vector4,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Triangle {
     pub color: ColorReference,
     pub a: Vector4,
@@ -46,7 +46,7 @@ pub struct Triangle {
     pub c: Vector4,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Quad {
     pub color: ColorReference,
     pub a: Vector4,
@@ -55,7 +55,7 @@ pub struct Quad {
     pub d: Vector4,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OptionalLine {
     pub color: ColorReference,
     pub a: Vector4,
@@ -64,7 +64,7 @@ pub struct OptionalLine {
     pub d: Vector4,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Meta(Meta),
     PartReference(PartReference),
