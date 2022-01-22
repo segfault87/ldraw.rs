@@ -19,6 +19,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
+    - run: cd tools/viewer/native
     - uses: actions-rs/cargo@v1
       with:
         command: build
