@@ -68,7 +68,7 @@ async fn main() {
 
     let output_path = match matches.value_of("output_path") {
         Some(v) => {
-            let path = Path::new(v.clone());
+            let path = Path::new(v);
             if !path.is_dir().await {
                 panic!("{} is not a proper output directory", v);
             }
