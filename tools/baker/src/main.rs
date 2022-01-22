@@ -68,7 +68,7 @@ async fn main() {
 
     let output_path = match matches.value_of("output_path") {
         Some(v) => {
-            let path = Path::new(v.clone());
+            let path = Path::new(v);
             if !path.is_dir().await {
                 panic!("{} is not a proper output directory", v);
             }
@@ -141,7 +141,7 @@ async fn bake(
         }
     };
 
-    let document = match parse_multipart_document(&colors, &mut BufReader::new(&file)).await {
+    let document = match parse_multipart_document(colors, &mut BufReader::new(&file)).await {
         Ok(v) => v,
         Err(err) => {
             println!("Could not parse document {}: {}", path.to_str().unwrap(), err);
@@ -151,7 +151,7 @@ async fn bake(
 
     let resolution_result = resolve_dependencies(
         Arc::clone(&cache),
-        &colors,
+        colors,
         loader,
         &document,
         &|alias, result| {
@@ -188,7 +188,7 @@ async fn bake(
                     writer.write_all(&serialized).await.unwrap();
                     writer.close().await.unwrap();
                 },
-                Err(err) => {
+                Err(_err) => {
                     format!("Could not create {}", outpath.to_str().unwrap());
                 }
             }
