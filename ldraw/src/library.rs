@@ -381,3 +381,46 @@ where
             .collect::<HashMap<_, _>>(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use crate::{PartAlias, document::{MultipartDocument, Document, BfcCertification}};
+    use super::{PartCache, PartKind};
+
+    #[test]
+    fn test_part_cache_query_existing() {
+        let document = MultipartDocument {
+            body: Document {
+                name: "Doc".to_string(),
+                author: "Author".to_string(),
+                description: "Description".to_string(),
+                bfc: BfcCertification::NoCertify,
+                headers: vec![],
+                commands: vec![],
+            },
+            subparts: HashMap::new(),
+        };
+
+        let mut cache = PartCache::new();
+
+        let existing_key = PartAlias::from("existing".to_string());
+        let document = Arc::new(document);
+
+        cache.register(PartKind::Primitive, existing_key.clone(), Arc::clone(&document));
+
+        assert_eq!(
+            cache.query(&existing_key).unwrap(),
+            document
+        );
+    }
+
+    #[test]
+    fn test_part_cache_query_missing() {
+        let cache = PartCache::new();
+        let missing_key = PartAlias::from("missing".to_string());
+
+        assert!(cache.query(&missing_key).is_none());
+    }
+}

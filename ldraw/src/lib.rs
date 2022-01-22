@@ -161,3 +161,34 @@ impl BitXor<bool> for &Winding {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::PartAlias;
+    
+    #[test]
+    fn test_part_alias_directory_sep_normalization() {
+        let alias = PartAlias::from("test\\directory\\disc.dat".to_string());
+
+        assert_eq!(
+            alias,
+            PartAlias {
+                normalized: "test/directory/disc.dat".to_string(),
+                original: "test\\directory\\disc.dat".to_string(),
+            }
+        )
+    }
+
+    #[test]
+    fn test_part_alias_case_normalization() {
+        let alias = PartAlias::from("Disc.dat".to_string());
+
+        assert_eq!(
+            alias,
+            PartAlias {
+                normalized: "disc.dat".to_string(),
+                original: "disc.dat".to_string(),
+            }
+        )
+    }
+}
