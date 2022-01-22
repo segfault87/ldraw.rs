@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use async_std::path::{Path, PathBuf};
+use async_std::path::{PathBuf};
 use clap::{Arg, App as ClapApp};
 use glow::{self, Context};
 use glutin::{
@@ -164,7 +164,7 @@ async fn main() {
         url.path_segments_mut().unwrap().pop();
         (Some(url), None)
     } else {
-        (None, PathBuf::from(&path).parent().map(|e| PathBuf::from(e)))
+        (None, PathBuf::from(&path).parent().map(PathBuf::from))
     };
 
     let http_loader = HttpLoader::new(ldraw_url, document_base_url);

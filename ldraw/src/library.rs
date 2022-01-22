@@ -272,12 +272,12 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
             }
         }));
 
-        if pending.len() == 0 {
+        if pending.is_empty() {
             return false;
         }
 
         let futs = pending.iter().map(
-            |(alias, local)| self.loader.load_ref(&self.materials, alias.clone(), *local)
+            |(alias, local)| self.loader.load_ref(self.materials, alias.clone(), *local)
         ).collect::<Vec<_>>();
         
         let result = join_all(futs).await;
@@ -290,7 +290,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
                     match location {
                         FileLocation::Library(kind) => {
                             if local {
-                                self.clear_state(&alias, true);
+                                self.clear_state(alias, true);
                             }
                             local = false;
                             self.cache.write().unwrap().register(
@@ -357,7 +357,7 @@ pub async fn resolve_dependencies<F>(
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
 {
-    let mut resolver = DependencyResolver::new(materials, cache, on_update, &loader);
+    let mut resolver = DependencyResolver::new(materials, cache, on_update, loader);
 
     resolver.scan_dependencies(None, document, true);
     while resolver.resolve_pending_dependencies().await {}

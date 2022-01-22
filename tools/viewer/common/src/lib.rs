@@ -311,7 +311,7 @@ impl<GL: HasContext> App<GL>
             cache,
             &self.materials,
             &self.loader,
-            &document,
+            document,
             on_update,
         )
         .await;
@@ -339,7 +339,7 @@ impl<GL: HasContext> App<GL>
         self.pointer = None;
         self.last_time = None;
         let (rendering_order, bounding_box) =
-            create_rendering_list(Rc::clone(&self.gl), &self.parts, &document);
+            create_rendering_list(Rc::clone(&self.gl), &self.parts, document);
         self.rendering_order = rendering_order;
         let center = bounding_box.center();
         self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
