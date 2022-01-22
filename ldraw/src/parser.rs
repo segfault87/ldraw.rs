@@ -1249,4 +1249,127 @@ mod tests {
             }
         );
     }
+
+    #[async_std::test]
+    async fn test_parse_single_document() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let document = "0 Boat Base 8 x 10
+0 Name: 2622.dat
+0 Author: Chris Alano
+0 !LDRAW_ORG Part UPDATE 2000-02
+0 !LICENSE Not redistributable : see NonCAreadme.txt
+
+0 BFC NOCERTIFY
+
+0 !KEYWORDS Pirates, Caribbean, Ship
+
+2 24 100 24 80 80 24 20";
+        let parsed = parse_single_document(&colors, &mut document.as_bytes())
+            .await
+            .unwrap();
+        assert_eq!(
+            parsed,
+            Document {
+                name: "2622.dat".into(),
+                description: "Boat Base 8 x 10".into(),
+                author: "Chris Alano".into(),
+                bfc: BfcCertification::NoCertify,
+                headers: vec![
+                    Header("LDRAW_ORG".into(), "Part UPDATE 2000-02".into()),
+                    Header(
+                        "LICENSE".into(),
+                        "Not redistributable : see NonCAreadme.txt".into()
+                    ),
+                    Header("KEYWORDS".into(), "Pirates, Caribbean, Ship".into()),
+                ],
+                commands: vec![Command::Line(Line {
+                    color: ColorReference::Complement,
+                    a: Vector4::new(100., 24., 80., 1.),
+                    b: Vector4::new(80., 24., 20., 1.),
+                }),]
+            }
+        );
+    }
+
+    #[async_std::test]
+    async fn test_parse_multipart_document() {
+        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+            .await
+            .unwrap();
+        let document = "0 FILE test.ldr
+0 LDraw.rs
+0 Name: test.ldr
+0 Author: kiwiyou
+
+
+0 Unofficial Model
+0 ROTATION CENTER 0 0 0 1 \"Custom\"
+3 7 22.04 -.25 -1.16 23.72 -.25 -4.49 23.72 -.25 -2.61
+1 3 0 0 0 0 0 0 0 0 0 0 0 0 apple.ldr
+
+0 FILE apple.ldr
+0 Apple
+0 Name: apple.ldr
+0 Author: kiwiyou
+0 BFC CERTIFY CCW
+
+
+5 24 0 -55.673 -15.623 0 -59.974 -18.831 4.233 -59.338 -18.968 -4.233 -59.338 -18.968";
+        let parsed = parse_multipart_document(&colors, &mut document.as_bytes())
+            .await
+            .unwrap();
+        let mut subparts = HashMap::new();
+        subparts.insert(
+            PartAlias {
+                normalized: "apple.ldr".into(),
+                original: "apple.ldr".into(),
+            },
+            Document {
+                name: "apple.ldr".into(),
+                description: "Apple".into(),
+                author: "kiwiyou".into(),
+                bfc: BfcCertification::Certify(Winding::Ccw),
+                headers: vec![],
+                commands: vec![Command::OptionalLine(OptionalLine {
+                    color: ColorReference::Complement,
+                    a: Vector4::new(0., -55.673, -15.623, 1.),
+                    b: Vector4::new(0., -59.974, -18.831, 1.),
+                    c: Vector4::new(4.233, -59.338, -18.968, 1.),
+                    d: Vector4::new(-4.233, -59.338, -18.968, 1.),
+                })],
+            },
+        );
+        assert_eq!(
+            parsed,
+            MultipartDocument {
+                body: Document {
+                    name: "test.ldr".into(),
+                    description: "LDraw.rs".into(),
+                    author: "kiwiyou".into(),
+                    bfc: BfcCertification::NotApplicable,
+                    headers: vec![],
+                    commands: vec![
+                        Command::Meta(Meta::Comment("Unofficial Model".into())),
+                        Command::Meta(Meta::Comment("ROTATION CENTER 0 0 0 1 \"Custom\"".into())),
+                        Command::Triangle(Triangle {
+                            color: ColorReference::Material(colors[&7].clone()),
+                            a: Vector4::new(22.04, -0.25, -1.16, 1.),
+                            b: Vector4::new(23.72, -0.25, -4.49, 1.),
+                            c: Vector4::new(23.72, -0.25, -2.61, 1.),
+                        }),
+                        Command::PartReference(PartReference {
+                            color: ColorReference::Material(colors[&3].clone()),
+                            matrix: Matrix4::new(
+                                0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.,
+                            ),
+                            name: "apple.ldr".into(),
+                        }),
+                    ]
+                },
+                subparts,
+            }
+        )
+    }
 }

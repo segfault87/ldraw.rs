@@ -64,7 +64,7 @@ pub struct OptionalLine {
     pub d: Vector4,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Meta(Meta),
     PartReference(PartReference),

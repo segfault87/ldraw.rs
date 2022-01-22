@@ -33,7 +33,7 @@ impl BfcCertification {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Document {
     pub name: String,
     pub description: String,
@@ -131,7 +131,7 @@ define_iterator!(
     OptionalLine
 );
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MultipartDocument {
     pub body: Document,
     pub subparts: HashMap<PartAlias, Document>,
