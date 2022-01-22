@@ -408,7 +408,7 @@ mod tests {
         let existing_key = PartAlias::from("existing".to_string());
         let document = Arc::new(document);
 
-        cache.register(PartKind::Primitive, existing_key.clone(), Arc::clone(&document));
+        cache.register(PartKind::Primitive, existing_key.clone(), document.clone());
 
         assert_eq!(
             cache.query(&existing_key).unwrap(),
