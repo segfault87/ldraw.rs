@@ -17,6 +17,7 @@ use crate::{
     {Matrix4, PartAlias, Vector4, Winding},
 };
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 enum Line0 {
     Header(Header),
@@ -747,72 +748,170 @@ pub async fn parse_color_definition<T: BufRead + Unpin>(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_color_definition, parse_multipart_document, parse_single_document};
-    use crate::color::MaterialRegistry;
-    use crate::error::{ColorDefinitionParseError, ParseError};
-    use std::fs::File;
-    use std::io::BufReader;
+    use super::*;
 
-    const PATH_LDCONFIG: &str = "/home/segfault/.ldraw/LDConfig.ldr";
-    const PATH_PART: &str = "/home/segfault/.ldraw/parts/u9318.dat";
-    const PATH_MPD: &str = "/home/segfault/Downloads/6973.ldr";
-
-    fn set_up_materials() -> Result<MaterialRegistry, ColorDefinitionParseError> {
-        let mut reader = BufReader::new(File::open(PATH_LDCONFIG).unwrap());
-        match parse_color_definition::<BufReader<File>>(&mut reader) {
-            Ok(m) => Ok(m),
-            Err(e) => Err(e),
+    fn parse_line_0_or_panic(input: &str) -> Line0 {
+        match parse_line_0(&mut input.chars()) {
+            Ok(line0) => line0,
+            Err(e) => {
+                panic!("cannot parse {}: {}", input, e);
+            }
         }
     }
 
     #[test]
-    fn test_parse_color_definition() {
-        let materials = set_up_materials().unwrap();
+    fn parse_line_0_parses_comment() {
+        let cases = [
+            ("// This is a comment", "This is a comment"),
+            ("This is also a comment", "This is also a comment"),
+        ];
 
-        println!("{:#?}\n", materials);
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::Meta(Meta::Comment(comment)) => assert_eq!(comment, output),
+                _ => panic!("expected Line0::Meta(Meta::Comment(...)), got {:?}", parsed),
+            }
+        }
     }
 
     #[test]
-    fn test_parse_single_document() {
-        let materials = set_up_materials().unwrap();
-        let mut reader_part = BufReader::new(File::open(PATH_PART).unwrap());
-        match parse_single_document::<BufReader<File>>(&materials, &mut reader_part) {
-            Ok(model) => {
-                println!("{:#?}\n", model);
+    fn parse_line_0_parses_offical_meta_commands_without_bfc() {
+        let cases = [
+            ("STEP", Meta::Step),
+            (
+                "WRITE any length of string",
+                Meta::Write("any length of string".into()),
+            ),
+            (
+                "PRINT also any length of string",
+                Meta::Print("also any length of string".into()),
+            ),
+            ("CLEAR", Meta::Clear),
+            ("PAUSE", Meta::Pause),
+            ("SAVE", Meta::Save),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::Meta(meta) => assert_eq!(meta, output),
+                _ => panic!("expected Line0::Meta(...), got {:?}", parsed),
             }
-            Err(e) => {
-                assert!(false, "{}", e);
-            }
-        };
-
-        let mut reader_mpd = BufReader::new(File::open(PATH_MPD).unwrap());
-        match parse_single_document::<BufReader<File>>(&materials, &mut reader_mpd) {
-            Ok(_) => {
-                assert!(false, "Should not read properly");
-            }
-            Err(e) => {
-                assert!(if let ParseError::MultipartDocument = e.error {
-                    true
-                } else {
-                    false
-                });
-            }
-        };
+        }
     }
 
     #[test]
-    fn test_parse_multipart_document() {
-        let materials = set_up_materials().unwrap();
-        let f = File::open(PATH_MPD).unwrap();
-        let mut reader = BufReader::new(f);
+    fn parse_line_0_parses_bfc_statements() {
+        let cases = [
+            ("BFC CW", BfcStatement::Winding(Winding::Cw)),
+            ("BFC CCW", BfcStatement::Winding(Winding::Ccw)),
+            ("BFC CLIP", BfcStatement::Clip(None)),
+            ("BFC CLIP CW", BfcStatement::Clip(Some(Winding::Cw))),
+            ("BFC CLIP CCW", BfcStatement::Clip(Some(Winding::Ccw))),
+            ("BFC CW CLIP", BfcStatement::Clip(Some(Winding::Cw))),
+            ("BFC CCW CLIP", BfcStatement::Clip(Some(Winding::Ccw))),
+            ("BFC NOCLIP", BfcStatement::NoClip),
+            ("BFC INVERTNEXT", BfcStatement::InvertNext),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::Meta(Meta::Bfc(bfc)) => assert_eq!(bfc, output),
+                _ => panic!("expected Line0::Meta(Meta::Bfc(...)) got {:?}", parsed),
+            }
+        }
+    }
 
-        match parse_multipart_document::<BufReader<File>>(&materials, &mut reader) {
-            Ok(model) => {
-                println!("{:#?}\n", model);
+    #[test]
+    fn parse_line_0_parses_bfc_certificates() {
+        let cases = [
+            ("BFC NOCERTIFY", BfcCertification::NoCertify),
+            ("BFC CERTIFY CW", BfcCertification::Certify(Winding::Cw)),
+            ("BFC CERTIFY", BfcCertification::Certify(Winding::Ccw)),
+            ("BFC CERTIFY CCW", BfcCertification::Certify(Winding::Ccw)),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::BfcCertification(certification) => assert_eq!(certification, output),
+                _ => panic!("expected Line0::BfsCertification(...), got {:?}", parsed),
             }
-            Err(e) => {
-                assert!(false, "{}", e);
+        }
+    }
+
+    #[test]
+    fn parse_line_0_parses_headers() {
+        let cases = [
+            (
+                "!LDRAW_ORG Part UPDATE 2006-01",
+                Header("LDRAW_ORG".into(), "Part UPDATE 2006-01".into()),
+            ),
+            (
+                "!LICENSE Redistributable under CCAL version 2.: see CAreadme.txt",
+                Header(
+                    "LICENSE".into(),
+                    "Redistributable under CCAL version 2.: see CAreadme.txt".into(),
+                ),
+            ),
+            (
+                "!HELP Obviously there is no need for additional",
+                Header(
+                    "HELP".into(),
+                    "Obviously there is no need for additional".into(),
+                ),
+            ),
+            ("!HELP", Header("HELP".into(), "".into())),
+            (
+                "!CATEGORY Animal",
+                Header("CATEGORY".into(), "Animal".into()),
+            ),
+            (
+                "!KEYWORDS Sting, Poison, Adventurers, Egypt",
+                Header(
+                    "KEYWORDS".into(),
+                    "Sting, Poison, Adventurers, Egypt".into(),
+                ),
+            ),
+            ("!CMDLINE -c1", Header("CMDLINE".into(), "-c1".into())),
+            (
+                "!HISTORY 2000-08-?? {Axel Poque} fixes to resolve L3P error messages",
+                Header(
+                    "HISTORY".into(),
+                    "2000-08-?? {Axel Poque} fixes to resolve L3P error messages".into(),
+                ),
+            ),
+            (
+                "!HISTORY 2002-04-25 [PTadmin] Official update 2002-02",
+                Header(
+                    "HISTORY".into(),
+                    "2002-04-25 [PTadmin] Official update 2002-02".into(),
+                ),
+            ),
+        ];
+        for (input, output) in cases {
+            let parsed = parse_line_0_or_panic(input);
+            match parsed {
+                Line0::Header(header) => assert_eq!(header, output),
+                _ => panic!("expected Line0::Header(...), got {:?}", parsed),
             }
-        };
+        }
+    }
+
+    #[test]
+    fn parse_line_0_parses_name_author() {
+        let name = "Name: 193a.dat";
+        let parsed_name = parse_line_0_or_panic(name);
+        assert_eq!(parsed_name, Line0::Name("193a.dat".into()));
+
+        let author = "Author: Chris Dee [cwdee]";
+        let parsed_author = parse_line_0_or_panic(author);
+        assert_eq!(parsed_author, Line0::Author("Chris Dee [cwdee]".into()));
+    }
+
+    #[test]
+    fn parse_line_0_parses_file() {
+        let file = "FILE main.ldr";
+        let parsed_file = parse_line_0_or_panic(file);
+        assert_eq!(parsed_file, Line0::File("main.ldr".into()));
     }
 }
