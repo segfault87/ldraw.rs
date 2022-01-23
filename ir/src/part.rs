@@ -260,12 +260,6 @@ enum FaceVertices {
     Quad([FaceVertex; 4]),
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct Face {
-    vertices: FaceVertices,
-    winding: Winding,
-}
-
 impl AbsDiffEq for FaceVertices {
     type Epsilon = f32;
 
@@ -339,6 +333,20 @@ impl<'a> FaceVertices {
         }
     }
 
+    pub fn query(&self, index: usize) -> &FaceVertex {
+        match self {
+            FaceVertices::Triangle(a) => &a[TRIANGLE_INDEX_ORDER[index]],
+            FaceVertices::Quad(a) => &a[QUAD_INDEX_ORDER[index]],
+        }
+    }
+
+    pub fn query_mut(&mut self, index: usize) -> &mut FaceVertex {
+        match self {
+            FaceVertices::Triangle(a) => a.get_mut(TRIANGLE_INDEX_ORDER[index]).unwrap(),
+            FaceVertices::Quad(a) => a.get_mut(QUAD_INDEX_ORDER[index]).unwrap(),
+        }
+    }
+
     pub fn contains(&self, vec: &Vector3) -> bool {
         match self {
             FaceVertices::Triangle(v) => {
@@ -360,10 +368,16 @@ impl<'a> FaceVertices {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct Face {
+    vertices: FaceVertices,
+    winding: Winding,
+}
+
 #[derive(Debug)]
 struct Adjacency {
     pub position: Vector3,
-    pub faces: Vec<Rc<RefCell<Face>>>,
+    pub faces: Vec<(Rc<RefCell<Face>>, usize)>,
 }
 
 impl<'a> Adjacency {
@@ -374,8 +388,8 @@ impl<'a> Adjacency {
         }
     }
 
-    pub fn add(&mut self, face: Rc<RefCell<Face>>) {
-        self.faces.push(Rc::clone(&face));
+    pub fn add(&mut self, face: Rc<RefCell<Face>>, index: usize) {
+        self.faces.push((Rc::clone(&face), index));
     }
 }
 
@@ -385,25 +399,25 @@ fn calculate_normal(v1: &Vector3, v2: &Vector3, v3: &Vector3) -> Vector3 {
 
 #[derive(Debug)]
 struct MeshBuilder {
-    pub faces: HashMap<MeshGroup, Vec<Face>>,
-    point_cloud: KdTree<f32, Adjacency, [f32; 3]>,
+    pub faces: HashMap<MeshGroup, Vec<Rc<RefCell<Face>>>>,
+    adjacencies: Vec<Rc<RefCell<Adjacency>>>,
+    point_cloud: KdTree<f32, Rc<RefCell<Adjacency>>, [f32; 3]>,
 }
 
 impl MeshBuilder {
     pub fn new() -> MeshBuilder {
         MeshBuilder {
             faces: HashMap::new(),
+            adjacencies: Vec::new(),
             point_cloud: KdTree::new(3),
         }
     }
 
-    pub fn add(&mut self, group_key: &MeshGroup, face: Face) {
+    pub fn add(&mut self, group_key: &MeshGroup, face: Rc<RefCell<Face>>) {
         let list = self.faces.entry(group_key.clone()).or_insert_with(Vec::new);
         list.push(face.clone());
 
-        let face = Rc::new(RefCell::new(face));
-
-        for vertex in face.borrow().vertices.triangles(false) {
+        for (index, vertex) in face.borrow().vertices.triangles(false).enumerate() {
             let r: &[f32; 3] = vertex.position.as_ref();
             let nearest = match self.point_cloud.iter_nearest_mut(r, &squared_euclidean) {
                 Ok(mut v) => match v.next() {
@@ -421,11 +435,12 @@ impl MeshBuilder {
 
             match nearest {
                 Some(e) => {
-                    e.add(Rc::clone(&face));
+                    e.borrow_mut().add(Rc::clone(&face), index);
                 }
                 None => {
-                    let mut adjacency = Adjacency::new(&vertex.position);
-                    adjacency.add(Rc::clone(&face));
+                    let adjacency = Rc::new(RefCell::new(Adjacency::new(&vertex.position)));
+                    adjacency.borrow_mut().add(Rc::clone(&face), index);
+                    self.adjacencies.push(Rc::clone(&adjacency));
                     self.point_cloud.add(*vertex.position.as_ref(), adjacency).unwrap();
                 }
             };
@@ -433,7 +448,55 @@ impl MeshBuilder {
     }
 
     pub fn smooth_normals(&mut self) {
+        for adjacency in self.adjacencies.iter() {
+            let adjacency = adjacency.borrow_mut();
+            let length = adjacency.faces.len();
+            let mut flags = vec![false; length];
+            let mut marked = Vec::with_capacity(length);
+            loop {
+                let mut ops = 0;
 
+                for i in 0..length {
+                    if flags[i] == false {
+                        marked.clear();
+                        marked.push(i);
+                        flags[i] = true;
+                        let (face, index) = &adjacency.faces[i];
+                        let base_normal = face.borrow().vertices.query(*index).normal.clone();
+                        let mut smoothed_normal = base_normal.clone();
+                        for j in 0..length {
+                            if i != j {
+                                let (face, index) = &adjacency.faces[j];
+                                let c_normal = face.borrow().vertices.query(*index).normal;
+                                let angle = base_normal.angle(c_normal);
+                                if angle.0 < f32::default_epsilon() {
+                                    flags[j] = true;
+                                }
+                                if angle < NORMAL_BLEND_THRESHOLD {
+                                    ops += 1;
+                                    flags[j] = true;
+                                    marked.push(j);
+                                    smoothed_normal += c_normal;
+                                }
+                            }
+                        }
+
+                        if marked.len() > 0 {
+                            smoothed_normal /= marked.len() as f32;
+                        }
+    
+                        for j in marked.iter() {
+                            let (face, index) = &adjacency.faces[*j];
+                            face.borrow_mut().vertices.query_mut(*index).normal = smoothed_normal;
+                        }
+                    }
+                }
+
+                if ops == 0 {
+                    break;
+                }
+            }
+        }
     }
 
     pub fn bake(&self, builder: &mut PartBufferBuilder, bounding_box: &mut BoundingBox3) {
@@ -441,15 +504,16 @@ impl MeshBuilder {
         let mut bounding_box_max = None;
 
         for (group_key, faces) in self.faces.iter() {
-            let mesh = builder.query_mesh(group_key);
-            if mesh.is_none() {
-                println!("Skipping unknown color group_key {:?}", group_key);
-                continue;
-            }
-            let mesh = mesh.unwrap();
+            let mesh = match builder.query_mesh(group_key) {
+                Some(e) => e,
+                None => {
+                    println!("Skipping unknown color group_key {:?}", group_key);
+                    continue;
+                }
+            };
 
             for face in faces.iter() {
-                for vertex in face.vertices.triangles(false) {
+                for vertex in face.borrow().vertices.triangles(false) {
                     match bounding_box_min {
                         None => {
                             bounding_box_min = Some(vertex.position);
@@ -482,21 +546,6 @@ impl MeshBuilder {
                             }
                         }
                     }
-
-                    /*let r: &[f32; 3] = vertex.as_ref();
-                    if let Ok(mut matches) = self.point_cloud.iter_nearest(r, &squared_euclidean) {
-                        if let Some(first_match) = matches.next() {
-                            if first_match.0 < f32::default_epsilon() {
-                                for face in first_match.1.faces.iter() {
-                                    let fnormal = face.borrow().vertices.normal();
-                                    if normal.angle(fnormal) < NORMAL_BLEND_THRESHOLD {
-                                        normal = (normal + fnormal) * 0.5;
-                                    }
-                                }
-                                normal = normal.normalize();
-                            }
-                        }
-                    };*/
 
                     mesh.add(&vertex.position, &vertex.normal);
                 }
@@ -681,7 +730,7 @@ impl<'a> PartBaker<'a> {
                         },
                     };
 
-                    self.mesh_builder.add(&category, face);
+                    self.mesh_builder.add(&category, Rc::new(RefCell::new(face)));
                 }
                 Command::Quad(cmd) => {
                     let color = match &cmd.color {
@@ -757,7 +806,7 @@ impl<'a> PartBaker<'a> {
                         },
                     };
 
-                    self.mesh_builder.add(&category, face);
+                    self.mesh_builder.add(&category, Rc::new(RefCell::new(face)));
                 }
                 Command::Meta(cmd) => {
                     if let Meta::Bfc(statement) = cmd {
