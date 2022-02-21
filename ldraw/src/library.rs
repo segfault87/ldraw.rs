@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::Deref,
     sync::{Arc, RwLock},
 };
@@ -344,6 +344,15 @@ impl ResolutionResult {
         self.library_entries
             .get(alias)
             .map(|e| (Arc::clone(e), false))
+    }
+
+    pub fn list_dependencies(&self) -> HashSet<PartAlias> {
+        let mut result = HashSet::new();
+
+        result.extend(self.library_entries.keys().map(|x| x.clone()));
+        result.extend(self.local_entries.keys().map(|x| x.clone()));
+
+        result
     }
 }
 
