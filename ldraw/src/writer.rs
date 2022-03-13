@@ -1,6 +1,9 @@
 use std::fmt;
 
-use async_std::io::{Write, WriteExt};
+use async_std::{
+    io::Write,
+    prelude::*,
+};
 use async_trait::async_trait;
 use cgmath::{Matrix, Vector4};
 
