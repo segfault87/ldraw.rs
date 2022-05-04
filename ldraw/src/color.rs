@@ -303,6 +303,12 @@ impl ColorReference {
         ColorReference::Unknown(code)
     }
 
+    pub fn resolve_self(&mut self, materials: &MaterialRegistry) {
+        if let ColorReference::Unknown(code) = self {
+            *self = ColorReference::resolve(*code, materials);
+        }
+    }
+
     pub fn get_color(&self) -> Option<Vector4> {
         match self {
             ColorReference::Material(m) => Some(m.color.into()),

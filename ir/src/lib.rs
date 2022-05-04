@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 pub mod constraints;
 pub mod document;
-pub mod editor;
 pub mod geometry;
 pub mod part;
 
@@ -20,24 +19,8 @@ pub struct MeshGroup {
 }
 
 impl MeshGroup {
-    pub fn clone_resolved(&self, materials: &MaterialRegistry) -> Self {
-        if let ColorReference::Unknown(v) = self.color_ref {
-            MeshGroup {
-                color_ref: ColorReference::resolve(v, materials),
-                bfc: self.bfc,
-            }
-        } else {
-            self.clone()
-        }
-    }
-
-    pub fn resolve_color(&mut self, materials: &MaterialRegistry) -> bool {
-        if let ColorReference::Unknown(v) = self.color_ref {
-            let _ = replace(&mut self.color_ref, ColorReference::resolve(v, materials));
-            true
-        } else {
-            false
-        }
+    pub fn resolve_color(&mut self, materials: &MaterialRegistry) {
+        self.color_ref.resolve_self(materials);
     }
 }
 

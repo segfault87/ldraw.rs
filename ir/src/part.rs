@@ -208,7 +208,9 @@ impl PartBufferBuilder {
                 Some(v) => v,
                 None => continue,
             };
-            self.opaque_meshes.insert(key.clone_resolved(colors), val);
+            let mut key = key.clone();
+            key.resolve_color(colors);
+            self.opaque_meshes.insert(key, val);
         }
         let keys = self.translucent_meshes.keys().cloned().collect::<Vec<_>>();
         for key in keys.iter() {
@@ -216,8 +218,9 @@ impl PartBufferBuilder {
                 Some(v) => v,
                 None => continue,
             };
-            self.translucent_meshes
-                .insert(key.clone_resolved(colors), val);
+            let mut key = key.clone();
+            key.resolve_color(colors);
+            self.translucent_meshes.insert(key, val);
         }
     }
 }
