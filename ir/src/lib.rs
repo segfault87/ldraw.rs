@@ -8,8 +8,8 @@ use ldraw::color::{ColorReference, MaterialRegistry};
 use serde::{Deserialize, Serialize};
 
 pub mod constraints;
-pub mod document;
 pub mod geometry;
+pub mod model;
 pub mod part;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

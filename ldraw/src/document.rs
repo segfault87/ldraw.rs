@@ -64,7 +64,7 @@ fn traverse_dependencies(
 }
 
 impl Document {
-    pub fn has_geometry(&self) -> bool {
+    pub fn has_primitives(&self) -> bool {
         for item in self.commands.iter() {
             match item {
                 Command::Line(_)

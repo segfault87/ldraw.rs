@@ -25,7 +25,7 @@ use crate::{geometry::BoundingBox3, MeshGroup};
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MeshBufferBuilder {
     pub vertices: Vec<f32>,
     pub normals: Vec<f32>,
@@ -170,7 +170,7 @@ pub struct SubpartIndex {
     pub span: usize,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PartBufferBuilder {
     pub uncolored_mesh: MeshBufferBuilder,
     pub uncolored_without_bfc_mesh: MeshBufferBuilder,
@@ -227,7 +227,7 @@ impl PartBufferBuilder {
 
 pub type FeatureMap = HashMap<PartAlias, Vec<(ColorReference, Matrix4)>>;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PartBuilder {
     pub part_builder: PartBufferBuilder,
     pub features: FeatureMap,
