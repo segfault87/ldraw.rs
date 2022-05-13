@@ -43,6 +43,19 @@ pub struct Document {
     pub commands: Vec<Command>,
 }
 
+impl Default for Document {
+    fn default() -> Self {
+        Document {
+            name: String::new(),
+            description: String::new(),
+            author: String::new(),
+            bfc: BfcCertification::NotApplicable,
+            headers: Vec::new(),
+            commands: Vec::new(),
+        }
+    }
+}
+
 fn traverse_dependencies(
     document: &Document,
     parent: Option<&MultipartDocument>,

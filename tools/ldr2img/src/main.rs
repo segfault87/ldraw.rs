@@ -13,12 +13,12 @@ use async_std::{
 use clap::{App, Arg};
 use glutin::event_loop::EventLoop;
 use ldraw::{
-    library::{LibraryLoader, PartCache, resolve_dependencies},
+    library::{LibraryLoader, PartCache, resolve_dependencies_multipart},
     parser::{parse_color_definition, parse_multipart_document},
     resolvers::local::LocalLoader,
 };
 use ldraw_ir::{
-    part::bake_part,
+    part::bake_multipart_document,
 };
 use ldraw_olr::{
     context::{create_headless_context, create_osmesa_context},
@@ -97,7 +97,7 @@ async fn main() {
     let loader: Box<dyn LibraryLoader> = Box::new(LocalLoader::new(Some(ldraw_path), Some(PathBuf::from(input_path.parent().unwrap()))));
 
     let cache = Arc::new(RwLock::new(PartCache::new()));
-    let resolution_result = resolve_dependencies(
+    let resolution_result = resolve_dependencies_multipart(
         cache,
         &colors,
         &loader,
@@ -110,7 +110,7 @@ async fn main() {
         .into_iter()
         .filter_map(|alias| {
             resolution_result.query(&alias, true).map(|(part, local)| {
-                (alias.clone(), Part::create(&bake_part(&resolution_result, None, part, local), Rc::clone(&gl)))
+                (alias.clone(), Part::create(&bake_multipart_document(&resolution_result, None, part, local), Rc::clone(&gl)))
             })
         })
         .collect::<HashMap<_, _>>();

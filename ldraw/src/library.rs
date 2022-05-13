@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     color::MaterialRegistry,
-    document::{MultipartDocument},
+    document::{Document, MultipartDocument},
     error::ResolutionError,
     PartAlias,
 };
@@ -198,7 +198,52 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
         }
     }
 
-    pub fn scan_dependencies<D: Deref<Target = MultipartDocument> + Clone>(
+    pub fn scan_dependencies(
+        &mut self,
+        document: &Document,
+        local: bool
+    ) {
+        for r in document.iter_refs() {
+            let alias = &r.name;
+
+            if self.contains_state(alias, local) {
+                continue;
+            }
+
+            if local {
+                if let Some(cached) = self.local_cache.query(alias) {
+                    self.scan_dependencies_with_parent(None, Arc::clone(&cached), true);
+
+                    self.put_state(
+                        alias.clone(),
+                        true,
+                        ResolutionState::Associated(Arc::clone(&cached)),
+                    );
+                    continue;
+                }
+            }
+
+            let cached = self.cache.read().unwrap().query(alias);
+            if let Some(cached) = cached {
+                self.scan_dependencies_with_parent(None, Arc::clone(&cached), false);
+
+                self.put_state(
+                    alias.clone(),
+                    false,
+                    ResolutionState::Associated(Arc::clone(&cached)),
+                );
+                continue;
+            }
+
+            self.put_state(
+                alias.clone(),
+                local,
+                ResolutionState::Pending
+            );
+        }
+    }
+
+    pub fn scan_dependencies_with_parent<D: Deref<Target = MultipartDocument> + Clone>(
         &mut self,
         alias: Option<&PartAlias>,
         parent: D,
@@ -221,13 +266,13 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
 
             if parent.subparts.contains_key(alias) {
                 self.put_state(alias.clone(), local, ResolutionState::Subpart);
-                self.scan_dependencies(Some(alias), parent.clone(), local);
+                self.scan_dependencies_with_parent(Some(alias), parent.clone(), local);
                 continue;
             }
 
             if local {
                 if let Some(cached) = self.local_cache.query(alias) {
-                    self.scan_dependencies(None, Arc::clone(&cached), true);
+                    self.scan_dependencies_with_parent(None, Arc::clone(&cached), true);
 
                     self.put_state(
                         alias.clone(),
@@ -240,7 +285,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
 
             let cached = self.cache.read().unwrap().query(alias);
             if let Some(cached) = cached {
-                self.scan_dependencies(None, Arc::clone(&cached), false);
+                self.scan_dependencies_with_parent(None, Arc::clone(&cached), false);
 
                 self.put_state(
                     alias.clone(),
@@ -306,7 +351,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
                         }
                     };
 
-                    self.scan_dependencies(None, Arc::clone(&document), local);
+                    self.scan_dependencies_with_parent(None, Arc::clone(&document), local);
 
                     ResolutionState::Associated(document)
                 },
@@ -356,7 +401,7 @@ impl ResolutionResult {
     }
 }
 
-pub async fn resolve_dependencies<F>(
+pub async fn resolve_dependencies_multipart<F>(
     cache: Arc<RwLock<PartCache>>,
     materials: &MaterialRegistry,
     loader: &Box<dyn LibraryLoader>,
@@ -368,7 +413,42 @@ where
 {
     let mut resolver = DependencyResolver::new(materials, cache, on_update, loader);
 
-    resolver.scan_dependencies(None, document, true);
+    resolver.scan_dependencies_with_parent(None, document, true);
+    while resolver.resolve_pending_dependencies().await {}
+
+    ResolutionResult {
+        library_entries: resolver
+            .map
+            .into_iter()
+            .filter_map(|(k, v)| match v {
+                ResolutionState::Associated(e) => Some((k, e)),
+                _ => None,
+            })
+            .collect::<HashMap<_, _>>(),
+        local_entries: resolver
+            .local_map
+            .into_iter()
+            .filter_map(|(k, v)| match v {
+                ResolutionState::Associated(e) => Some((k, e)),
+                _ => None,
+            })
+            .collect::<HashMap<_, _>>(),
+    }
+}
+
+pub async fn resolve_dependencies<F>(
+    cache: Arc<RwLock<PartCache>>,
+    materials: &MaterialRegistry,
+    loader: &Box<dyn LibraryLoader>,
+    document: &Document,
+    on_update: &F,
+) -> ResolutionResult
+where
+    F: Fn(PartAlias, Result<(), ResolutionError>),
+{
+    let mut resolver = DependencyResolver::new(materials, cache, on_update, loader);
+
+    resolver.scan_dependencies(document, true);
     while resolver.resolve_pending_dependencies().await {}
 
     ResolutionResult {

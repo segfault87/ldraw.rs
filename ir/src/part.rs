@@ -870,7 +870,7 @@ impl<'a> PartBaker<'a> {
     }
 }
 
-pub fn bake_part<D: Deref<Target = MultipartDocument>>(
+pub fn bake_multipart_document<D: Deref<Target = MultipartDocument>>(
     resolutions: &ResolutionResult,
     enabled_features: Option<&HashSet<PartAlias>>,
     document: D,
@@ -881,6 +881,29 @@ pub fn bake_part<D: Deref<Target = MultipartDocument>>(
     baker.traverse(
         &document.body,
         &*document,
+        Matrix4::identity(),
+        true,
+        false,
+        local,
+    );
+    baker.bake()
+}
+
+pub fn bake_document(
+    resolutions: &ResolutionResult,
+    enabled_features: Option<&HashSet<PartAlias>>,
+    document: &Document,
+    local: bool,
+) -> PartBuilder {
+    let mut baker = PartBaker::new(resolutions, enabled_features);
+
+    baker.traverse(
+        &document,
+        // NOTE: Workaround as it's a bit tricky to pass parent in Option<T> form
+        &MultipartDocument {
+            body: Default::default(),
+            subparts: HashMap::new(),
+        },
         Matrix4::identity(),
         true,
         false,

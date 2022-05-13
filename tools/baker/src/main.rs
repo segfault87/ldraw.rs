@@ -22,7 +22,7 @@ use ldraw::{
         CacheCollectionStrategy,
         LibraryLoader,
         PartCache,
-        resolve_dependencies,
+        resolve_dependencies_multipart,
     },
     parser::{
         parse_color_definition,
@@ -30,7 +30,7 @@ use ldraw::{
     },
     resolvers::local::LocalLoader,
 };
-use ldraw_ir::part::bake_part;
+use ldraw_ir::part::bake_multipart_document;
 use tokio::task::spawn_blocking;
 
 #[tokio::main]
@@ -149,7 +149,7 @@ async fn bake(
         }
     };   
 
-    let resolution_result = resolve_dependencies(
+    let resolution_result = resolve_dependencies_multipart(
         Arc::clone(&cache),
         colors,
         loader,
@@ -162,7 +162,7 @@ async fn bake(
     ).await;
 
     let part = spawn_blocking(move || {
-        bake_part(&resolution_result, None, &document, false)
+        bake_multipart_document(&resolution_result, None, &document, false)
     }).await.unwrap();
 
     let outpath = match output_path {

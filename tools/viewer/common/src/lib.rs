@@ -13,10 +13,10 @@ use ldraw::{
     document::{Document, MultipartDocument},
     elements::{Command, Meta},
     error::ResolutionError,
-    library::{resolve_dependencies, LibraryLoader, PartCache},
+    library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
     Matrix4, PartAlias, Point2, Point3, Vector2, Vector3,
 };
-use ldraw_ir::{geometry::BoundingBox3, part::bake_part};
+use ldraw_ir::{geometry::BoundingBox3, part::bake_multipart_document};
 use ldraw_renderer::{
     display_list::DisplayList,
     part::Part,
@@ -307,7 +307,7 @@ impl<GL: HasContext> App<GL>
         document: &MultipartDocument,
         on_update: &F,
     ) -> Result<(), ResolutionError> {
-        let resolution_result = resolve_dependencies(
+        let resolution_result = resolve_dependencies_multipart(
             cache,
             &self.materials,
             &self.loader,
@@ -324,7 +324,7 @@ impl<GL: HasContext> App<GL>
                     (
                         alias.clone(),
                         Part::create(
-                            &bake_part(&resolution_result, None, part, local),
+                            &bake_multipart_document(&resolution_result, None, part, local),
                             Rc::clone(&self.gl),
                         ),
                     )

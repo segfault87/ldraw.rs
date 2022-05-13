@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{Formatter, Result as FmtResult},
+    sync::{Arc, RwLock},
     vec::Vec,
 };
 
@@ -12,7 +13,12 @@ use ldraw::{
         MultipartDocument as LdrawMultipartDocument
     },
     elements::Command,
-    library::ResolutionResult,
+    library::{
+        LibraryLoader,
+        PartCache,
+        ResolutionResult,
+        resolve_dependencies,
+    },
     Matrix4, PartAlias, Vector3,
 };
 use serde::{
@@ -22,7 +28,7 @@ use serde::{
 };
 use uuid::Uuid;
 
-use crate::part::{PartBuilder, bake_part};
+use crate::part::{PartBuilder, bake_document, bake_multipart_document};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectInstance {
@@ -229,7 +235,7 @@ fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, P
             subparts: HashMap::new(),
         };
 
-        let part = bake_part(&ResolutionResult::default(), None, &prims, true);
+        let part = bake_multipart_document(&ResolutionResult::default(), None, &prims, true);
         let object = Object {
             id: Uuid::new_v4(),
             data: ObjectInstance::Part(
@@ -249,24 +255,48 @@ fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, P
 
 impl Model {
 
-    pub async fn from_ldraw_multipart_document(document: &LdrawMultipartDocument, ) -> Self {
+    pub async fn from_ldraw_multipart_document(
+        document: &LdrawMultipartDocument,
+        materials: &MaterialRegistry,
+        inline_loader: Option<(&Box<dyn LibraryLoader>, Arc<RwLock<PartCache>>)>,
+    ) -> Self {
         let subparts = document.subparts.keys().map(|alias| (alias.clone(), Uuid::new_v4())).collect::<HashMap<_, _>>();
 
-        let object_groups = document.subparts.iter().filter_map(|(alias, subpart)| {
-            let id = subparts.get(&alias).unwrap().clone();
-
-            Some((
-                id.clone(),
-                ObjectGroup {
-                    id,
-                    name: subpart.name.clone(),
-                    objects: build_objects(subpart, Some(&subparts)),
-                    pivot: Vector3::new(0.0, 0.0, 0.0),
-                }
-            ))
-        }).collect::<HashMap<_, _>>();
-
         let mut embedded_parts = HashMap::new();
+        if let Some((loader, cache)) = inline_loader {
+            for (alias, subpart) in document.subparts.iter() {
+                if subpart.has_primitives() {
+                    let resolution_result = resolve_dependencies(
+                        Arc::clone(&cache), materials, loader, subpart, &|_, _| {}
+                    ).await;
+
+                    let part = bake_document(
+                        &resolution_result,
+                        None,
+                        subpart,
+                        true
+                    );
+
+                    embedded_parts.insert(alias.clone(), part);
+                }
+            }
+        }
+
+        let mut object_groups = HashMap::new();
+        for (alias, subpart) in document.subparts.iter() {
+            if !embedded_parts.contains_key(alias) {
+                let id = subparts.get(&alias).unwrap().clone();
+                object_groups.insert(
+                    id.clone(), 
+                    ObjectGroup {
+                        id,
+                        name: subpart.name.clone(),
+                        objects: build_objects(subpart, Some(&subparts)),
+                        pivot: Vector3::new(0.0, 0.0, 0.0),
+                    }
+                );
+            }
+        }
         let mut objects = build_objects(&document.body, Some(&subparts));
         
         if let Some((alias, part, object)) = extract_document_primitives(&document.body) {
@@ -277,7 +307,7 @@ impl Model {
         Model { object_groups, objects, embedded_parts }
     }
 
-    pub async fn from_ldraw_document(document: &LdrawDocument) -> Self {
+    pub fn from_ldraw_document(document: &LdrawDocument) -> Self {
         let mut embedded_parts = HashMap::new();
         let mut objects = build_objects(&document, None);
 
