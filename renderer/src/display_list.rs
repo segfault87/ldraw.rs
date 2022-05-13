@@ -8,7 +8,11 @@ use ldraw::{
     document::{Document, MultipartDocument},
     Matrix4, PartAlias, Vector4,
 };
-use ldraw_ir::geometry::BoundingBox3;
+use ldraw_ir::{
+    geometry::BoundingBox3,
+    model::{Object, ObjectGroup, ObjectInstance, Model},
+};
+use uuid::Uuid;
 
 use crate::utils::cast_as_bytes;
 
@@ -268,7 +272,7 @@ impl<GL: HasContext> Default for DisplayList<GL> {
     }
 }
 
-fn build_display_list<'a, GL: HasContext>(
+fn build_display_list_multipart<'a, GL: HasContext>(
     gl: Rc<GL>,
     display_list: &mut DisplayList<GL>,
     document: &'a Document,
@@ -283,7 +287,7 @@ fn build_display_list<'a, GL: HasContext>(
                 _ => material_stack.last().unwrap().clone(),
             });
 
-            build_display_list(
+            build_display_list_multipart(
                 Rc::clone(&gl),
                 display_list,
                 parent.subparts.get(&e.name).unwrap(),
@@ -309,12 +313,50 @@ fn build_display_list<'a, GL: HasContext>(
     }
 }
 
+fn build_display_list_model<GL: HasContext>(
+    gl: Rc<GL>,
+    display_list: &mut DisplayList<GL>,
+    object_groups: &HashMap<Uuid, ObjectGroup>,
+    objects: &Vec<Object>,
+    matrix: Matrix4,
+) {
+    for object in objects.iter() {
+        match &object.data {
+            ObjectInstance::Part(part) => {
+                let material = match &part.color {
+                    ColorReference::Material(m) => Some(m.clone()),
+                    _ => None,
+                };
+
+                display_list.add(
+                    Rc::clone(&gl),
+                    part.part.clone(),
+                    matrix * part.matrix,
+                    material.unwrap_or_else(|| Material::default()),
+                );
+            }
+            ObjectInstance::PartGroup(group_instance) => {
+                if let Some(group) = object_groups.get(&group_instance.group_id) {
+                    build_display_list_model(
+                        Rc::clone(&gl),
+                        display_list,
+                        object_groups,
+                        &group.objects,
+                        matrix * group_instance.matrix,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 impl<GL: HasContext> DisplayList<GL> {
     pub fn from_multipart_document(gl: Rc<GL>, document: &MultipartDocument) -> Self {
         let mut display_list = DisplayList::default();
         let mut material_stack = vec![Material::default()];
 
-        build_display_list(
+        build_display_list_multipart(
             gl,
             &mut display_list,
             &document.body,
@@ -323,6 +365,20 @@ impl<GL: HasContext> DisplayList<GL> {
             document,
         );
 
+        display_list
+    }
+
+    pub fn from_model(gl: Rc<GL>, model: &Model) -> Self {
+        let mut display_list = DisplayList::default();
+
+        build_display_list_model(
+            gl,
+            &mut display_list,
+            &model.object_groups,
+            &model.objects,
+            Matrix4::identity(),
+        );
+        
         display_list
     }
 

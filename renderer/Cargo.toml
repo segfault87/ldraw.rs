@@ -12,3 +12,4 @@ itertools = "~0.10"
 ldraw = { path = "../ldraw" }
 ldraw_ir = { path = "../ir" }
 serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "serde"] }
