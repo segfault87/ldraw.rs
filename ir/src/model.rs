@@ -22,8 +22,8 @@ use ldraw::{
     Matrix4, PartAlias, Vector3,
 };
 use serde::{
-    de::{self, Deserialize as DeserializeT, Deserializer, Visitor, MapAccess},
-    ser::{self, Serialize as SerializeT, SerializeMap, Serializer},
+    de::{Error as DeError, Deserializer, Visitor, MapAccess},
+    ser::{SerializeMap, Serializer},
     Deserialize, Serialize
 };
 use uuid::Uuid;
@@ -79,7 +79,7 @@ pub struct Model {
     pub embedded_parts: HashMap<PartAlias, PartBuilder>,
 }
 
-impl SerializeT for Model {
+impl Serialize for Model {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer
@@ -92,7 +92,7 @@ impl SerializeT for Model {
     }
 }
 
-impl<'de> DeserializeT<'de> for Model {
+impl<'de> Deserialize<'de> for Model {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -126,19 +126,19 @@ impl<'de> DeserializeT<'de> for Model {
                     match key {
                         Field::ObjectGroups => {
                             if object_groups.is_some() {
-                                return Err(de::Error::duplicate_field("object_groups"));
+                                return Err(DeError::duplicate_field("object_groups"));
                             }
                             object_groups = Some(map.next_value()?);
                         }
                         Field::Objects => {
                             if objects.is_some() {
-                                return Err(de::Error::duplicate_field("objects"));
+                                return Err(DeError::duplicate_field("objects"));
                             }
                             objects = Some(map.next_value()?);
                         }
                         Field::EmbeddedParts => {
                             if embedded_parts.is_some() {
-                                return Err(de::Error::duplicate_field("embedded_parts"));
+                                return Err(DeError::duplicate_field("embedded_parts"));
                             }
                             embedded_parts = Some(map.next_value()?);
                         }
@@ -147,8 +147,8 @@ impl<'de> DeserializeT<'de> for Model {
 
                 let object_groups: Vec<ObjectGroup> = object_groups.unwrap_or_else(Vec::new);
                 let object_groups = object_groups.into_iter().map(|v| (v.id.clone(), v)).collect::<HashMap<_, _>>();
-                let objects = objects.ok_or_else(|| de::Error::missing_field("objects"))?;
-                let embedded_parts = embedded_parts.unwrap_or_else(HashMap::new);
+                let objects = objects.ok_or_else(|| DeError::missing_field("objects"))?;
+                let embedded_parts: HashMap<PartAlias, PartBuilder> = embedded_parts.unwrap_or_else(HashMap::new);
 
                 Ok(Model { object_groups, objects, embedded_parts })
             }

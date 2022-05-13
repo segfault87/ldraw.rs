@@ -152,26 +152,28 @@ impl Serialize for ColorReference {
     }
 }
 
-struct U32Visitor;
-
-impl<'de> Visitor<'de> for U32Visitor {
-    type Value = u32;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("an unsigned 32-bit integer")
-    }
-
-    fn visit_u32<E: DeError>(self, value: u32) -> Result<Self::Value, E> {
-        Ok(value)
-    }
-}
-
 impl<'de> Deserialize<'de> for ColorReference {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ColorReferenceVisitor;
+
+        impl<'de> Visitor<'de> for ColorReferenceVisitor {
+            type Value = ColorReference;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an unsigned 32-bit integer")
+            }
+
+            fn visit_u64<E: DeError>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(ColorReference::Unknown(value as u32))
+            }
+
+            fn visit_u32<E: DeError>(self, value: u32) -> Result<Self::Value, E> {
+                Ok(ColorReference::Unknown(value))
+            }
+        }
+
         // Needs to be resolved later
-        Ok(ColorReference::Unknown(
-            deserializer.deserialize_u32(U32Visitor)?,
-        ))
+        Ok(deserializer.deserialize_u32(ColorReferenceVisitor).unwrap())
     }
 }
 

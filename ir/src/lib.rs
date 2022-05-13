@@ -1,21 +1,70 @@
 use std::{
     cmp::Ordering,
+    fmt,
     hash::{Hash, Hasher},
     mem::replace,
 };
 
 use ldraw::color::{ColorReference, MaterialRegistry};
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{Deserializer, Error as DeError, Unexpected, Visitor},
+    ser::Serializer,
+    Deserialize, Serialize
+};
 
 pub mod constraints;
 pub mod geometry;
 pub mod model;
 pub mod part;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct MeshGroup {
     pub color_ref: ColorReference,
     pub bfc: bool,
+}
+
+impl Serialize for MeshGroup {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if self.bfc {
+            serializer.serialize_str(&self.color_ref.code().to_string())
+        } else {
+            serializer.serialize_str(&format!("!{}", self.color_ref.code()))
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MeshGroup {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct MeshGroupVisitor;
+
+        impl<'de> Visitor<'de> for MeshGroupVisitor {
+            type Value = MeshGroup;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string with number in it and optional exclamation mark preceding to it")
+            }
+
+            fn visit_str<E: DeError>(self, value: &str) -> Result<Self::Value, E> {
+                let (slice, bfc) = if value.starts_with("!") {
+                    (&value[1..], false)
+                } else {
+                    (&value[..], true)
+                };
+
+                match slice.parse::<u32>() {
+                    Ok(v) => Ok(MeshGroup {
+                        color_ref: ColorReference::Unknown(v),
+                        bfc: bfc,
+                    }),
+                    Err(_) => Err(DeError::invalid_value(
+                        Unexpected::Str(value), &"a string with number in it and optional exclamation mark preceding to it"
+                    )),
+                }
+            }
+        }
+
+        Ok(deserializer.deserialize_str(MeshGroupVisitor)?)
+    }
 }
 
 impl MeshGroup {
