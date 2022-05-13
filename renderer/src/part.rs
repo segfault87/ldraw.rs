@@ -1,7 +1,10 @@
 use std::{collections::HashMap, rc::Rc};
 
 use glow::HasContext;
-use ldraw::Vector3;
+use ldraw::{
+    color::{Material, MaterialRegistry},
+    Vector3,
+};
 use ldraw_ir::{
     geometry::BoundingBox3,
     part::{
@@ -105,8 +108,39 @@ pub struct EdgeBuffer<GL: HasContext> {
     pub length: usize,
 }
 
+fn build_edge_color_buffer(code_buffer: &Vec<u32>, colors: &MaterialRegistry) -> Vec<f32> {
+    let mut buffer = Vec::with_capacity(code_buffer.len() * 3);
+
+    for code in code_buffer.iter() {
+        if *code == 2u32 << 30 {
+            buffer.extend(&[-1.0, -1.0, -1.0]);
+        } else if *code == 2u32 << 29 {
+            buffer.extend(&[-2.0, -2.0, -2.0]);
+        } else {
+            match colors.get(&(code & 0x7fffffffu32)) {
+                Some(color) => {
+                    let buf = if *code & 0x8000_0000 != 0 {
+                        &color.edge
+                    } else {
+                        &color.color
+                    };
+        
+                    buffer.extend(
+                        &[buf.red() as f32 / 255.0, buf.green() as f32 / 255.0, buf.blue() as f32 / 255.0]
+                    );
+                },
+                None => {
+                    buffer.extend(&[0.0, 0.0, 0.0]);
+                },
+            }
+        }
+    }
+
+    buffer
+}
+
 impl<GL: HasContext> EdgeBuffer<GL> {
-    pub fn create(builder: &EdgeBufferBuilder, gl: Rc<GL>) -> Self {
+    pub fn create(builder: &EdgeBufferBuilder, gl: Rc<GL>, colors: &MaterialRegistry) -> Self {
         let array: Option<GL::VertexArray>;
         let buffer_vertices: Option<GL::Buffer>;
         let buffer_colors: Option<GL::Buffer>;
@@ -124,7 +158,7 @@ impl<GL: HasContext> EdgeBuffer<GL> {
             gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.colors.as_ref()),
+                cast_as_bytes(build_edge_color_buffer(&builder.colors, colors).as_ref()),
                 glow::STATIC_DRAW,
             );
         }
@@ -339,7 +373,7 @@ where
 }
 
 impl<GL: HasContext> PartBuffer<GL> {
-    pub fn create(builder: &PartBufferBuilder, gl: Rc<GL>) -> Self {
+    pub fn create(builder: &PartBufferBuilder, gl: Rc<GL>, colors: &MaterialRegistry) -> Self {
         let mut merged = MeshBufferBuilder::default();
         let mut opaque = HashMap::new();
         let mut translucent = HashMap::new();
@@ -413,7 +447,7 @@ impl<GL: HasContext> PartBuffer<GL> {
             None
         };
         let edges = if !builder.edges.is_empty() {
-            Some(EdgeBuffer::create(&builder.edges, Rc::clone(&gl)))
+            Some(EdgeBuffer::create(&builder.edges, Rc::clone(&gl), colors))
         } else {
             None
         };
@@ -455,9 +489,9 @@ pub struct Part<GL: HasContext> {
 }
 
 impl<GL: HasContext> Part<GL> {
-    pub fn create(builder: &PartBuilder, gl: Rc<GL>) -> Self {
+    pub fn create(builder: &PartBuilder, gl: Rc<GL>, colors: &MaterialRegistry) -> Self {
         Part {
-            part: PartBuffer::create(&builder.part_builder, Rc::clone(&gl)),
+            part: PartBuffer::create(&builder.part_builder, Rc::clone(&gl), colors),
             features: builder.features.clone(),
             bounding_box: builder.bounding_box.clone(),
             rotation_center: builder.rotation_center,

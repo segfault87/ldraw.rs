@@ -326,6 +326,7 @@ impl<GL: HasContext> App<GL>
                         Part::create(
                             &bake_multipart_document(&resolution_result, None, part, local),
                             Rc::clone(&self.gl),
+                            &self.materials
                         ),
                     )
                 })

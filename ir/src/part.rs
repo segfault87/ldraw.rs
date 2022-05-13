@@ -53,7 +53,7 @@ impl MeshBufferBuilder {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EdgeBufferBuilder {
     pub vertices: Vec<f32>,
-    pub colors: Vec<f32>,
+    pub colors: Vec<u32>,
 }
 
 impl EdgeBufferBuilder {
@@ -64,35 +64,20 @@ impl EdgeBufferBuilder {
 
         if color.is_current() {
             if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.color.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
+                self.colors.push(2 << 31 | c.code);
             } else {
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
-                self.colors.push(-1.0);
+                self.colors.push(2 << 30);
             }
         } else if color.is_complement() {
             if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.edge.into();
-                self.colors.push(mv.x);
-                self.colors.push(mv.y);
-                self.colors.push(mv.z);
+                self.colors.push(c.code);
             } else {
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
-                self.colors.push(-2.0);
+                self.colors.push(2 << 29);
             }
         } else if let Some(c) = color.get_material() {
-            let mv: Vector4 = c.color.into();
-            self.colors.push(mv.x);
-            self.colors.push(mv.y);
-            self.colors.push(mv.z);
+            self.colors.push(2 << 31 | c.code);
         } else {
-            self.colors.push(0.0);
-            self.colors.push(0.0);
-            self.colors.push(0.0);
+            self.colors.push(0);
         }
     }
 

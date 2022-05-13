@@ -110,7 +110,7 @@ async fn main() {
         .into_iter()
         .filter_map(|alias| {
             resolution_result.query(&alias, true).map(|(part, local)| {
-                (alias.clone(), Part::create(&bake_multipart_document(&resolution_result, None, part, local), Rc::clone(&gl)))
+                (alias.clone(), Part::create(&bake_multipart_document(&resolution_result, None, part, local), Rc::clone(&gl), &colors))
             })
         })
         .collect::<HashMap<_, _>>();
