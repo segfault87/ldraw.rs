@@ -381,10 +381,9 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
         }
     }
 
-    pub fn bind_instanced_geometry_data(&self, instance_buffer: &mut InstanceBuffer<GL>) {
+    pub fn bind_instanced_geometry_data(&self, instance_buffer: &InstanceBuffer<GL>) {
         let gl = &self.gl;
 
-        instance_buffer.update_buffer(gl);
         if self.program.instanced_model_matrix.is_some() {
             let instanced_model_view = self.program.instanced_model_matrix.unwrap();
             unsafe {
@@ -419,10 +418,9 @@ impl<'a, GL: HasContext> DefaultProgramBinder<'a, GL> {
         }
     }
 
-    pub fn bind_instanced_color_data(&self, instance_buffer: &mut InstanceBuffer<GL>) {
+    pub fn bind_instanced_color_data(&self, instance_buffer: &InstanceBuffer<GL>) {
         let gl = &self.gl;
 
-        instance_buffer.update_buffer(gl);
         if self.program.instanced_color.is_some() && self.program.instanced_color.is_some() {
             let instanced_color = self.program.instanced_color.unwrap();
             unsafe {
@@ -596,10 +594,9 @@ impl<'a, GL: HasContext> EdgeProgramBinder<'a, GL> {
         }
     }
 
-    pub fn bind_instanced_attribs(&self, instance_buffer: &mut InstanceBuffer<GL>) {
+    pub fn bind_instanced_attribs(&self, instance_buffer: &InstanceBuffer<GL>) {
         let gl = &self.gl;
 
-        instance_buffer.update_buffer(gl);
         if self.program.instanced_model_matrix.is_some() {
             let instanced_model_view = self.program.instanced_model_matrix.unwrap();
             unsafe {
@@ -847,10 +844,9 @@ impl<'a, GL: HasContext> OptionalEdgeProgramBinder<'a, GL> {
         }
     }
 
-    pub fn bind_instanced_attribs(&self, instance_buffer: &mut InstanceBuffer<GL>) {
+    pub fn bind_instanced_attribs(&self, instance_buffer: &InstanceBuffer<GL>) {
         let gl = &self.gl;
 
-        instance_buffer.update_buffer(gl);
         if self.program.instanced_model_matrix.is_some() {
             let instanced_model_view = self.program.instanced_model_matrix.unwrap();
             unsafe {

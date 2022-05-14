@@ -382,16 +382,16 @@ impl<GL: HasContext> RenderingContext<GL> {
     pub fn render_instanced(
         &mut self,
         part: &Part<GL>,
-        display_item: &mut DisplayItem<GL>,
+        display_item: &DisplayItem<GL>,
         translucent: bool,
     ) {
         let gl = &self.gl;
         let part_buffer = &part.part;
 
         let instance_buffer = if translucent {
-            &mut display_item.translucent
+            &display_item.translucent
         } else {
-            &mut display_item.opaque
+            &display_item.opaque
         };
 
         if instance_buffer.count == 0 {
@@ -411,8 +411,8 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
             bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
-            bind.bind_instanced_geometry_data(instance_buffer);
-            bind.bind_instanced_color_data(instance_buffer);
+            bind.bind_instanced_geometry_data(&instance_buffer);
+            bind.bind_instanced_color_data(&instance_buffer);
 
             unsafe {
                 gl.draw_arrays_instanced(
@@ -430,8 +430,8 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
             bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
-            bind.bind_instanced_geometry_data(instance_buffer);
-            bind.bind_instanced_color_data(instance_buffer);
+            bind.bind_instanced_geometry_data(&instance_buffer);
+            bind.bind_instanced_color_data(&instance_buffer);
 
             unsafe {
                 gl.disable(glow::CULL_FACE);
@@ -483,7 +483,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data);
             bind.bind_attribs(edges);
-            bind.bind_instanced_attribs(instance_buffer);
+            bind.bind_instanced_attribs(&instance_buffer);
 
             unsafe {
                 gl.draw_arrays_instanced(

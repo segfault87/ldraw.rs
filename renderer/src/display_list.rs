@@ -1,4 +1,8 @@
-use std::{collections::hash_map::HashMap, rc::Rc, vec::Vec};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+    vec::Vec
+};
 
 use cgmath::SquareMatrix;
 use glow::HasContext;
@@ -90,10 +94,12 @@ impl<GL: HasContext> InstanceBuffer<GL> {
         self.count == 0
     }
 
-    pub fn update_buffer(&mut self, gl: &GL) {
+    pub fn update_buffer(&mut self) {
         if !self.modified {
             return;
         }
+
+        let gl = &self.gl;
 
         if self.model_view_matrices.is_empty() {
             self.model_view_matrices_buffer = None;
@@ -274,7 +280,7 @@ impl<GL: HasContext> Default for DisplayList<GL> {
 
 fn build_display_list_multipart<'a, GL: HasContext>(
     gl: Rc<GL>,
-    display_list: &mut DisplayList<GL>,
+    tr: &mut DisplayListTransaction<GL>,
     document: &'a Document,
     matrix: Matrix4,
     material_stack: &mut Vec<Material>,
@@ -289,7 +295,7 @@ fn build_display_list_multipart<'a, GL: HasContext>(
 
             build_display_list_multipart(
                 Rc::clone(&gl),
-                display_list,
+                tr,
                 parent.subparts.get(&e.name).unwrap(),
                 matrix * e.matrix,
                 material_stack,
@@ -303,7 +309,7 @@ fn build_display_list_multipart<'a, GL: HasContext>(
                 _ => material_stack.last().unwrap(),
             };
 
-            display_list.add(
+            tr.add(
                 Rc::clone(&gl),
                 e.name.clone(),
                 matrix * e.matrix,
@@ -315,7 +321,7 @@ fn build_display_list_multipart<'a, GL: HasContext>(
 
 fn build_display_list_model<GL: HasContext>(
     gl: Rc<GL>,
-    display_list: &mut DisplayList<GL>,
+    tr: &mut DisplayListTransaction<GL>,
     object_groups: &HashMap<Uuid, ObjectGroup>,
     objects: &Vec<Object>,
     matrix: Matrix4,
@@ -328,7 +334,7 @@ fn build_display_list_model<GL: HasContext>(
                     _ => None,
                 };
 
-                display_list.add(
+                tr.add(
                     Rc::clone(&gl),
                     part.part.clone(),
                     matrix * part.matrix,
@@ -339,7 +345,7 @@ fn build_display_list_model<GL: HasContext>(
                 if let Some(group) = object_groups.get(&group_instance.group_id) {
                     build_display_list_model(
                         Rc::clone(&gl),
-                        display_list,
+                        tr,
                         object_groups,
                         &group.objects,
                         matrix * group_instance.matrix,
@@ -351,19 +357,54 @@ fn build_display_list_model<GL: HasContext>(
     }
 }
 
+pub struct DisplayListTransaction<'a, GL: HasContext> {
+    list: &'a mut DisplayList<GL>,
+    affected_items: HashSet<*mut DisplayItem<GL>>,
+}
+
+impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
+
+    pub fn add(&mut self, gl: Rc<GL>, name: PartAlias, matrix: Matrix4, material: Material) {
+        let entry = self.list.map
+            .entry(name.clone())
+            .or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name));
+
+        entry.add(&matrix, &material);
+        self.affected_items.insert(entry);
+    }
+
+    pub fn clear(&mut self) {
+        self.list.map.clear();
+    }
+
+    pub fn end(mut self) {
+        for item in self.affected_items.drain() {
+            unsafe {
+                (*item).opaque.update_buffer();
+                (*item).translucent.update_buffer();
+            }
+        }
+    }
+
+}
+
 impl<GL: HasContext> DisplayList<GL> {
     pub fn from_multipart_document(gl: Rc<GL>, document: &MultipartDocument) -> Self {
         let mut display_list = DisplayList::default();
         let mut material_stack = vec![Material::default()];
 
+        let mut tr = display_list.start_modification();
+
         build_display_list_multipart(
             gl,
-            &mut display_list,
+            &mut tr,
             &document.body,
             Matrix4::identity(),
             &mut material_stack,
             document,
         );
+
+        tr.end();
 
         display_list
     }
@@ -371,25 +412,36 @@ impl<GL: HasContext> DisplayList<GL> {
     pub fn from_model(gl: Rc<GL>, model: &Model) -> Self {
         let mut display_list = DisplayList::default();
 
+        let mut tr = display_list.start_modification();
+
         build_display_list_model(
             gl,
-            &mut display_list,
+            &mut tr,
             &model.object_groups,
             &model.objects,
             Matrix4::identity(),
         );
+
+        tr.end();
         
         display_list
     }
 
-    pub fn add(&mut self, gl: Rc<GL>, name: PartAlias, matrix: Matrix4, material: Material) {
-        self.map
-            .entry(name.clone())
-            .or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name))
-            .add(&matrix, &material);
+    pub fn transact<F: Fn(&mut DisplayListTransaction<GL>)>(&mut self, f: F) {
+        let mut transaction = DisplayListTransaction {
+            list: self,
+            affected_items: HashSet::new(),
+        };
+
+        f(&mut transaction);
+        transaction.end();
     }
 
-    pub fn clear(&mut self) {
-        self.map.clear();
+    pub fn start_modification(&mut self) -> DisplayListTransaction<GL> {
+        DisplayListTransaction {
+            list: self,
+            affected_items: HashSet::new(),
+        }
     }
+
 }

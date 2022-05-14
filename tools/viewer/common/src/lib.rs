@@ -421,12 +421,14 @@ impl<GL: HasContext> App<GL>
                 *progress = elapsed;
 
                 if *progress >= 1.0 {
-                    self.display_list.add(
+                    let mut tr = self.display_list.start_modification();
+                    tr.add(
                         Rc::clone(&self.gl),
                         order.name.clone(),
                         order.matrix,
                         order.material.clone(),
                     );
+                    tr.end();
                 }
             }
         }
@@ -443,10 +445,11 @@ impl<GL: HasContext> App<GL>
         let mut idx = 0;
 
         self.animating.clear();
-        self.display_list.clear();
+        let mut tr = self.display_list.start_modification();
+        tr.clear();
         for item in self.rendering_order.iter() {
             if let RenderingOrder::Item(order) = item {
-                self.display_list.add(
+                tr.add(
                     Rc::clone(&self.gl),
                     order.name.clone(),
                     order.matrix,
@@ -459,6 +462,7 @@ impl<GL: HasContext> App<GL>
                 idx += 1;
             }
         }
+        tr.end();
     }
 
     pub fn render(&mut self) {
