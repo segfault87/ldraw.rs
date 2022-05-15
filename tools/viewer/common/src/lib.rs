@@ -264,12 +264,12 @@ impl<GL: HasContext> App<GL>
         context.upload_shading_data();
 
         App {
-            gl,
+            gl: Rc::clone(&gl),
             loader,
             materials,
             parts: HashMap::new(),
             context,
-            display_list: DisplayList::default(),
+            display_list: DisplayList::new(gl),
             rendering_order: Vec::new(),
             animating: Vec::new(),
             orbit: OrbitController::default(),
@@ -336,7 +336,7 @@ impl<GL: HasContext> App<GL>
         self.parts.extend(parts);
         self.state = State::Playing;
         self.animating = Vec::new();
-        self.display_list = DisplayList::default();
+        self.display_list = DisplayList::new(Rc::clone(&self.gl));
         self.pointer = None;
         self.last_time = None;
         let (rendering_order, bounding_box) =

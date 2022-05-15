@@ -94,6 +94,8 @@ impl<GL: HasContext> InstanceBuffer<GL> {
         self.count == 0
     }
 
+    // FIXME: Current method refreshes the whole buffer when changes occur.
+    // Additional optimizations could be made (if performance is not sufficient enough)
     pub fn update_buffer(&mut self) {
         if !self.modified {
             return;
@@ -255,6 +257,8 @@ impl<GL: HasContext> DisplayItem<GL> {
 }
 
 pub struct DisplayList<GL: HasContext> {
+    gl: Rc<GL>,
+
     pub map: HashMap<PartAlias, DisplayItem<GL>>,
 }
 
@@ -267,14 +271,6 @@ impl<GL: HasContext> DisplayList<GL> {
         }
 
         count
-    }
-}
-
-impl<GL: HasContext> Default for DisplayList<GL> {
-    fn default() -> Self {
-        DisplayList {
-            map: HashMap::new(),
-        }
     }
 }
 
@@ -319,14 +315,18 @@ fn build_display_list_multipart<'a, GL: HasContext>(
     }
 }
 
-fn build_display_list_model<GL: HasContext>(
+fn build_display_list_contents<GL: HasContext>(
     gl: Rc<GL>,
     tr: &mut DisplayListTransaction<GL>,
     object_groups: &HashMap<Uuid, ObjectGroup>,
+    exclusion_set: &HashSet<Uuid>,
     objects: &Vec<Object>,
     matrix: Matrix4,
 ) {
     for object in objects.iter() {
+        if exclusion_set.contains(&object.id) {
+            continue;
+        }
         match &object.data {
             ObjectInstance::Part(part) => {
                 let material = match &part.color {
@@ -343,10 +343,11 @@ fn build_display_list_model<GL: HasContext>(
             }
             ObjectInstance::PartGroup(group_instance) => {
                 if let Some(group) = object_groups.get(&group_instance.group_id) {
-                    build_display_list_model(
+                    build_display_list_contents(
                         Rc::clone(&gl),
                         tr,
                         object_groups,
+                        exclusion_set,
                         &group.objects,
                         matrix * group_instance.matrix,
                     );
@@ -389,8 +390,15 @@ impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
 }
 
 impl<GL: HasContext> DisplayList<GL> {
+    pub fn new(gl: Rc<GL>) -> Self {
+        DisplayList {
+            gl,
+            map: HashMap::new(),
+        }
+    }
+
     pub fn from_multipart_document(gl: Rc<GL>, document: &MultipartDocument) -> Self {
-        let mut display_list = DisplayList::default();
+        let mut display_list = DisplayList::new(Rc::clone(&gl));
         let mut material_stack = vec![Material::default()];
 
         let mut tr = display_list.start_modification();
@@ -410,14 +418,15 @@ impl<GL: HasContext> DisplayList<GL> {
     }
 
     pub fn from_model(gl: Rc<GL>, model: &Model) -> Self {
-        let mut display_list = DisplayList::default();
+        let mut display_list = DisplayList::new(Rc::clone(&gl));
 
         let mut tr = display_list.start_modification();
 
-        build_display_list_model(
+        build_display_list_contents(
             gl,
             &mut tr,
             &model.object_groups,
+            &HashSet::new(),
             &model.objects,
             Matrix4::identity(),
         );
@@ -425,6 +434,40 @@ impl<GL: HasContext> DisplayList<GL> {
         tr.end();
         
         display_list
+    }
+
+    pub fn rebuild(&mut self, model: &Model, group_id: Option<Uuid>, exclusion_set: &HashSet<Uuid>) {
+        let gl = Rc::clone(&self.gl);
+
+        let mut tr = self.start_modification();
+        tr.clear();
+
+        match group_id {
+            Some(id) => {
+                if let Some(group) = model.object_groups.get(&id) {
+                    build_display_list_contents(
+                        gl,
+                        &mut tr,
+                        &model.object_groups,
+                        exclusion_set,
+                        &group.objects,
+                        Matrix4::identity(),
+                    );
+                }
+            }
+            None => {
+                build_display_list_contents(
+                    gl,
+                    &mut tr,
+                    &model.object_groups,
+                    exclusion_set,
+                    &model.objects,
+                    Matrix4::identity(),
+                );
+            }
+        }
+
+        tr.end();
     }
 
     pub fn transact<F: Fn(&mut DisplayListTransaction<GL>)>(&mut self, f: F) {

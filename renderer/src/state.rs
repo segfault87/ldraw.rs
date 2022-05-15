@@ -622,7 +622,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         display_list: &mut DisplayList<GL>,
         translucent: bool,
     ) {
-        for (alias, object) in display_list.map.iter_mut() {
+        for (alias, object) in display_list.map.iter() {
             let part = match parts.get(alias) {
                 Some(e) => e,
                 None => continue,
