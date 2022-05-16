@@ -388,11 +388,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         let gl = &self.gl;
         let part_buffer = &part.part;
 
-        let instance_buffer = if translucent {
-            &display_item.translucent
-        } else {
-            &display_item.opaque
-        };
+        let instance_buffer = &display_item.instances;
 
         if instance_buffer.count == 0 {
             return;
@@ -622,7 +618,13 @@ impl<GL: HasContext> RenderingContext<GL> {
         display_list: &mut DisplayList<GL>,
         translucent: bool,
     ) {
-        for (alias, object) in display_list.map.iter() {
+        let display_items = if translucent {
+            &display_list.translucent
+        } else {
+            &display_list.opaque
+        };
+
+        for (alias, object) in display_items.iter() {
             let part = match parts.get(alias) {
                 Some(e) => e,
                 None => continue,

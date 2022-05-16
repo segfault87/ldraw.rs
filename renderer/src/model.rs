@@ -159,7 +159,12 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
         translucent: bool,
     ) {
         if let Ok(parts) = self.parts.read() {
-            for (alias, object) in self.display_list.map.iter() {
+            let display_items = if translucent {
+                &self.display_list.translucent
+            } else {
+                &self.display_list.opaque
+            };
+            for (alias, object) in display_items.iter() {
                 match self.embedded_parts.get(alias) {
                     Some(e) => context.render_instanced(e, object, translucent),
                     None => match parts.query(alias) {

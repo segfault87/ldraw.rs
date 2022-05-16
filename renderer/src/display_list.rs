@@ -20,22 +20,6 @@ use uuid::Uuid;
 
 use crate::utils::cast_as_bytes;
 
-pub struct DisplayItemBuilder {
-    name: PartAlias,
-    matrices: Vec<Matrix4>,
-    colors: Vec<ColorReference>,
-}
-
-impl DisplayItemBuilder {
-    pub fn new(name: PartAlias) -> Self {
-        DisplayItemBuilder {
-            name,
-            matrices: vec![],
-            colors: vec![],
-        }
-    }
-}
-
 pub struct InstanceBuffer<GL: HasContext> {
     gl: Rc<GL>,
 
@@ -194,8 +178,7 @@ impl<GL: HasContext> Drop for InstanceBuffer<GL> {
 pub struct DisplayItem<GL: HasContext> {
     pub part: PartAlias,
 
-    pub opaque: InstanceBuffer<GL>,
-    pub translucent: InstanceBuffer<GL>,
+    pub instances: InstanceBuffer<GL>,
 }
 
 impl<GL: HasContext> DisplayItem<GL> {
@@ -203,8 +186,7 @@ impl<GL: HasContext> DisplayItem<GL> {
         DisplayItem {
             part: alias.clone(),
 
-            opaque: InstanceBuffer::new(Rc::clone(&gl)),
-            translucent: InstanceBuffer::new(Rc::clone(&gl)),
+            instances: InstanceBuffer::new(Rc::clone(&gl)),
         }
     }
 
@@ -226,12 +208,7 @@ impl<GL: HasContext> DisplayItem<GL> {
             new_edge_colors.push(material.edge.into());
         }
 
-        let buffer = if opaque {
-            &mut self.opaque
-        } else {
-            &mut self.translucent
-        };
-
+        let buffer = &mut self.instances;
         buffer.model_view_matrices = new_model_view_matrices;
         buffer.materials = new_materials;
         buffer.colors = new_colors;
@@ -241,12 +218,7 @@ impl<GL: HasContext> DisplayItem<GL> {
     }
 
     pub fn add(&mut self, matrix: &Matrix4, material: &Material) {
-        let buffer = if material.is_translucent() {
-            &mut self.translucent
-        } else {
-            &mut self.opaque
-        };
-
+        let buffer = &mut self.instances;
         buffer.model_view_matrices.push(*matrix);
         buffer.materials.push(material.clone());
         buffer.colors.push(Vector4::from(&material.color));
@@ -259,15 +231,19 @@ impl<GL: HasContext> DisplayItem<GL> {
 pub struct DisplayList<GL: HasContext> {
     gl: Rc<GL>,
 
-    pub map: HashMap<PartAlias, DisplayItem<GL>>,
+    pub opaque: HashMap<PartAlias, DisplayItem<GL>>,
+    pub translucent: HashMap<PartAlias, DisplayItem<GL>>,
 }
 
 impl<GL: HasContext> DisplayList<GL> {
     pub fn count(&self) -> usize {
         let mut count = 0;
 
-        for v in self.map.values() {
-            count += v.opaque.count + v.translucent.count;
+        for v in self.opaque.values() {
+            count += v.instances.count;
+        }
+        for v in self.translucent.values() {
+            count += v.instances.count;
         }
 
         count
@@ -366,7 +342,13 @@ pub struct DisplayListTransaction<'a, GL: HasContext> {
 impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
 
     pub fn add(&mut self, gl: Rc<GL>, name: PartAlias, matrix: Matrix4, material: Material) {
-        let entry = self.list.map
+        let mut display_item = if material.is_translucent() {
+            &mut self.list.translucent
+        } else {
+            &mut self.list.opaque
+        };
+
+        let entry = display_item
             .entry(name.clone())
             .or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name));
 
@@ -375,14 +357,17 @@ impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
     }
 
     pub fn clear(&mut self) {
-        self.list.map.clear();
+        self.list.opaque.clear();
+        self.list.translucent.clear();
     }
 
     pub fn end(self) {
         for item in self.affected_items.iter() {
-            if let Some(entry) = self.list.map.get_mut(item) {
-                entry.opaque.update_buffer();
-                entry.translucent.update_buffer();
+            if let Some(entry) = self.list.translucent.get_mut(item) {
+                entry.instances.update_buffer();
+            }
+            if let Some(entry) = self.list.opaque.get_mut(item) {
+                entry.instances.update_buffer();
             }
         }
     }
@@ -393,7 +378,8 @@ impl<GL: HasContext> DisplayList<GL> {
     pub fn new(gl: Rc<GL>) -> Self {
         DisplayList {
             gl,
-            map: HashMap::new(),
+            opaque: HashMap::new(),
+            translucent: HashMap::new(),
         }
     }
 
