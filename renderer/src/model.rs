@@ -71,10 +71,17 @@ fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
                                 Arc::clone(&parts),
                                 &group.objects,
                                 subpart_bounding_boxes,
-                                matrix,
+                                Matrix4::identity(),
                             );
                             subpart_bounding_boxes.insert(group_instance.group_id.clone(), sub_bb.clone());
-                            sub_bb
+
+                            let mut bb = BoundingBox3::zero();
+                            let tmin = matrix * sub_bb.min.extend(1.0);
+                            let tmax = matrix * sub_bb.max.extend(1.0);
+                            bb.update_point(&tmin.truncate());
+                            bb.update_point(&tmax.truncate());
+
+                            bb
                         } else {
                             continue;
                         }
