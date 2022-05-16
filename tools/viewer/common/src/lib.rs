@@ -16,20 +16,18 @@ use ldraw::{
     library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
     Matrix4, PartAlias, Point2, Point3, Vector2, Vector3,
 };
-use ldraw_ir::{geometry::BoundingBox3, part::bake_multipart_document};
+use ldraw_ir::{
+    geometry::BoundingBox3,
+    model::Model,
+    part::bake_multipart_document
+};
 use ldraw_renderer::{
     display_list::DisplayList,
-    part::Part,
+    model::RenderableModel,
+    part::{Part, PartsPool},
     shader::ProgramManager,
     state::{PerspectiveCamera, RenderingContext},
 };
-
-#[derive(Clone, Debug)]
-struct RenderingOrderItem {
-    name: PartAlias,
-    matrix: Matrix4,
-    material: Material,
-}
 
 pub struct OrbitController {
     last_pos: Option<Point2>,
@@ -128,103 +126,28 @@ impl Default for OrbitController {
     }
 }
 
-#[derive(Debug)]
-enum RenderingOrder {
-    Item(RenderingOrderItem),
-    Step,
-}
-
-fn traverse<'a, GL: HasContext>(
-    gl: Rc<GL>,
-    parts: &'a HashMap<PartAlias, Part<GL>>,
-    orders: &mut Vec<RenderingOrder>,
-    bb: &mut BoundingBox3,
-    document: &'a Document,
-    matrix: Matrix4,
-    material_stack: &mut Vec<Material>,
-    parent: &'a MultipartDocument,
-) {
-    for cmd in document.commands.iter() {
-        match cmd {
-            Command::Meta(Meta::Step) => {
-                orders.push(RenderingOrder::Step);
-            }
-            Command::PartReference(r) => {
-                if parent.subparts.contains_key(&r.name) {
-                    material_stack.push(match &r.color {
-                        ColorReference::Material(m) => m.clone(),
-                        _ => material_stack.last().unwrap().clone(),
-                    });
-                    traverse(
-                        Rc::clone(&gl),
-                        parts,
-                        orders,
-                        bb,
-                        parent.subparts.get(&r.name).unwrap(),
-                        matrix * r.matrix,
-                        material_stack,
-                        parent,
-                    );
-                    material_stack.pop();
-                } else if let Some(part) = parts.get(&r.name) {
-                    let material = match &r.color {
-                        ColorReference::Material(m) => m,
-                        _ => material_stack.last().unwrap(),
-                    };
-
-                    let matrix = matrix * r.matrix;
-
-                    let tmin = matrix * part.bounding_box.min.extend(1.0);
-                    let tmax = matrix * part.bounding_box.max.extend(1.0);
-                    bb.update_point(&tmin.truncate());
-                    bb.update_point(&tmax.truncate());
-
-                    orders.push(RenderingOrder::Item(RenderingOrderItem {
-                        name: r.name.clone(),
-                        matrix,
-                        material: material.clone(),
-                    }));
-                }
-            }
-            _ => (),
-        };
-    }
-}
-
-fn create_rendering_list<GL: HasContext>(
-    gl: Rc<GL>,
-    parts: &HashMap<PartAlias, Part<GL>>,
-    document: &MultipartDocument,
-) -> (Vec<RenderingOrder>, BoundingBox3) {
-    let mut order = Vec::new();
-    let mut bb = BoundingBox3::zero();
-    let mut material_stack = vec![Material::default()];
-
-    traverse(
-        gl,
-        parts,
-        &mut order,
-        &mut bb,
-        &document.body,
-        Matrix4::identity(),
-        &mut material_stack,
-        document,
-    );
-
-    // FIXME: workaround for empty bounding box
-    if bb.min == bb.max {
-        bb.update_point(&(bb.min - Vector3::new(100.0, 100.0, 100.0)));
-        bb.update_point(&(bb.max + Vector3::new(100.0, 100.0, 100.0)));
-    }
-
-    (order, bb)
-}
-
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum State {
     Playing,
     Step,
     Finished,
+}
+
+
+struct SimplePartsPool<GL: HasContext>(pub HashMap<PartAlias, Arc<Part<GL>>>);
+
+impl<GL: HasContext> PartsPool<GL> for SimplePartsPool<GL> {
+
+    fn query(&self, alias: &PartAlias) -> Option<Arc<Part<GL>>> {
+        self.0.get(alias).map(Arc::clone)
+    }
+
+}
+
+impl<GL: HasContext> SimplePartsPool<GL> {
+    pub fn new() -> Self {
+        SimplePartsPool(HashMap::new())
+    }
 }
 
 pub struct App<GL: HasContext> {
@@ -233,24 +156,20 @@ pub struct App<GL: HasContext> {
     loader: Rc<Box<dyn LibraryLoader>>,
     materials: Rc<MaterialRegistry>,
 
-    parts: HashMap<PartAlias, Part<GL>>,
+    parts: Arc<RwLock<SimplePartsPool<GL>>>,
 
     context: RenderingContext<GL>,
-    display_list: DisplayList<GL>,
-    rendering_order: Vec<RenderingOrder>,
-    animating: Vec<(RenderingOrderItem, f32, Matrix4, f32, f32)>,
+    model: Option<RenderableModel<GL, SimplePartsPool<GL>>>,
+
     pub orbit: OrbitController,
 
     pub state: State,
-    pointer: Option<usize>,
-    fall_interval: f32,
-    last_time: Option<f32>,
     frames: usize,
 }
 
-const FALL_INTERVAL: f32 = 0.2;
+/*const FALL_INTERVAL: f32 = 0.2;
 const FALL_INTERVAL_UPPER_BOUND: f32 = 5.0;
-const FALL_DURATION: f32 = 0.5;
+const FALL_DURATION: f32 = 0.5;*/
 
 impl<GL: HasContext> App<GL>
 {
@@ -267,36 +186,19 @@ impl<GL: HasContext> App<GL>
             gl: Rc::clone(&gl),
             loader,
             materials,
-            parts: HashMap::new(),
+            parts: Arc::new(RwLock::new(SimplePartsPool::new())),
             context,
-            display_list: DisplayList::new(gl),
-            rendering_order: Vec::new(),
-            animating: Vec::new(),
+            model: None,
             orbit: OrbitController::default(),
             state: State::Finished,
-            pointer: None,
-            fall_interval: FALL_INTERVAL,
-            last_time: None,
             frames: 0,
         }
     }
 
-    pub fn part_count(&self) -> usize {
-        let mut len = 0;
-
-        for i in self.rendering_order.iter() {
-            if let RenderingOrder::Item(_) = i {
-                len += 1;
-            }
-        }
-
-        len
-    }
-
-    pub fn loaded_parts(&self) -> HashSet<&PartAlias> {
+    pub fn loaded_parts(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
-        result.extend(self.parts.keys());
+        result.extend(self.parts.read().unwrap().0.keys().cloned());
 
         result
     }
@@ -308,7 +210,7 @@ impl<GL: HasContext> App<GL>
         on_update: &F,
     ) -> Result<(), ResolutionError> {
         let resolution_result = resolve_dependencies_multipart(
-            cache,
+            Arc::clone(&cache),
             &self.materials,
             &self.loader,
             document,
@@ -316,33 +218,30 @@ impl<GL: HasContext> App<GL>
         )
         .await;
 
-        let parts = document
-            .list_dependencies()
-            .into_iter()
-            .filter_map(|alias| {
-                resolution_result.query(&alias, true).map(|(part, local)| {
-                    (
-                        alias.clone(),
-                        Part::create(
-                            &bake_multipart_document(&resolution_result, None, part, local),
-                            Rc::clone(&self.gl),
-                            &self.materials
-                        ),
-                    )
-                })
-            })
-            .collect::<HashMap<_, _>>();
+        let model = Model::from_ldraw_multipart_document(document, &self.materials, Some((&self.loader, cache))).await;
 
-        self.parts.extend(parts);
+        self.parts.write().unwrap().0.extend(
+            document
+                .list_dependencies()
+                .into_iter()
+                .filter_map(|alias| {
+                    resolution_result.query(&alias, true).map(|(part, local)| {
+                        (
+                            alias.clone(),
+                            Arc::new(Part::create(
+                                &bake_multipart_document(&resolution_result, None, part, local),
+                                Rc::clone(&self.gl),
+                                &self.materials
+                            )),
+                        )
+                    })
+                })
+        );
         self.state = State::Playing;
-        self.animating = Vec::new();
-        self.display_list = DisplayList::new(Rc::clone(&self.gl));
-        self.pointer = None;
-        self.last_time = None;
-        let (rendering_order, bounding_box) =
-            create_rendering_list(Rc::clone(&self.gl), &self.parts, document);
-        self.rendering_order = rendering_order;
+        let model = RenderableModel::new(model, Rc::clone(&self.gl), Arc::clone(&self.parts), &self.materials);
+        let bounding_box = model.bounding_box.clone();
         let center = bounding_box.center();
+        self.model = Some(model);
         self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
         self.orbit.radius = (bounding_box.len_x() * bounding_box.len_x()
             + bounding_box.len_y() * bounding_box.len_y()
@@ -358,7 +257,7 @@ impl<GL: HasContext> App<GL>
     }
 
     pub fn advance(&mut self, time: f32) {
-        if self.state == State::Step || self.pointer.is_none() {
+        /*if self.state == State::Step || self.pointer.is_none() {
             let start = self.pointer.unwrap_or(0);
 
             let mut count = 0;
@@ -400,7 +299,7 @@ impl<GL: HasContext> App<GL>
             RenderingOrder::Step => {
                 self.state = State::Step;
             }
-        };
+        };*/
     }
 
     pub fn animate(&mut self, time: f32) {
@@ -412,6 +311,7 @@ impl<GL: HasContext> App<GL>
             self.advance(time);
         }
 
+        /*
         for (order, started_at, mat, opacity, progress) in self.animating.iter_mut() {
             if *progress < 1.0 {
                 let elapsed = (time - *started_at).clamp(0.0, FALL_DURATION) / FALL_DURATION;
@@ -435,34 +335,11 @@ impl<GL: HasContext> App<GL>
 
         self.animating
             .retain(|(_, _, _, _, progress)| *progress < 1.0);
+        */
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.context.resize(width, height);
-    }
-
-    pub fn rebuild_display_list(&mut self, count: usize) {
-        let mut idx = 0;
-
-        self.animating.clear();
-        let mut tr = self.display_list.start_modification();
-        tr.clear();
-        for item in self.rendering_order.iter() {
-            if let RenderingOrder::Item(order) = item {
-                tr.add(
-                    Rc::clone(&self.gl),
-                    order.name.clone(),
-                    order.matrix,
-                    order.material.clone(),
-                );
-
-                if idx == count {
-                    break;
-                }
-                idx += 1;
-            }
-        }
-        tr.end();
     }
 
     pub fn render(&mut self) {
@@ -472,29 +349,10 @@ impl<GL: HasContext> App<GL>
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
         }
 
-        self.context
-            .render_display_list(&self.parts, &mut self.display_list, false);
-        for (item, _, matrix, opacity, _) in self.animating.iter() {
-            if let Some(part) = self.parts.get(&item.name) {
-                self.context.shading_data.opacity = *opacity;
-                self.context.projection_data.push_model_matrix(matrix);
-                self.context.render_single_part(part, &item.material, false);
-                self.context.projection_data.pop_model_matrix();
-            }
+        if let Some(ref model) = self.model {
+            model.render(&mut self.context, false);
+            model.render(&mut self.context, true);
         }
-        self.context.shading_data.opacity = 1.0;
-
-        self.context
-            .render_display_list(&self.parts, &mut self.display_list, true);
-        for (item, _, matrix, opacity, _) in self.animating.iter() {
-            if let Some(part) = self.parts.get(&item.name) {
-                self.context.shading_data.opacity = *opacity;
-                self.context.projection_data.push_model_matrix(matrix);
-                self.context.render_single_part(part, &item.material, true);
-                self.context.projection_data.pop_model_matrix();
-            }
-        }
-        self.context.shading_data.opacity = 1.0;
 
         self.frames += 1;
 

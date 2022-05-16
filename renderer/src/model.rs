@@ -1,44 +1,132 @@
 use std::{
     collections::{HashMap, HashSet},
     rc::Rc,
+    sync::{Arc, RwLock},
 };
 
+use cgmath::SquareMatrix;
 use glow::HasContext;
 use ldraw::{
     color::MaterialRegistry,
-    PartAlias,
+    Matrix4, PartAlias,
 };
-use ldraw_ir::model::Model;
+use ldraw_ir::{
+    geometry::BoundingBox3,
+    model::{Object, ObjectInstance, Model},
+};
 use uuid::Uuid;
 
 use crate::{
     display_list::DisplayList,
-    part::Part,
+    part::{Part, PartsPool},
     state::RenderingContext,
 };
 
-pub struct RenderableModel<GL: HasContext> {
+pub struct RenderableModel<GL: HasContext, P: PartsPool<GL>> {
+    parts: Arc<RwLock<P>>,
+
     pub model: Model,
     pub display_list: DisplayList<GL>,
     pub embedded_parts: HashMap<PartAlias, Part<GL>>,
 
+    pub bounding_box: BoundingBox3,
+    pub subpart_bounding_boxes: HashMap<Uuid, BoundingBox3>,
     pub display_target: Option<Uuid>,
     pub exclusion_set: HashSet<Uuid>,
 }
 
-impl<GL: HasContext> RenderableModel<GL> {
+fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
+    model: &Model,
+    parts: Arc<RwLock<P>>,
+    objects: &Vec<Object>,
+    subpart_bounding_boxes: &mut HashMap<Uuid, BoundingBox3>,
+    matrix: Matrix4,
+) -> BoundingBox3 {
+    let mut bb = BoundingBox3::zero();
 
-    pub fn new(model: Model, gl: Rc<GL>, colors: &MaterialRegistry) -> Self {
+    for object in objects.iter() {
+        let (matrix, bounding_box) = match &object.data {
+            ObjectInstance::Part(part_instance) => {
+                let matrix = matrix * part_instance.matrix;
+
+                let bounding_box = if let Some(part) = parts.read().unwrap().query(&part_instance.part) {
+                    part.bounding_box.clone()
+                } else {
+                    continue;
+                };
+
+                (matrix, bounding_box)
+            }
+            ObjectInstance::PartGroup(group_instance) => {
+                let matrix = matrix * group_instance.matrix;
+
+                let bounding_box = match subpart_bounding_boxes.get(&group_instance.group_id) {
+                    Some(bb) => {
+                        bb.clone()
+                    }
+                    None => {
+                        if let Some(group) = model.object_groups.get(&group_instance.group_id) {
+                            let sub_bb = calculate_bounding_box(
+                                model,
+                                Arc::clone(&parts),
+                                &group.objects,
+                                subpart_bounding_boxes,
+                                matrix,
+                            );
+                            subpart_bounding_boxes.insert(group_instance.group_id.clone(), sub_bb.clone());
+                            sub_bb
+                        } else {
+                            continue;
+                        }
+                    }
+                };
+
+                (matrix, bounding_box)
+            }
+            _ => continue
+        };
+
+        let tmin = matrix * bounding_box.min.extend(1.0);
+        let tmax = matrix * bounding_box.max.extend(1.0);
+
+        bb.update_point(&tmin.truncate());
+        bb.update_point(&tmax.truncate());
+    }
+
+    bb
+}
+
+impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
+
+    pub fn new(
+        model: Model,
+        gl: Rc<GL>,
+        parts_pool: Arc<RwLock<P>>,
+        colors: &MaterialRegistry
+    ) -> Self {
         let display_list = DisplayList::from_model(Rc::clone(&gl), &model);
         let embedded_parts = model.embedded_parts.iter().map(
             |(alias, part)| (alias.clone(), Part::create(part, Rc::clone(&gl), colors))
         ).collect::<HashMap<_, _>>();
 
+        let mut subpart_bounding_boxes = HashMap::new();
+        let bounding_box = calculate_bounding_box(
+            &model,
+            Arc::clone(&parts_pool),
+            &model.objects,
+            &mut subpart_bounding_boxes,
+            Matrix4::identity()
+        );
+
         RenderableModel {
+            parts: parts_pool,
+
             model,
             embedded_parts,
             display_list,
             
+            bounding_box,
+            subpart_bounding_boxes,
             display_target: None,
             exclusion_set: HashSet::new(),
         }
@@ -68,19 +156,18 @@ impl<GL: HasContext> RenderableModel<GL> {
     pub fn render(
         &self,
         context: &mut RenderingContext<GL>,
-        parts: &HashMap<PartAlias, Part<GL>>,
         translucent: bool,
     ) {
-        for (alias, object) in self.display_list.map.iter() {
-            let part = match self.embedded_parts.get(alias) {
-                Some(e) => e,
-                None => match parts.get(alias) {
-                    Some(e) => e,
-                    None => continue,
-                },
-            };
-            
-            context.render_instanced(part, object, translucent);
+        if let Ok(parts) = self.parts.read() {
+            for (alias, object) in self.display_list.map.iter() {
+                match self.embedded_parts.get(alias) {
+                    Some(e) => context.render_instanced(e, object, translucent),
+                    None => match parts.query(alias) {
+                        Some(e) => context.render_instanced(&e, object, translucent),
+                        None => continue,
+                    },
+                }
+            }
         }
     }
 

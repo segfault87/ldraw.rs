@@ -1,9 +1,9 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 use glow::HasContext;
 use ldraw::{
-    color::{Material, MaterialRegistry},
-    Vector3,
+    color::MaterialRegistry,
+    PartAlias, Vector3,
 };
 use ldraw_ir::{
     geometry::BoundingBox3,
@@ -497,4 +497,10 @@ impl<GL: HasContext> Part<GL> {
             rotation_center: builder.rotation_center,
         }
     }
+}
+
+pub trait PartsPool<GL: HasContext> {
+
+    fn query(&self, name: &PartAlias) -> Option<Arc<Part<GL>>>;
+
 }

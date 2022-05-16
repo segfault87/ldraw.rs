@@ -360,7 +360,7 @@ fn build_display_list_contents<GL: HasContext>(
 
 pub struct DisplayListTransaction<'a, GL: HasContext> {
     list: &'a mut DisplayList<GL>,
-    affected_items: HashSet<*mut DisplayItem<GL>>,
+    affected_items: HashSet<PartAlias>,
 }
 
 impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
@@ -371,18 +371,18 @@ impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
             .or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name));
 
         entry.add(&matrix, &material);
-        self.affected_items.insert(entry);
+        self.affected_items.insert(name);
     }
 
     pub fn clear(&mut self) {
         self.list.map.clear();
     }
 
-    pub fn end(mut self) {
-        for item in self.affected_items.drain() {
-            unsafe {
-                (*item).opaque.update_buffer();
-                (*item).translucent.update_buffer();
+    pub fn end(self) {
+        for item in self.affected_items.iter() {
+            if let Some(entry) = self.list.map.get_mut(item) {
+                entry.opaque.update_buffer();
+                entry.translucent.update_buffer();
             }
         }
     }
