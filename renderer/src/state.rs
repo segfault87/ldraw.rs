@@ -585,29 +585,27 @@ impl<GL: HasContext> RenderingContext<GL> {
             }
         }
 
-        if !translucent {
-            if let Some(edges) = &part_buffer.edges {
-                let program = self.program_manager.get_edge_program(false);
+        if let Some(edges) = &part_buffer.edges {
+            let program = self.program_manager.get_edge_program(false);
 
-                let bind = program.bind(&self.projection_data);
-                bind.bind_attribs(edges);
-                bind.bind_non_instanced_properties(&color, &edge_color);
+            let bind = program.bind(&self.projection_data);
+            bind.bind_attribs(edges);
+            bind.bind_non_instanced_properties(&color, &edge_color);
 
-                unsafe {
-                    gl.draw_arrays(glow::LINES, 0, edges.length as i32);
-                }
+            unsafe {
+                gl.draw_arrays(glow::LINES, 0, edges.length as i32);
             }
+        }
 
-            if let Some(optional_edges) = &part_buffer.optional_edges {
-                let program = self.program_manager.get_optional_edge_program(false);
+        if let Some(optional_edges) = &part_buffer.optional_edges {
+            let program = self.program_manager.get_optional_edge_program(false);
 
-                let bind = program.bind(&self.projection_data);
-                bind.bind_attribs(optional_edges);
-                bind.bind_non_instanced_properties(&color, &edge_color);
+            let bind = program.bind(&self.projection_data);
+            bind.bind_attribs(optional_edges);
+            bind.bind_non_instanced_properties(&color, &edge_color);
 
-                unsafe {
-                    gl.draw_arrays(glow::LINES, 0, optional_edges.length as i32);
-                }
+            unsafe {
+                gl.draw_arrays(glow::LINES, 0, optional_edges.length as i32);
             }
         }
     }

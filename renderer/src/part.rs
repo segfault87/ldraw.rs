@@ -478,6 +478,10 @@ impl<GL: HasContext> PartBuffer<GL> {
     pub fn has_translucent_parts(&self) -> bool {
         !self.translucent_indices.is_empty()
     }
+
+    pub fn has_uncolored_parts(&self) -> bool {
+        self.uncolored_index.is_some() || self.uncolored_without_bfc_index.is_some()
+    }
 }
 
 #[derive(Debug)]
