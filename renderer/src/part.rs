@@ -370,6 +370,13 @@ where
     pub mesh: Option<MeshBuffer<GL>>,
     pub edges: Option<EdgeBuffer<GL>>,
     pub optional_edges: Option<OptionalEdgeBuffer<GL>>,
+
+    pub uncolored_triangles_count: usize,
+    pub uncolored_without_bfc_triangles_count: usize,
+    pub opaque_triangles_count: usize,
+    pub translucent_triangles_count: usize,
+    pub edges_count: usize,
+    pub optional_edges_count: usize,
 }
 
 impl<GL: HasContext> PartBuffer<GL> {
@@ -468,6 +475,12 @@ impl<GL: HasContext> PartBuffer<GL> {
             mesh,
             edges,
             optional_edges,
+            uncolored_triangles_count: builder.uncolored_mesh.len() / 3,
+            uncolored_without_bfc_triangles_count: builder.uncolored_without_bfc_mesh.len() / 3,
+            opaque_triangles_count: builder.opaque_meshes.values().map(|v| v.len() / 3).sum(),
+            translucent_triangles_count: builder.translucent_meshes.values().map(|v| v.len() / 3).sum(),
+            edges_count: builder.edges.len() / 2,
+            optional_edges_count: builder.optional_edges.len() / 2,
         }
     }
 
