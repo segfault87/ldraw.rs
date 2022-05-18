@@ -1,4 +1,4 @@
-use ldraw::{Vector2, Vector3};
+use ldraw::{Matrix4, Vector2, Vector3};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -80,6 +80,7 @@ impl BoundingBox2 {
 pub struct BoundingBox3 {
     pub min: Vector3,
     pub max: Vector3,
+    null: bool,
 }
 
 impl BoundingBox3 {
@@ -87,6 +88,7 @@ impl BoundingBox3 {
         BoundingBox3 {
             min: Vector3::new(0.0, 0.0, 0.0),
             max: Vector3::new(0.0, 0.0, 0.0),
+            null: true,
         }
     }
 
@@ -98,34 +100,54 @@ impl BoundingBox3 {
         BoundingBox3 {
             min: Vector3::new(min_x, min_y, min_z),
             max: Vector3::new(max_x, max_y, max_z),
+            null: false,
         }
     }
 
+    pub fn translate(&self, matrix: &Matrix4) -> Self {
+        let mut bb = BoundingBox3::zero();
+
+        for vertex in self.points() {
+            let translated = matrix * vertex.extend(1.0);
+            bb.update_point(&translated.truncate())
+        }
+
+        bb
+    }
+
     pub fn len_x(&self) -> f32 {
-        self.max.x - self.min.x
+        if self.null {
+            0.0
+        } else {
+            self.max.x - self.min.x
+        }
     }
 
     pub fn len_y(&self) -> f32 {
-        self.max.y - self.min.y
+        if self.null {
+            0.0
+        } else {
+            self.max.y - self.min.y
+        }
     }
 
     pub fn len_z(&self) -> f32 {
-        self.max.z - self.min.z
+        if self.null {
+            0.0
+        } else {
+            self.max.z - self.min.z
+        }
     }
 
     pub fn is_null(&self) -> bool {
-        self.min.x == 0.0
-            && self.min.y == 0.0
-            && self.min.z == 0.0
-            && self.max.x == 0.0
-            && self.max.y == 0.0
-            && self.max.z == 0.0
+        self.null
     }
 
     pub fn update_point(&mut self, v: &Vector3) {
-        if self.is_null() {
+        if self.null {
             self.min = *v;
             self.max = *v;
+            self.null = false;
         } else {
             if self.min.x > v.x {
                 self.min.x = v.x;
@@ -154,7 +176,11 @@ impl BoundingBox3 {
     }
 
     pub fn center(&self) -> Vector3 {
-        (self.min + self.max) * 0.5
+        if self.null {
+            Vector3::new(0.0, 0.0, 0.0)
+        } else {
+            (self.min + self.max) * 0.5
+        }
     }
 
     pub fn points(&self) -> [Vector3; 8] {

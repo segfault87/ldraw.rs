@@ -193,7 +193,6 @@ impl<GL: HasContext> DisplayItem<GL> {
     /* TODO: This is temporary; should be superseded with sophisticated editor stuffs */
     pub fn update_data(
         &mut self,
-        opaque: bool,
         model_view_matrices: &[Matrix4],
         materials: &[Material],
     ) {
@@ -342,7 +341,7 @@ pub struct DisplayListTransaction<'a, GL: HasContext> {
 impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
 
     pub fn add(&mut self, gl: Rc<GL>, name: PartAlias, matrix: Matrix4, material: Material) {
-        let mut display_item = if material.is_translucent() {
+        let display_item = if material.is_translucent() {
             &mut self.list.translucent
         } else {
             &mut self.list.opaque
