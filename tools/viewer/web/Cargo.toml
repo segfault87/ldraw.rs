@@ -23,6 +23,7 @@ wasm-bindgen = { version = "~0.2.78", features = ["serde-serialize"] }
 wasm-bindgen-futures = "~0.4.28"
 serde = { version = "1.0.80", features = ["derive"] }
 serde_derive = "^1.0.59"
+uuid = { version = "1", features = ["v4", "serde", "js"] }
 viewer_common = { path = "../common" }
 
 [dependencies.web-sys]
@@ -35,7 +36,7 @@ features = [
     'HtmlButtonElement',
     'HtmlCanvasElement',
     'HtmlDivElement',
-    'HtmlInputElement',
+    'HtmlSelectElement',
     'HtmlTextAreaElement',
     'MouseEvent',
     'Node',

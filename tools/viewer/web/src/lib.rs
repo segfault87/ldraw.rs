@@ -20,6 +20,7 @@ use ldraw::{
 };
 use ldraw_renderer::shader::ProgramManager;
 use reqwest::{Client, Url};
+use uuid::Uuid;
 use viewer_common::{App, State};
 use wasm_bindgen::{
     prelude::*,
@@ -27,7 +28,7 @@ use wasm_bindgen::{
 };
 use wasm_bindgen_futures::{spawn_local};
 use web_sys::{
-    HtmlButtonElement, HtmlCanvasElement, HtmlDivElement, HtmlInputElement, HtmlTextAreaElement,
+    HtmlButtonElement, HtmlCanvasElement, HtmlDivElement, HtmlSelectElement, HtmlTextAreaElement,
     WebGl2RenderingContext
 };
 
@@ -172,9 +173,6 @@ pub async fn run(path: JsValue) -> JsValue {
 
     app.borrow_mut().resize(canvas.width(), canvas.height());
 
-    let slider = web_document.get_element_by_id("slider").unwrap();
-    let slider = JsCast::dyn_ref::<HtmlInputElement>(&slider).unwrap();
-
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
 
@@ -206,11 +204,43 @@ pub async fn run(path: JsValue) -> JsValue {
             }
             cache.write().unwrap().collect(CacheCollectionStrategy::Parts);
 
-            document_view.set_value(&document_text);
+            let subparts = web_document.get_element_by_id("subparts").unwrap();
+            subparts.set_inner_html("");
 
-            let part_count = &app.borrow().part_count();
-            slider.set_max(&part_count.to_string());
-            slider.set_value(&part_count.to_string());
+            let body = web_document.create_element("option").unwrap();
+            body.set_attribute("value", "").unwrap();
+            body.set_inner_html("Base Model");
+            subparts.append_child(&body).unwrap();
+
+            for (id, name) in app.borrow().get_subparts() {
+                let subpart = web_document.create_element("option").unwrap();
+                subpart.set_attribute("value", &format!("{}", id)).unwrap();
+                subpart.set_inner_html(&format!("Subpart {} ({})", name, id));
+                subparts.append_child(&subpart).unwrap();
+            }
+
+            let web_document = web_document.clone();
+            let app = Rc::clone(&app);
+            let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                let subparts = web_document.get_element_by_id("subparts").unwrap();
+                let subparts = JsCast::dyn_ref::<HtmlSelectElement>(&subparts).unwrap();
+                let value = subparts.value();
+                
+                app.borrow_mut().set_render_target(
+                    if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.parse::<Uuid>().unwrap())
+                    }
+                );
+            }) as Box<dyn FnMut(_)>);
+            subparts.add_event_listener_with_callback(
+                "change",
+                closure.as_ref().unchecked_ref()
+            ).unwrap();
+            closure.forget();
+
+            document_view.set_value(&document_text);
         }
     }
 
@@ -361,22 +391,9 @@ pub async fn run(path: JsValue) -> JsValue {
         });
         closure.forget();
     }
-    {
-        let app = Rc::clone(&app);
-        let slider_ = slider.clone();
-        let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            let value = slider_.value().parse::<usize>().unwrap_or(0);
-            if let Ok(mut app) = app.try_borrow_mut() {
-                app.rebuild_display_list(value);
-            }
-        }) as Box<dyn FnMut(_)>);
-        slider.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref()).unwrap();
-        closure.forget();
-    }
 
     let app = Rc::clone(&app);
     let mut state = State::Finished;
-    let slider_ = slider.clone();
     let new_doc = Rc::clone(&new_doc);
     let cache = Arc::clone(&cache);
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
@@ -384,11 +401,11 @@ pub async fn run(path: JsValue) -> JsValue {
         let perf = window.performance().unwrap();
 
         if new_doc.borrow().is_some() {
-            let slider_ = slider_.clone();
             let document = MultipartDocument::clone(new_doc.borrow().as_ref().unwrap());
             *new_doc.borrow_mut() = None;
             let app = Rc::clone(&app);
             let cache = Arc::clone(&cache);
+            let web_document = web_document.clone();
             spawn_local(async move {
                 if let Ok(mut m) = app.try_borrow_mut() {
                     if let Err(err) = m.set_document(Arc::clone(&cache), &document, &log_part_resolution).await {
@@ -396,10 +413,22 @@ pub async fn run(path: JsValue) -> JsValue {
                     };
                     cache.write().unwrap().collect(CacheCollectionStrategy::Parts);
 
-                    let part_count = m.part_count();
-                    slider_.set_max(&part_count.to_string());
-                    slider_.set_value(&part_count.to_string());
-                    slider_.style().set_property("display", "none").unwrap();
+                    let subparts = web_document.get_element_by_id("subparts").unwrap();
+                    subparts.set_inner_html("");
+
+                    let body = web_document.create_element("option").unwrap();
+                    body.set_attribute("value", "").unwrap();
+                    body.set_inner_html("Base Model");
+                    subparts.append_child(&body).unwrap();
+
+                    console_log!("{:?}", body);
+
+                    for (id, name) in app.borrow().get_subparts() {
+                        let subpart = web_document.create_element("option").unwrap();
+                        subpart.set_attribute("value", &format!("{}", id)).unwrap();
+                        subpart.set_inner_html(&format!("Subpart {} ({})", name, id));
+                        subparts.append_child(&subpart).unwrap();
+                    }
                 } else {
                     alert("Could not set document");
                 }
@@ -418,10 +447,6 @@ pub async fn run(path: JsValue) -> JsValue {
                     next_button.set_class_name("active");
                 } else {
                     next_button.set_class_name("");
-                }
-
-                if m.state == State::Finished {
-                    slider_.style().set_property("display", "block").unwrap();
                 }
 
                 state = m.state;

@@ -9,4 +9,4 @@ cgmath = { version = "~0.18.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 kdtree = "~0.6"
 ldraw = { path = "../ldraw" }
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }

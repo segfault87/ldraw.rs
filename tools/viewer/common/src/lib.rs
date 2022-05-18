@@ -28,6 +28,7 @@ use ldraw_renderer::{
     shader::ProgramManager,
     state::{PerspectiveCamera, RenderingContext},
 };
+use uuid::Uuid;
 
 pub struct OrbitController {
     last_pos: Option<Point2>,
@@ -358,6 +359,40 @@ impl<GL: HasContext> App<GL>
 
         unsafe {
             gl.flush();
+        }
+    }
+
+    pub fn get_subparts(&self) -> Vec<(Uuid, String)> {
+        if let Some(v) = &self.model {
+            let mut result = v.model.object_groups.iter().map(
+                |(k, v)| (k.clone(), v.name.clone())
+            ).collect::<Vec<_>>();
+            result.sort_by(|a, b| a.1.cmp(&b.1));
+            result
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn set_render_target(&mut self, group_id: Option<Uuid>) {
+        if let Some(v) = &mut self.model {
+            v.set_render_target(group_id);
+
+            let bounding_box = match group_id {
+                None => v.bounding_box.clone(),
+                Some(uuid) => if let Some(v) = v.subpart_bounding_boxes.get(&uuid) {
+                    v.clone()
+                } else {
+                    BoundingBox3::zero()
+                }
+            };
+            let center = bounding_box.center();
+            self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
+            self.orbit.radius = (bounding_box.len_x() * bounding_box.len_x()
+                + bounding_box.len_y() * bounding_box.len_y()
+                + bounding_box.len_z() * bounding_box.len_z())
+            .sqrt()
+                * 2.0;
         }
     }
 }
