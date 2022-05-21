@@ -30,16 +30,17 @@
           font-size: 12px;
           font-family: monospace;
       }
-      #footer {
+      #stats {
           position: fixed;
-          bottom: 0;
-          left: 80px;
-          width: 100%;
+          top: 0;
+          right: 0;
+          font-size: 10px;
       }
       #footer-right {
         position: fixed;
         bottom: 0;
         right: 0;
+        font-size: 12px;
       }
       #controls {
         position: absolute;
@@ -153,6 +154,7 @@
         </select>
       </div>
     </div>
+    <div id="stats"></div>
     <div id="footer-right">This is a proof-of-concept technical demo. Built with <a href="https://www.rust-lang.org">Rust</a> + <a href="https://webassembly.org">WebAssembly</a>. <a href="https://github.com/segfault87/ldraw.rs">GitHub</a></div>
     <script type="text/javascript">
       const menus = [

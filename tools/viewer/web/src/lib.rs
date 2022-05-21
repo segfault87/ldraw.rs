@@ -438,7 +438,20 @@ pub async fn run(path: JsValue) -> JsValue {
         if let Ok(mut m) = app.try_borrow_mut() {            
             m.set_up();
             m.animate(((perf.now() - start_time) / 1000.0) as f32);
-            m.render();
+            let (stats, duration) = m.render();
+
+            let stats_element = web_document.get_element_by_id("stats").unwrap();
+            stats_element.set_inner_html(&format!(
+                "{} msecs<br />{} tris, {} lines, {} edges<br />Parts: {} ({} distinct)<br />Draw calls: {} single, {} instanced",
+                duration.as_millis(),
+                stats.triangles,
+                stats.lines,
+                stats.optional_lines,
+                stats.parts,
+                stats.distinct_parts,
+                stats.draw_calls,
+                stats.instanced_draw_calls,
+            ));
 
             if m.state != state {
                 let next_button = web_document.get_element_by_id("next-button").unwrap();

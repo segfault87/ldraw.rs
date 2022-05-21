@@ -6,15 +6,15 @@ use std::{
     vec::Vec,
 };
 
-use cgmath::{Deg, SquareMatrix};
+use cgmath::Deg;
 use glow::HasContext;
+use instant::{Duration, Instant};
 use ldraw::{
-    color::{ColorReference, Material, MaterialRegistry},
-    document::{Document, MultipartDocument},
-    elements::{Command, Meta},
+    color::MaterialRegistry,
+    document::MultipartDocument,
     error::ResolutionError,
     library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
-    Matrix4, PartAlias, Point2, Point3, Vector2, Vector3,
+    PartAlias, Point2, Point3, Vector2,
 };
 use ldraw_ir::{
     geometry::BoundingBox3,
@@ -22,11 +22,10 @@ use ldraw_ir::{
     part::bake_multipart_document
 };
 use ldraw_renderer::{
-    display_list::DisplayList,
     model::RenderableModel,
     part::{Part, PartsPool},
     shader::ProgramManager,
-    state::{PerspectiveCamera, RenderingContext},
+    state::{PerspectiveCamera, RenderingContext, RenderingStats},
 };
 use uuid::Uuid;
 
@@ -343,12 +342,10 @@ impl<GL: HasContext> App<GL>
         self.context.resize(width, height);
     }
 
-    pub fn render(&mut self) {
-        let gl = &self.gl;
+    pub fn render(&mut self) -> (RenderingStats, Duration) {
+        let now = Instant::now();
 
-        unsafe {
-            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-        }
+        self.context.begin();
 
         if let Some(ref model) = self.model {
             model.render(&mut self.context, false);
@@ -357,9 +354,7 @@ impl<GL: HasContext> App<GL>
 
         self.frames += 1;
 
-        unsafe {
-            gl.flush();
-        }
+        (self.context.end(), now.elapsed())
     }
 
     pub fn get_subparts(&self) -> Vec<(Uuid, String)> {

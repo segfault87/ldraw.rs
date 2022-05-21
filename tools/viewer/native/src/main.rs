@@ -75,7 +75,9 @@ async fn main_loop(materials: MaterialRegistry, document: MultipartDocument, dep
     evloop.run(move |event, _, control_flow| match event {
         Event::LoopDestroyed => {}
         Event::RedrawRequested(_) => {
-            app.render();
+            let (stats, duration) = app.render();
+            println!("took {} msec", duration.as_millis());
+            println!("{:#?}", stats);
 
             windowed_context.swap_buffers().unwrap();
         }
@@ -84,7 +86,9 @@ async fn main_loop(materials: MaterialRegistry, document: MultipartDocument, dep
         }
         Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
             app.animate(started.elapsed().as_millis() as f32 / 1000.0);
-            app.render();
+            let (stats, duration) = app.render();
+            println!("took {} msec", duration.as_millis());
+            println!("{:#?}", stats);
             windowed_context.swap_buffers().unwrap();
             *control_flow = ControlFlow::WaitUntil(Instant::now() + refresh_duration);
         }
