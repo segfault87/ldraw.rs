@@ -11,22 +11,24 @@ use async_std::{
     path::{Path, PathBuf},
 };
 use clap::{App, Arg};
+use glow::Context as GlContext;
 use glutin::event_loop::EventLoop;
 use ldraw::{
     library::{LibraryLoader, PartCache, resolve_dependencies_multipart},
     parser::{parse_color_definition, parse_multipart_document},
     resolvers::local::LocalLoader,
+    PartAlias,
 };
 use ldraw_ir::{
+    model::Model,
     part::bake_multipart_document,
 };
 use ldraw_olr::{
     context::{create_headless_context, create_osmesa_context},
-    ops::render_display_list,
+    ops::render_model
 };
 use ldraw_renderer::{
-    display_list::DisplayList,
-    part::Part,
+    part::{Part, PartsPool},
 };
 
 #[tokio::main]
@@ -98,24 +100,30 @@ async fn main() {
 
     let cache = Arc::new(RwLock::new(PartCache::new()));
     let resolution_result = resolve_dependencies_multipart(
-        cache,
+        Arc::clone(&cache),
         &colors,
         &loader,
         &document,
         &|_, _| {}
     ).await;
 
+    struct PartsPoolImpl(HashMap<PartAlias, Arc<Part<GlContext>>>);
+    impl PartsPool<GlContext> for PartsPoolImpl {
+        fn query(&self, alias: &PartAlias) -> Option<Arc<Part<GlContext>>> {
+            self.0.get(alias).map(Arc::clone)
+        }
+    }
+
     let parts = document
         .list_dependencies()
         .into_iter()
         .filter_map(|alias| {
             resolution_result.query(&alias, true).map(|(part, local)| {
-                (alias.clone(), Part::create(&bake_multipart_document(&resolution_result, None, part, local), Rc::clone(&gl), &colors))
+                (alias.clone(), Arc::new(Part::create(&bake_multipart_document(&resolution_result, None, part, local), Rc::clone(&gl), &colors)))
             })
         })
         .collect::<HashMap<_, _>>();
-
-    let mut display_list = DisplayList::from_multipart_document(Rc::clone(&gl), &document);
+    let parts = Arc::new(RwLock::new(PartsPoolImpl(parts)));
 
     {
         let mut rc = context.rendering_context.borrow_mut();
@@ -125,6 +133,8 @@ async fn main() {
         rc.upload_shading_data();
     }
 
-    let image = render_display_list(&context, &parts, &mut display_list);
+    let model = Model::from_ldraw_multipart_document(&document, &colors, Some((&loader, cache))).await;
+
+    let image = render_model(&context, parts, &colors, &model);
     image.save(&Path::new(output)).unwrap();
 }

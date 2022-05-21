@@ -1,16 +1,20 @@
-use std::collections::HashMap;
+use std::{
+    rc::Rc,
+    sync::{Arc, RwLock},
+};
 
 use cgmath::EuclideanSpace;
 use glow::{Context as GlContext, HasContext};
 use image::RgbaImage;
-use ldraw::{color::Material, PartAlias, Point3};
+use ldraw::{color::{Material, MaterialRegistry}, Point3};
+use ldraw_ir::model::Model;
 use ldraw_renderer::{
-    display_list::DisplayList,
-    part::Part,
+    model::RenderableModel,
+    part::{Part, PartsPool},
     state::{OrthographicCamera, OrthographicViewBounds},
 };
 
-use crate::{context::OlrContext, utils::calculate_bounding_box};
+use crate::context::OlrContext;
 
 pub fn render_single_part(
     context: &OlrContext,
@@ -42,27 +46,30 @@ pub fn render_single_part(
     context.get_framebuffer_contents(Some(bounds))
 }
 
-pub fn render_display_list(
+pub fn render_model<P: PartsPool<GlContext>>(
     context: &OlrContext,
-    parts: &HashMap<PartAlias, Part<GlContext>>,
-    display_list: &mut DisplayList<GlContext>,
+    parts: Arc<RwLock<P>>,
+    colors: &MaterialRegistry,
+    model: &Model,
 ) -> RgbaImage {
     let gl = &context.gl;
 
     let mut rc = context.rendering_context.borrow_mut();
 
+    let renderable_model = RenderableModel::new(model.clone(), Rc::clone(&gl), parts, colors);
+
     unsafe {
         gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
     }
 
-    let bounding_box = calculate_bounding_box(parts, display_list);
+    let bounding_box = &renderable_model.bounding_box;
     let camera = OrthographicCamera::new_isometric(Point3::from_vec(bounding_box.center()));
     let bounds = rc
-        .apply_orthographic_camera(&camera, &OrthographicViewBounds::BoundingBox3(bounding_box))
+        .apply_orthographic_camera(&camera, &OrthographicViewBounds::BoundingBox3(bounding_box.clone()))
         .unwrap();
 
-    rc.render_display_list(parts, display_list, false);
-    rc.render_display_list(parts, display_list, true);
+    renderable_model.render(&mut rc, false);
+    renderable_model.render(&mut rc, true);
 
     unsafe {
         gl.flush();
