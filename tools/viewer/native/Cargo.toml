@@ -12,8 +12,8 @@ futures = "~0.3.19"
 glow = "~0.11.0"
 glutin = "~0.27.0"
 ldraw = { path = "../../../ldraw", features = ["http"] }
-ldraw_ir = { path = "../../../ir" }
-ldraw_renderer = { path = "../../../renderer" }
+ldraw-ir = { path = "../../../ir" }
+ldraw-renderer = { path = "../../../renderer" }
 reqwest = { version = "~0.11.8", features = ["brotli"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-viewer_common = { path = "../common" }
+viewer-common = { path = "../common" }

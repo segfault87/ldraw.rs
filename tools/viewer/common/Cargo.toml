@@ -1,5 +1,5 @@
 [package]
-name = "viewer_common"
+name = "viewer-common"
 version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2018"
@@ -8,7 +8,8 @@ edition = "2018"
 async-trait = "~0.1.51"
 cgmath = "~0.18.0"
 glow = "~0.11.0"
+instant = { version = "~0.1.12", features = ["wasm-bindgen"] }
 ldraw = { path = "../../../ldraw", features = ["http"] }
-ldraw_ir = { path = "../../../ir" }
-ldraw_renderer = { path = "../../../renderer" }
+ldraw-ir = { path = "../../../ir" }
+ldraw-renderer = { path = "../../../renderer" }
 uuid = { version = "1", features = ["v4", "serde", "js"] }
