@@ -17,8 +17,8 @@ use ldraw_renderer::{
 use crate::context::OlrContext;
 
 pub fn render_single_part(
-    context: &OlrContext,
     part: &Part<GlContext>,
+    context: &OlrContext,
     material: &Material,
 ) -> RgbaImage {
     let gl = &context.gl;
@@ -47,10 +47,10 @@ pub fn render_single_part(
 }
 
 pub fn render_model<P: PartsPool<GlContext>>(
+    model: &Model,
     context: &OlrContext,
     parts: Arc<RwLock<P>>,
     colors: &MaterialRegistry,
-    model: &Model,
 ) -> RgbaImage {
     let gl = &context.gl;
 

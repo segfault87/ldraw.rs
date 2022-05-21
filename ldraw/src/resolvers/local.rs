@@ -10,7 +10,7 @@ use crate::{
     document::MultipartDocument,
     error::ResolutionError,
     library::{DocumentLoader, LibraryLoader, FileLocation, PartKind},
-    parser::{parse_color_definition, parse_multipart_document},
+    parser::{parse_color_definitions, parse_multipart_document},
     PartAlias,
 };
 
@@ -31,15 +31,15 @@ impl LocalLoader {
 impl DocumentLoader<PathBuf> for LocalLoader {
     async fn load_document(
         &self,
-        materials: &MaterialRegistry,
         locator: &PathBuf,
+        colors: &MaterialRegistry,
     ) -> Result<MultipartDocument, ResolutionError> {
         if !locator.exists().await {
             return Err(ResolutionError::FileNotFound);
         }
 
         Ok(
-            parse_multipart_document(materials, &mut BufReader::new(File::open(locator).await?))
+            parse_multipart_document(&mut BufReader::new(File::open(locator).await?), colors)
                 .await?,
         )
     }
@@ -47,7 +47,7 @@ impl DocumentLoader<PathBuf> for LocalLoader {
 
 #[async_trait(?Send)]
 impl LibraryLoader for LocalLoader {
-    async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError> {
+    async fn load_colors(&self) -> Result<MaterialRegistry, ResolutionError> {
         let ldrawdir = match self.ldrawdir.clone() {
             Some(e) => e,
             None => return Err(ResolutionError::NoLDrawDir),
@@ -63,14 +63,14 @@ impl LibraryLoader for LocalLoader {
             return Err(ResolutionError::FileNotFound);
         }
 
-        Ok(parse_color_definition(&mut BufReader::new(File::open(&*path).await?)).await?)
+        Ok(parse_color_definitions(&mut BufReader::new(File::open(&*path).await?)).await?)
     }
 
     async fn load_ref(
         &self,
-        materials: &MaterialRegistry,
         alias: PartAlias,
         local: bool,
+        colors: &MaterialRegistry,
     ) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
         let ldrawdir = match self.ldrawdir.clone() {
             Some(e) => e,
@@ -106,7 +106,7 @@ impl LibraryLoader for LocalLoader {
         };
 
         let document =
-            parse_multipart_document(materials, &mut BufReader::new(File::open(&**path).await?))
+            parse_multipart_document(&mut BufReader::new(File::open(&**path).await?), colors)
                 .await?;
 
         Ok((kind, document))

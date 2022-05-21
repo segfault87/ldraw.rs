@@ -438,7 +438,7 @@ impl<GL: HasContext> RenderingContext<GL> {
         } else if instance_buffer.count == 1 {
             self.projection_data
                 .push_model_matrix(&instance_buffer.model_view_matrices[0]);
-            self.render_single_part(part, &instance_buffer.materials[0], translucent);
+            self.render_single_part(part, &instance_buffer.colors[0], translucent);
             self.projection_data.pop_model_matrix();
             return;
         }

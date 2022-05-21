@@ -158,15 +158,15 @@ pub async fn run(path: JsValue) -> JsValue {
     
     let loader: Rc<Box<dyn LibraryLoader>> = Rc::new(Box::new(HttpLoader::new(Some(location.join("ldraw/").unwrap()), Some(location.clone()))));
 
-    let materials = match loader.load_materials().await {
+    let colors = match loader.load_colors().await {
         Ok(e) => Rc::new(e),
         Err(err) => {
-            console_error!("Could not open material definition: {}", err);
+            console_error!("Could not open color definitions: {}", err);
             return JsValue::undefined();
         }
     };
 
-    let app = Rc::new(RefCell::new(App::new(Rc::clone(&gl), Rc::clone(&loader), Rc::clone(&materials), program_manager)));
+    let app = Rc::new(RefCell::new(App::new(Rc::clone(&gl), Rc::clone(&loader), Rc::clone(&colors), program_manager)));
     console_log!("Rendering context initialization done.");
 
     let cache = Arc::new(RwLock::new(PartCache::default()));
@@ -191,7 +191,7 @@ pub async fn run(path: JsValue) -> JsValue {
                 }
             };
 
-            let document = match parse_multipart_document(&*materials, &mut BufReader::new(document_text.as_bytes())).await {
+            let document = match parse_multipart_document(&mut BufReader::new(document_text.as_bytes()), &*colors).await {
                 Ok(v) => v,
                 Err(err) => {
                     console_error!("Could not parse document: {}", err);
@@ -248,15 +248,15 @@ pub async fn run(path: JsValue) -> JsValue {
     {
         let document_view = document_view.clone();
         let new_doc = Rc::clone(&new_doc);
-        let materials = Rc::clone(&materials);
+        let colors = Rc::clone(&colors);
         let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
             let document_view = document_view.clone();
             let new_doc = Rc::clone(&new_doc);
-            let materials = Rc::clone(&materials);
+            let colors = Rc::clone(&colors);
             spawn_local(async move {
                 let document_text = document_view.value();
 
-                let document = match parse_multipart_document(&*materials, &mut BufReader::new(document_text.as_bytes())).await {
+                let document = match parse_multipart_document(&mut BufReader::new(document_text.as_bytes()), &*colors).await {
                     Ok(v) => v,
                     Err(err) => {
                         console_error!("Could not parse document: {}", err);

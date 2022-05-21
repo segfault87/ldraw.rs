@@ -25,12 +25,12 @@ use ldraw::{
         resolve_dependencies_multipart,
     },
     parser::{
-        parse_color_definition,
+        parse_color_definitions,
         parse_multipart_document
     },
     resolvers::local::LocalLoader,
 };
-use ldraw_ir::part::bake_multipart_document;
+use ldraw_ir::part::bake_part_from_multipart_document;
 use tokio::task::spawn_blocking;
 
 #[tokio::main]
@@ -141,7 +141,7 @@ async fn bake(
         }
     };
 
-    let document = match parse_multipart_document(colors, &mut BufReader::new(&file)).await {
+    let document = match parse_multipart_document(&mut BufReader::new(&file), colors).await {
         Ok(v) => v,
         Err(err) => {
             println!("Could not parse document {}: {}", path.to_str().unwrap(), err);
@@ -150,10 +150,10 @@ async fn bake(
     };   
 
     let resolution_result = resolve_dependencies_multipart(
+        &document,
         Arc::clone(&cache),
         colors,
         loader,
-        &document,
         &|alias, result| {
             if let Err(err) = result {
                 println!("Could not open file {}: {}", alias, err);
@@ -162,7 +162,7 @@ async fn bake(
     ).await;
 
     let part = spawn_blocking(move || {
-        bake_multipart_document(&resolution_result, None, &document, false)
+        bake_part_from_multipart_document(&document, &resolution_result, None, false)
     }).await.unwrap();
 
     let outpath = match output_path {

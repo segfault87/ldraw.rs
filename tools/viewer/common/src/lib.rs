@@ -19,7 +19,7 @@ use ldraw::{
 use ldraw_ir::{
     geometry::BoundingBox3,
     model::Model,
-    part::bake_multipart_document
+    part::bake_part_from_multipart_document
 };
 use ldraw_renderer::{
     model::RenderableModel,
@@ -154,7 +154,7 @@ pub struct App<GL: HasContext> {
     gl: Rc<GL>,
 
     loader: Rc<Box<dyn LibraryLoader>>,
-    materials: Rc<MaterialRegistry>,
+    colors: Rc<MaterialRegistry>,
 
     parts: Arc<RwLock<SimplePartsPool<GL>>>,
 
@@ -176,7 +176,7 @@ impl<GL: HasContext> App<GL>
     pub fn new(
         gl: Rc<GL>,
         loader: Rc<Box<dyn LibraryLoader>>,
-        materials: Rc<MaterialRegistry>,
+        colors: Rc<MaterialRegistry>,
         program_manager: ProgramManager<GL>,
     ) -> Self {
         let context = RenderingContext::new(Rc::clone(&gl), program_manager);
@@ -185,7 +185,7 @@ impl<GL: HasContext> App<GL>
         App {
             gl: Rc::clone(&gl),
             loader,
-            materials,
+            colors,
             parts: Arc::new(RwLock::new(SimplePartsPool::new())),
             context,
             model: None,
@@ -210,15 +210,15 @@ impl<GL: HasContext> App<GL>
         on_update: &F,
     ) -> Result<(), ResolutionError> {
         let resolution_result = resolve_dependencies_multipart(
-            Arc::clone(&cache),
-            &self.materials,
-            &self.loader,
             document,
+            Arc::clone(&cache),
+            &self.colors,
+            &self.loader,
             on_update,
         )
         .await;
 
-        let model = Model::from_ldraw_multipart_document(document, &self.materials, Some((&self.loader, cache))).await;
+        let model = Model::from_ldraw_multipart_document(document, &self.colors, Some((&self.loader, cache))).await;
 
         self.parts.write().unwrap().0.extend(
             document
@@ -229,16 +229,16 @@ impl<GL: HasContext> App<GL>
                         (
                             alias.clone(),
                             Arc::new(Part::create(
-                                &bake_multipart_document(&resolution_result, None, part, local),
+                                &bake_part_from_multipart_document(part, &resolution_result, None, local),
                                 Rc::clone(&self.gl),
-                                &self.materials
+                                &self.colors
                             )),
                         )
                     })
                 })
         );
         self.state = State::Playing;
-        let model = RenderableModel::new(model, Rc::clone(&self.gl), Arc::clone(&self.parts), &self.materials);
+        let model = RenderableModel::new(model, Rc::clone(&self.gl), Arc::clone(&self.parts), &self.colors);
         let bounding_box = model.bounding_box.clone();
         let center = bounding_box.center();
         self.model = Some(model);

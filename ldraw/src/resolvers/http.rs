@@ -8,7 +8,7 @@ use crate::{
     document::MultipartDocument,
     error::ResolutionError,
     library::{DocumentLoader, LibraryLoader, FileLocation, PartKind},
-    parser::{parse_color_definition, parse_multipart_document},
+    parser::{parse_color_definitions, parse_multipart_document},
     PartAlias,
 };
 
@@ -33,8 +33,8 @@ impl HttpLoader {
 impl DocumentLoader<String> for HttpLoader {
     async fn load_document(
         &self,
-        materials: &MaterialRegistry,
         locator: &String,
+        colors: &MaterialRegistry,
     ) -> Result<MultipartDocument, ResolutionError> {
         let url = match Url::parse(locator) {
             Ok(e) => e,
@@ -42,13 +42,13 @@ impl DocumentLoader<String> for HttpLoader {
         };
         let bytes = self.client.get(url).send().await?.bytes().await?;
 
-        Ok(parse_multipart_document(materials, &mut BufReader::new(&*bytes)).await?)
+        Ok(parse_multipart_document(&mut BufReader::new(&*bytes), colors).await?)
     }
 }
 
 #[async_trait(?Send)]
 impl LibraryLoader for HttpLoader {
-    async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError> {
+    async fn load_colors(&self) -> Result<MaterialRegistry, ResolutionError> {
         let ldraw_url_base = self.ldraw_url_base.as_ref();
         let ldraw_url_base = match ldraw_url_base {
             Some(ref e) => e,
@@ -61,15 +61,15 @@ impl LibraryLoader for HttpLoader {
             Err(ResolutionError::FileNotFound)
         } else {
             let bytes = response.bytes().await?;
-            Ok(parse_color_definition(&mut BufReader::new(&*bytes)).await?)
+            Ok(parse_color_definitions(&mut BufReader::new(&*bytes)).await?)
         }
     }
 
     async fn load_ref(
         &self,
-        materials: &MaterialRegistry,
         alias: PartAlias,
         local: bool,
+        colors: &MaterialRegistry,
     ) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
         let ldraw_url_base = self.ldraw_url_base.as_ref();
         let ldraw_url_base = match ldraw_url_base {
@@ -111,7 +111,7 @@ impl LibraryLoader for HttpLoader {
         };
 
         let bytes = res.bytes().await?;
-        Ok((location, parse_multipart_document(materials, &mut BufReader::new(&*bytes)).await?))
+        Ok((location, parse_multipart_document(&mut BufReader::new(&*bytes), colors).await?))
     }
 }
 

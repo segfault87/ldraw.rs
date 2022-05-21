@@ -15,13 +15,13 @@ use glow::Context as GlContext;
 use glutin::event_loop::EventLoop;
 use ldraw::{
     library::{LibraryLoader, PartCache, resolve_dependencies_multipart},
-    parser::{parse_color_definition, parse_multipart_document},
+    parser::{parse_color_definitions, parse_multipart_document},
     resolvers::local::LocalLoader,
     PartAlias,
 };
 use ldraw_ir::{
     model::Model,
-    part::bake_multipart_document,
+    part::bake_part_from_multipart_document,
 };
 use ldraw_olr::{
     context::{create_headless_context, create_osmesa_context},
@@ -83,7 +83,7 @@ async fn main() {
 
     let gl = Rc::clone(&context.gl);
 
-    let colors = parse_color_definition(&mut BufReader::new(
+    let colors = parse_color_definitions(&mut BufReader::new(
         File::open(ldraw_path.join("LDConfig.ldr")).await.unwrap(),
     )).await.unwrap();
 
@@ -91,7 +91,7 @@ async fn main() {
     let output = matches.value_of("output").unwrap_or("image.png");
 
     let document = parse_multipart_document(
-        &colors, &mut BufReader::new(File::open(&input).await.unwrap())
+        &mut BufReader::new(File::open(&input).await.unwrap()), &colors
     ).await.unwrap();
 
     let input_path = PathBuf::from(input);
@@ -100,10 +100,10 @@ async fn main() {
 
     let cache = Arc::new(RwLock::new(PartCache::new()));
     let resolution_result = resolve_dependencies_multipart(
+        &document,
         Arc::clone(&cache),
         &colors,
         &loader,
-        &document,
         &|_, _| {}
     ).await;
 
@@ -119,7 +119,7 @@ async fn main() {
         .into_iter()
         .filter_map(|alias| {
             resolution_result.query(&alias, true).map(|(part, local)| {
-                (alias.clone(), Arc::new(Part::create(&bake_multipart_document(&resolution_result, None, part, local), Rc::clone(&gl), &colors)))
+                (alias.clone(), Arc::new(Part::create(&bake_part_from_multipart_document(part, &resolution_result, None, local), Rc::clone(&gl), &colors)))
             })
         })
         .collect::<HashMap<_, _>>();
@@ -135,6 +135,6 @@ async fn main() {
 
     let model = Model::from_ldraw_multipart_document(&document, &colors, Some((&loader, cache))).await;
 
-    let image = render_model(&context, parts, &colors, &model);
+    let image = render_model(&model, &context, parts, &colors);
     image.save(&Path::new(output)).unwrap();
 }

@@ -26,8 +26,8 @@ pub struct InstanceBuffer<GL: HasContext> {
     pub count: usize,
 
     pub model_view_matrices: Vec<Matrix4>,
-    pub materials: Vec<Material>,
-    pub colors: Vec<Vector4>,
+    pub colors: Vec<Material>,
+    pub triangle_colors: Vec<Vector4>,
     pub edge_colors: Vec<Vector4>,
 
     pub model_view_matrices_buffer: Option<GL::Buffer>,
@@ -45,8 +45,8 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             count: 0,
 
             model_view_matrices: vec![],
-            materials: vec![],
             colors: vec![],
+            triangle_colors: vec![],
             edge_colors: vec![],
 
             model_view_matrices_buffer: None,
@@ -117,7 +117,7 @@ impl<GL: HasContext> InstanceBuffer<GL> {
             }
 
             let mut buffer = Vec::<f32>::new();
-            self.colors
+            self.triangle_colors
                 .iter()
                 .for_each(|e| buffer.extend(AsRef::<[f32; 4]>::as_ref(e)));
 
@@ -194,23 +194,23 @@ impl<GL: HasContext> DisplayItem<GL> {
     pub fn update_data(
         &mut self,
         model_view_matrices: &[Matrix4],
-        materials: &[Material],
+        colors: &[Material],
     ) {
         let mut new_model_view_matrices = vec![];
-        let mut new_materials = vec![];
         let mut new_colors = vec![];
+        let mut new_triangle_colors = vec![];
         let mut new_edge_colors = vec![];
-        for (model_view_matrix, material) in izip!(model_view_matrices, materials) {
+        for (model_view_matrix, material) in izip!(model_view_matrices, colors) {
             new_model_view_matrices.push(*model_view_matrix);
-            new_materials.push(material.clone());
-            new_colors.push(material.color.into());
+            new_colors.push(material.clone());
+            new_triangle_colors.push(material.color.into());
             new_edge_colors.push(material.edge.into());
         }
 
         let buffer = &mut self.instances;
         buffer.model_view_matrices = new_model_view_matrices;
-        buffer.materials = new_materials;
         buffer.colors = new_colors;
+        buffer.triangle_colors = new_triangle_colors;
         buffer.edge_colors = new_edge_colors;
         buffer.count = model_view_matrices.len();
         buffer.modified = true;
@@ -219,8 +219,8 @@ impl<GL: HasContext> DisplayItem<GL> {
     pub fn add(&mut self, matrix: &Matrix4, material: &Material) {
         let buffer = &mut self.instances;
         buffer.model_view_matrices.push(*matrix);
-        buffer.materials.push(material.clone());
-        buffer.colors.push(Vector4::from(&material.color));
+        buffer.colors.push(material.clone());
+        buffer.triangle_colors.push(Vector4::from(&material.color));
         buffer.edge_colors.push(Vector4::from(&material.edge));
         buffer.count += 1;
         buffer.modified = true;
@@ -250,12 +250,12 @@ impl<GL: HasContext> DisplayList<GL> {
 }
 
 fn build_display_list_multipart<'a, GL: HasContext>(
-    gl: Rc<GL>,
-    tr: &mut DisplayListTransaction<GL>,
     document: &'a Document,
     matrix: Matrix4,
-    material_stack: &mut Vec<Material>,
     parent: &'a MultipartDocument,
+    gl: Rc<GL>,
+    tr: &mut DisplayListTransaction<GL>,
+    material_stack: &mut Vec<Material>,
 ) {
     for e in document.iter_refs() {
         if parent.subparts.contains_key(&e.name) {
@@ -265,12 +265,12 @@ fn build_display_list_multipart<'a, GL: HasContext>(
             });
 
             build_display_list_multipart(
-                Rc::clone(&gl),
-                tr,
                 parent.subparts.get(&e.name).unwrap(),
                 matrix * e.matrix,
-                material_stack,
                 parent,
+                Rc::clone(&gl),
+                tr,
+                material_stack,
             );
 
             material_stack.pop();
@@ -291,12 +291,12 @@ fn build_display_list_multipart<'a, GL: HasContext>(
 }
 
 fn build_display_list_contents<GL: HasContext>(
+    objects: &Vec<Object>,
+    matrix: Matrix4,
     gl: Rc<GL>,
     tr: &mut DisplayListTransaction<GL>,
     object_groups: &HashMap<Uuid, ObjectGroup>,
     exclusion_set: &HashSet<Uuid>,
-    objects: &Vec<Object>,
-    matrix: Matrix4,
 ) {
     for object in objects.iter() {
         if exclusion_set.contains(&object.id) {
@@ -319,12 +319,12 @@ fn build_display_list_contents<GL: HasContext>(
             ObjectInstance::PartGroup(group_instance) => {
                 if let Some(group) = object_groups.get(&group_instance.group_id) {
                     build_display_list_contents(
+                        &group.objects,
+                        matrix * group_instance.matrix,
                         Rc::clone(&gl),
                         tr,
                         object_groups,
                         exclusion_set,
-                        &group.objects,
-                        matrix * group_instance.matrix,
                     );
                 }
             }
@@ -389,12 +389,12 @@ impl<GL: HasContext> DisplayList<GL> {
         let mut tr = display_list.start_modification();
 
         build_display_list_multipart(
-            gl,
-            &mut tr,
             &document.body,
             Matrix4::identity(),
-            &mut material_stack,
             document,
+            gl,
+            &mut tr,
+            &mut material_stack,
         );
 
         tr.end();
@@ -402,18 +402,18 @@ impl<GL: HasContext> DisplayList<GL> {
         display_list
     }
 
-    pub fn from_model(gl: Rc<GL>, model: &Model) -> Self {
+    pub fn from_model(model: &Model, gl: Rc<GL>) -> Self {
         let mut display_list = DisplayList::new(Rc::clone(&gl));
 
         let mut tr = display_list.start_modification();
 
         build_display_list_contents(
+            &model.objects,
+            Matrix4::identity(),
             gl,
             &mut tr,
             &model.object_groups,
             &HashSet::new(),
-            &model.objects,
-            Matrix4::identity(),
         );
 
         tr.end();
@@ -431,23 +431,23 @@ impl<GL: HasContext> DisplayList<GL> {
             Some(id) => {
                 if let Some(group) = model.object_groups.get(&id) {
                     build_display_list_contents(
+                        &group.objects,
+                        Matrix4::identity(),
                         gl,
                         &mut tr,
                         &model.object_groups,
                         exclusion_set,
-                        &group.objects,
-                        Matrix4::identity(),
                     );
                 }
             }
             None => {
                 build_display_list_contents(
+                    &model.objects,
+                    Matrix4::identity(),
                     gl,
                     &mut tr,
                     &model.object_groups,
                     exclusion_set,
-                    &model.objects,
-                    Matrix4::identity(),
                 );
             }
         }

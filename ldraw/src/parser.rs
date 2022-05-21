@@ -177,7 +177,7 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
 }
 
 fn parse_line_1(
-    materials: &MaterialRegistry,
+    colors: &MaterialRegistry,
     iterator: &mut Chars,
 ) -> Result<PartReference, ParseError> {
     let color = next_token_u32(iterator)?;
@@ -205,13 +205,13 @@ fn parse_line_1(
     .transpose();
     let name = next_token(iterator, true)?;
     Ok(PartReference {
-        color: ColorReference::resolve(color, materials),
+        color: ColorReference::resolve(color, colors),
         matrix,
         name: PartAlias::from(name),
     })
 }
 
-fn parse_line_2(materials: &MaterialRegistry, iterator: &mut Chars) -> Result<Line, ParseError> {
+fn parse_line_2(colors: &MaterialRegistry, iterator: &mut Chars) -> Result<Line, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -226,14 +226,14 @@ fn parse_line_2(materials: &MaterialRegistry, iterator: &mut Chars) -> Result<Li
         1.0,
     );
     Ok(Line {
-        color: ColorReference::resolve(color, materials),
+        color: ColorReference::resolve(color, colors),
         a,
         b,
     })
 }
 
 fn parse_line_3(
-    materials: &MaterialRegistry,
+    colors: &MaterialRegistry,
     iterator: &mut Chars,
 ) -> Result<Triangle, ParseError> {
     let color = next_token_u32(iterator)?;
@@ -256,14 +256,14 @@ fn parse_line_3(
         1.0,
     );
     Ok(Triangle {
-        color: ColorReference::resolve(color, materials),
+        color: ColorReference::resolve(color, colors),
         a,
         b,
         c,
     })
 }
 
-fn parse_line_4(materials: &MaterialRegistry, iterator: &mut Chars) -> Result<Quad, ParseError> {
+fn parse_line_4(colors: &MaterialRegistry, iterator: &mut Chars) -> Result<Quad, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -290,7 +290,7 @@ fn parse_line_4(materials: &MaterialRegistry, iterator: &mut Chars) -> Result<Qu
         1.0,
     );
     Ok(Quad {
-        color: ColorReference::resolve(color, materials),
+        color: ColorReference::resolve(color, colors),
         a,
         b,
         c,
@@ -299,7 +299,7 @@ fn parse_line_4(materials: &MaterialRegistry, iterator: &mut Chars) -> Result<Qu
 }
 
 fn parse_line_5(
-    materials: &MaterialRegistry,
+    colors: &MaterialRegistry,
     iterator: &mut Chars,
 ) -> Result<OptionalLine, ParseError> {
     let color = next_token_u32(iterator)?;
@@ -328,7 +328,7 @@ fn parse_line_5(
         1.0,
     );
     Ok(OptionalLine {
-        color: ColorReference::resolve(color, materials),
+        color: ColorReference::resolve(color, colors),
         a,
         b,
         c,
@@ -337,7 +337,7 @@ fn parse_line_5(
 }
 
 async fn parse_inner<T: BufRead + Unpin>(
-    materials: &MaterialRegistry,
+    colors: &MaterialRegistry,
     iterator: &mut Enumerate<Lines<T>>,
     multipart: bool,
 ) -> Result<(Document, Option<String>), DocumentParseError> {
@@ -408,7 +408,7 @@ async fn parse_inner<T: BufRead + Unpin>(
                         });
                     }
                 },
-                "1" => match parse_line_1(materials, &mut it) {
+                "1" => match parse_line_1(colors, &mut it) {
                     Ok(val) => commands.push(Command::PartReference(val)),
                     Err(e) => {
                         return Err(DocumentParseError {
@@ -417,7 +417,7 @@ async fn parse_inner<T: BufRead + Unpin>(
                         });
                     }
                 },
-                "2" => match parse_line_2(materials, &mut it) {
+                "2" => match parse_line_2(colors, &mut it) {
                     Ok(val) => commands.push(Command::Line(val)),
                     Err(e) => {
                         return Err(DocumentParseError {
@@ -426,7 +426,7 @@ async fn parse_inner<T: BufRead + Unpin>(
                         });
                     }
                 },
-                "3" => match parse_line_3(materials, &mut it) {
+                "3" => match parse_line_3(colors, &mut it) {
                     Ok(val) => commands.push(Command::Triangle(val)),
                     Err(e) => {
                         return Err(DocumentParseError {
@@ -435,7 +435,7 @@ async fn parse_inner<T: BufRead + Unpin>(
                         });
                     }
                 },
-                "4" => match parse_line_4(materials, &mut it) {
+                "4" => match parse_line_4(colors, &mut it) {
                     Ok(val) => commands.push(Command::Quad(val)),
                     Err(e) => {
                         return Err(DocumentParseError {
@@ -444,7 +444,7 @@ async fn parse_inner<T: BufRead + Unpin>(
                         });
                     }
                 },
-                "5" => match parse_line_5(materials, &mut it) {
+                "5" => match parse_line_5(colors, &mut it) {
                     Ok(val) => commands.push(Command::OptionalLine(val)),
                     Err(e) => {
                         return Err(DocumentParseError {
@@ -484,25 +484,25 @@ async fn parse_inner<T: BufRead + Unpin>(
 }
 
 pub async fn parse_single_document<T: BufRead + Unpin>(
-    materials: &MaterialRegistry,
     reader: &mut T,
+    colors: &MaterialRegistry,
 ) -> Result<Document, DocumentParseError> {
     let mut it = reader.lines().enumerate();
-    let (document, _) = parse_inner(materials, &mut it, false).await?;
+    let (document, _) = parse_inner(colors, &mut it, false).await?;
 
     Ok(document)
 }
 
 pub async fn parse_multipart_document<T: BufRead + Unpin>(
-    materials: &MaterialRegistry,
     reader: &mut T,
+    colors: &MaterialRegistry,
 ) -> Result<MultipartDocument, DocumentParseError> {
     let mut it = reader.lines().enumerate();
-    let (document, mut next) = parse_inner(materials, &mut it, true).await?;
+    let (document, mut next) = parse_inner(colors, &mut it, true).await?;
     let mut subparts = HashMap::new();
 
     while next.is_some() {
-        let (part, next_) = parse_inner(materials, &mut it, true).await?;
+        let (part, next_) = parse_inner(colors, &mut it, true).await?;
 
         subparts.insert(PartAlias::from(&next.unwrap()), part);
         next = next_;
@@ -643,14 +643,14 @@ fn parse_customized_material(
     }
 }
 
-pub async fn parse_color_definition<T: BufRead + Unpin>(
+pub async fn parse_color_definitions<T: BufRead + Unpin>(
     reader: &mut T,
 ) -> Result<MaterialRegistry, ColorDefinitionParseError> {
     // Use an empty context here
-    let materials = MaterialRegistry::new();
-    let document = parse_single_document(&materials, reader).await?;
+    let colors = MaterialRegistry::new();
+    let document = parse_single_document(reader, &colors).await?;
 
-    let mut materials = MaterialRegistry::new();
+    let mut colors = MaterialRegistry::new();
     for Header(_, value) in document.headers.iter().filter(|s| s.0 == "COLOUR") {
         let mut finish = Finish::Plastic;
         let mut alpha = 255u8;
@@ -729,7 +729,7 @@ pub async fn parse_color_definition<T: BufRead + Unpin>(
             }
         }
 
-        materials.insert(
+        colors.insert(
             code,
             Material {
                 code,
@@ -742,7 +742,7 @@ pub async fn parse_color_definition<T: BufRead + Unpin>(
         );
     }
 
-    Ok(materials)
+    Ok(colors)
 }
 
 #[cfg(test)]
@@ -1044,10 +1044,10 @@ mod tests {
 
     #[async_std::test]
     async fn test_parse_color_definition() {
-        let parsed = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+        let parsed = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
             .unwrap();
-        let materials = [
+        let colors = [
             Material {
                 code: 0,
                 name: "Solid".into(),
@@ -1152,14 +1152,14 @@ mod tests {
                 finish: Finish::Rubber,
             },
         ];
-        for material in materials {
+        for material in colors {
             assert_eq!(parsed[&material.code], material);
         }
     }
 
     #[async_std::test]
     async fn test_parse_line_1() {
-        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+        let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
             .unwrap();
         let line_1 = "1 11 -0.25 -16 2 0 0 0 1 0 0 0 -2 1-4disc.dat";
@@ -1178,7 +1178,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_parse_line_2() {
-        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+        let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
             .unwrap();
         let line_2 = "16 3 2.7 8 -12.23 4.17 .67";
@@ -1195,7 +1195,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_parse_line_3() {
-        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+        let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
             .unwrap();
         let line_3 = "15 22.04 -.25 -1.16 23.72 -.25 -4.49 23.72 -.25 -2.61";
@@ -1213,7 +1213,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_parse_line_4() {
-        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+        let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
             .unwrap();
         let line_4 = "1 -11 -0.25 -18 11 -0.25 -18 11 -0.25 -12.7 -11 -0.25 -12.7";
@@ -1232,7 +1232,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_parse_line_5() {
-        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+        let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
             .unwrap();
         let line_5 =
@@ -1252,7 +1252,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_parse_single_document() {
-        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+        let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
             .unwrap();
         let document = "0 Boat Base 8 x 10
@@ -1266,7 +1266,7 @@ mod tests {
 0 !KEYWORDS Pirates, Caribbean, Ship
 
 2 24 100 24 80 80 24 20";
-        let parsed = parse_single_document(&colors, &mut document.as_bytes())
+        let parsed = parse_single_document(&mut document.as_bytes(), &colors)
             .await
             .unwrap();
         assert_eq!(
@@ -1295,7 +1295,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_parse_multipart_document() {
-        let colors = parse_color_definition(&mut COLOR_DEFINITIONS.as_bytes())
+        let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
             .unwrap();
         let document = "0 FILE test.ldr
@@ -1317,7 +1317,7 @@ mod tests {
 
 
 5 24 0 -55.673 -15.623 0 -59.974 -18.831 4.233 -59.338 -18.968 -4.233 -59.338 -18.968";
-        let parsed = parse_multipart_document(&colors, &mut document.as_bytes())
+        let parsed = parse_multipart_document(&mut document.as_bytes(), &colors)
             .await
             .unwrap();
         let mut subparts = HashMap::new();

@@ -220,15 +220,15 @@ impl ColorReference {
         }
     }
 
-    fn resolve_blended(code: u32, materials: &MaterialRegistry) -> Option<Material> {
+    fn resolve_blended(code: u32, colors: &MaterialRegistry) -> Option<Material> {
         let code1 = code / 16;
         let code2 = code % 16;
 
-        let color1 = match materials.get(&code1) {
+        let color1 = match colors.get(&code1) {
             Some(c) => c,
             None => return None,
         };
-        let color2 = match materials.get(&code2) {
+        let color2 = match colors.get(&code2) {
             Some(c) => c,
             None => return None,
         };
@@ -279,19 +279,19 @@ impl ColorReference {
         }
     }
 
-    pub fn resolve(code: u32, materials: &MaterialRegistry) -> ColorReference {
+    pub fn resolve(code: u32, colors: &MaterialRegistry) -> ColorReference {
         match code {
             16 => return ColorReference::Current,
             24 => return ColorReference::Complement,
             _ => (),
         }
 
-        if let Some(c) = materials.get(&code) {
+        if let Some(c) = colors.get(&code) {
             return ColorReference::Material(c.clone());
         }
 
         if (256..=512).contains(&code) {
-            if let Some(c) = ColorReference::resolve_blended(code, materials) {
+            if let Some(c) = ColorReference::resolve_blended(code, colors) {
                 return ColorReference::Material(c);
             }
         }
@@ -305,9 +305,9 @@ impl ColorReference {
         ColorReference::Unknown(code)
     }
 
-    pub fn resolve_self(&mut self, materials: &MaterialRegistry) {
+    pub fn resolve_self(&mut self, colors: &MaterialRegistry) {
         if let ColorReference::Unknown(code) = self {
-            *self = ColorReference::resolve(*code, materials);
+            *self = ColorReference::resolve(*code, colors);
         }
     }
 

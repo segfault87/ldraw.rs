@@ -28,7 +28,7 @@ use serde::{
 };
 use uuid::Uuid;
 
-use crate::part::{PartBuilder, bake_document, bake_multipart_document};
+use crate::part::{PartBuilder, bake_part_from_document, bake_part_from_multipart_document};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectInstance {
@@ -200,14 +200,14 @@ fn build_objects(document: &LdrawDocument, subparts: Option<&HashMap<PartAlias, 
     }).collect::<Vec<_>>()
 }
 
-fn resolve_colors(objects: &mut Vec<Object>, materials: &MaterialRegistry) {
+fn resolve_colors(objects: &mut Vec<Object>, colors: &MaterialRegistry) {
     for object in objects.iter_mut() {
         match &mut object.data {
             ObjectInstance::Part(ref mut p) => {
-                p.color.resolve_self(materials);
+                p.color.resolve_self(colors);
             }
             ObjectInstance::PartGroup(ref mut pg) => {
-                pg.color.resolve_self(materials);
+                pg.color.resolve_self(colors);
             }
             _ => {}
         }
@@ -235,7 +235,7 @@ fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, P
             subparts: HashMap::new(),
         };
 
-        let part = bake_multipart_document(&ResolutionResult::default(), None, &prims, true);
+        let part = bake_part_from_multipart_document(&prims, &ResolutionResult::default(), None, true);
         let object = Object {
             id: Uuid::new_v4(),
             data: ObjectInstance::Part(
@@ -257,7 +257,7 @@ impl Model {
 
     pub async fn from_ldraw_multipart_document(
         document: &LdrawMultipartDocument,
-        materials: &MaterialRegistry,
+        colors: &MaterialRegistry,
         inline_loader: Option<(&Box<dyn LibraryLoader>, Arc<RwLock<PartCache>>)>,
     ) -> Self {
         let subparts = document.subparts.keys().map(|alias| (alias.clone(), Uuid::new_v4())).collect::<HashMap<_, _>>();
@@ -267,14 +267,14 @@ impl Model {
             for (alias, subpart) in document.subparts.iter() {
                 if subpart.has_primitives() {
                     let resolution_result = resolve_dependencies(
-                        Arc::clone(&cache), materials, loader, subpart, &|_, _| {}
+                        subpart, Arc::clone(&cache), colors, loader, &|_, _| {}
                     ).await;
 
-                    let part = bake_document(
+                    let part = bake_part_from_document(
+                        subpart,
                         &resolution_result,
                         None,
-                        subpart,
-                        true
+                        true,
                     );
 
                     embedded_parts.insert(alias.clone(), part);
@@ -323,10 +323,10 @@ impl Model {
         }
     }
 
-    pub fn resolve_colors(&mut self, materials: &MaterialRegistry) {
-        resolve_colors(&mut self.objects, materials);
+    pub fn resolve_colors(&mut self, colors: &MaterialRegistry) {
+        resolve_colors(&mut self.objects, colors);
         for group in self.object_groups.values_mut() {
-            resolve_colors(&mut group.objects, materials);
+            resolve_colors(&mut group.objects, colors);
         }
     }
 

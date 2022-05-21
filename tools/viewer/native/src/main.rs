@@ -27,7 +27,7 @@ use ldraw_renderer::shader::ProgramManager;
 use reqwest::Url;
 use viewer_common::App;
 
-async fn main_loop(materials: MaterialRegistry, document: MultipartDocument, dependency_loader: Box<dyn LibraryLoader>) {
+async fn main_loop(document: MultipartDocument, colors: MaterialRegistry, dependency_loader: Box<dyn LibraryLoader>) {
     let evloop = EventLoop::new();
     let window_builder = WindowBuilder::new().with_title("ldraw.rs demo");
     let windowed_context = ContextBuilder::new()
@@ -48,7 +48,7 @@ async fn main_loop(materials: MaterialRegistry, document: MultipartDocument, dep
         Err(e) => panic!("{}", e),
     };
 
-    let mut app = App::new(Rc::clone(&gl), Rc::new(dependency_loader), Rc::new(materials), program_manager);
+    let mut app = App::new(Rc::clone(&gl), Rc::new(dependency_loader), Rc::new(colors), program_manager);
     let cache = Arc::new(RwLock::new(PartCache::new()));
     app.set_document(cache, &document, &|alias, result| {
         match result {
@@ -174,17 +174,17 @@ async fn main() {
     let http_loader = HttpLoader::new(ldraw_url, document_base_url);
     let local_loader = LocalLoader::new(ldraw_path, document_base_path);
 
-    let materials = if is_library_remote {
-        http_loader.load_materials().await
+    let colors = if is_library_remote {
+        http_loader.load_colors().await
     } else {
-        local_loader.load_materials().await
+        local_loader.load_colors().await
     }.unwrap();
 
     let path_local = PathBuf::from(&path);
     let document = if is_document_remote {
-        http_loader.load_document(&materials, &path).await
+        http_loader.load_document(&path, &colors).await
     } else {
-        local_loader.load_document(&materials, &path_local).await
+        local_loader.load_document(&path_local, &colors).await
     }.unwrap();
 
     let loader: Box<dyn LibraryLoader> = if is_library_remote {
@@ -193,5 +193,5 @@ async fn main() {
         Box::new(local_loader)
     };
 
-    main_loop(materials, document, loader).await;
+    main_loop(document, colors, loader).await;
 }

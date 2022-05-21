@@ -855,10 +855,10 @@ impl<'a> PartBaker<'a> {
     }
 }
 
-pub fn bake_multipart_document<D: Deref<Target = MultipartDocument>>(
+pub fn bake_part_from_multipart_document<D: Deref<Target = MultipartDocument>>(
+    document: D,
     resolutions: &ResolutionResult,
     enabled_features: Option<&HashSet<PartAlias>>,
-    document: D,
     local: bool,
 ) -> PartBuilder {
     let mut baker = PartBaker::new(resolutions, enabled_features);
@@ -874,10 +874,10 @@ pub fn bake_multipart_document<D: Deref<Target = MultipartDocument>>(
     baker.bake()
 }
 
-pub fn bake_document(
+pub fn bake_part_from_document(
+    document: &Document,
     resolutions: &ResolutionResult,
     enabled_features: Option<&HashSet<PartAlias>>,
-    document: &Document,
     local: bool,
 ) -> PartBuilder {
     let mut baker = PartBaker::new(resolutions, enabled_features);

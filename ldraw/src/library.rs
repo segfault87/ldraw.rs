@@ -31,20 +31,20 @@ pub enum FileLocation {
 pub trait DocumentLoader<T> {
     async fn load_document(
         &self,
-        materials: &MaterialRegistry,
         locator: &T,
+        colors: &MaterialRegistry,
     ) -> Result<MultipartDocument, ResolutionError>;
 }
 
 #[async_trait(?Send)]
 pub trait LibraryLoader {
-    async fn load_materials(&self) -> Result<MaterialRegistry, ResolutionError>;
+    async fn load_colors(&self) -> Result<MaterialRegistry, ResolutionError>;
 
     async fn load_ref(
         &self,
-        materials: &MaterialRegistry,
         alias: PartAlias,
         local: bool,
+        colors: &MaterialRegistry,
     ) -> Result<(FileLocation, MultipartDocument), ResolutionError>;
 }
 
@@ -144,7 +144,7 @@ pub enum ResolutionState {
 }
 
 struct DependencyResolver<'a, F> {
-    materials: &'a MaterialRegistry,
+    colors: &'a MaterialRegistry,
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
     on_update: &'a F,
@@ -158,13 +158,13 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
     DependencyResolver<'a, F>
 {
     pub fn new(
-        materials: &'a MaterialRegistry,
+        colors: &'a MaterialRegistry,
         cache: Arc<RwLock<PartCache>>,
         on_update: &'a F,
         loader: &'a Box<dyn LibraryLoader>,
     ) -> DependencyResolver<'a, F> {
         DependencyResolver {
-            materials,
+            colors,
             cache,
             local_cache: TransientDocumentCache::default(),
             on_update,
@@ -322,7 +322,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
         }
 
         let futs = pending.iter().map(
-            |(alias, local)| self.loader.load_ref(self.materials, alias.clone(), *local)
+            |(alias, local)| self.loader.load_ref(alias.clone(), *local, self.colors)
         ).collect::<Vec<_>>();
         
         let result = join_all(futs).await;
@@ -402,16 +402,16 @@ impl ResolutionResult {
 }
 
 pub async fn resolve_dependencies_multipart<F>(
-    cache: Arc<RwLock<PartCache>>,
-    materials: &MaterialRegistry,
-    loader: &Box<dyn LibraryLoader>,
     document: &MultipartDocument,
+    cache: Arc<RwLock<PartCache>>,
+    colors: &MaterialRegistry,
+    loader: &Box<dyn LibraryLoader>,
     on_update: &F,
 ) -> ResolutionResult
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
 {
-    let mut resolver = DependencyResolver::new(materials, cache, on_update, loader);
+    let mut resolver = DependencyResolver::new(colors, cache, on_update, loader);
 
     resolver.scan_dependencies_with_parent(None, document, true);
     while resolver.resolve_pending_dependencies().await {}
@@ -437,16 +437,16 @@ where
 }
 
 pub async fn resolve_dependencies<F>(
-    cache: Arc<RwLock<PartCache>>,
-    materials: &MaterialRegistry,
-    loader: &Box<dyn LibraryLoader>,
     document: &Document,
+    cache: Arc<RwLock<PartCache>>,
+    colors: &MaterialRegistry,
+    loader: &Box<dyn LibraryLoader>,
     on_update: &F,
 ) -> ResolutionResult
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
 {
-    let mut resolver = DependencyResolver::new(materials, cache, on_update, loader);
+    let mut resolver = DependencyResolver::new(colors, cache, on_update, loader);
 
     resolver.scan_dependencies(document, true);
     while resolver.resolve_pending_dependencies().await {}

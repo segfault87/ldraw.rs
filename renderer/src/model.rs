@@ -36,18 +36,17 @@ pub struct RenderableModel<GL: HasContext, P: PartsPool<GL>> {
 }
 
 fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
+    objects: &Vec<Object>,
     model: &Model,
     parts: Arc<RwLock<P>>,
-    objects: &Vec<Object>,
     subpart_bounding_boxes: &mut HashMap<Uuid, BoundingBox3>,
-    matrix: Matrix4,
 ) -> BoundingBox3 {
     let mut bb = BoundingBox3::zero();
 
     for object in objects.iter() {
         let (matrix, bounding_box) = match &object.data {
             ObjectInstance::Part(part_instance) => {
-                let matrix = matrix * part_instance.matrix;
+                let matrix = part_instance.matrix;
 
                 let bounding_box = if let Some(part) = parts.read().unwrap().query(&part_instance.part) {
                     part.bounding_box.clone()
@@ -58,7 +57,7 @@ fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
                 (matrix, bounding_box)
             }
             ObjectInstance::PartGroup(group_instance) => {
-                let matrix = matrix * group_instance.matrix;
+                let matrix = group_instance.matrix;
 
                 let bounding_box = match subpart_bounding_boxes.get(&group_instance.group_id) {
                     Some(sub_bb) => {
@@ -67,11 +66,10 @@ fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
                     None => {
                         if let Some(group) = model.object_groups.get(&group_instance.group_id) {
                             let sub_bb = calculate_bounding_box(
+                                &group.objects,
                                 model,
                                 Arc::clone(&parts),
-                                &group.objects,
                                 subpart_bounding_boxes,
-                                Matrix4::identity(),
                             );
                             subpart_bounding_boxes.insert(group_instance.group_id.clone(), sub_bb.clone());
 
@@ -101,11 +99,10 @@ fn calculate_subpart_bounding_boxes<GL: HasContext, P: PartsPool<GL>>(
     for (id, subpart) in model.object_groups.iter() {
         if !subpart_bounding_boxes.contains_key(id) {
             let bb = calculate_bounding_box(
+                &subpart.objects,
                 model,
                 Arc::clone(&parts),
-                &subpart.objects,
                 subpart_bounding_boxes,
-                Matrix4::identity(),
             );
             subpart_bounding_boxes.insert(id.clone(), bb);
         }
@@ -120,18 +117,17 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
         parts_pool: Arc<RwLock<P>>,
         colors: &MaterialRegistry
     ) -> Self {
-        let display_list = DisplayList::from_model(Rc::clone(&gl), &model);
+        let display_list = DisplayList::from_model(&model, Rc::clone(&gl));
         let embedded_parts = model.embedded_parts.iter().map(
             |(alias, part)| (alias.clone(), Part::create(part, Rc::clone(&gl), colors))
         ).collect::<HashMap<_, _>>();
 
         let mut subpart_bounding_boxes = HashMap::new();
         let bounding_box = calculate_bounding_box(
+            &model.objects,
             &model,
             Arc::clone(&parts_pool),
-            &model.objects,
             &mut subpart_bounding_boxes,
-            Matrix4::identity()
         );
         calculate_subpart_bounding_boxes(
             &model,
