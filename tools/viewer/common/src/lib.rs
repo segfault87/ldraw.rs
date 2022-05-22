@@ -229,7 +229,7 @@ impl<GL: HasContext> App<GL>
                         (
                             alias.clone(),
                             Arc::new(Part::create(
-                                &bake_part_from_multipart_document(part, &resolution_result, None, local),
+                                &bake_part_from_multipart_document(part, &resolution_result, local),
                                 Rc::clone(&self.gl),
                                 &self.colors
                             )),

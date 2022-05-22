@@ -8,7 +8,7 @@ use ldraw::{
 use ldraw_ir::{
     geometry::BoundingBox3,
     part::{
-        EdgeBufferBuilder, FeatureMap, MeshBufferBuilder, OptionalEdgeBufferBuilder,
+        EdgeBufferBuilder, MeshBufferBuilder, OptionalEdgeBufferBuilder,
         PartBufferBuilder, PartBuilder, SubpartIndex,
     },
     MeshGroup,
@@ -500,7 +500,6 @@ impl<GL: HasContext> PartBuffer<GL> {
 #[derive(Debug)]
 pub struct Part<GL: HasContext> {
     pub part: PartBuffer<GL>,
-    pub features: FeatureMap,
     pub bounding_box: BoundingBox3,
     pub rotation_center: Vector3,
 }
@@ -509,7 +508,6 @@ impl<GL: HasContext> Part<GL> {
     pub fn create(builder: &PartBuilder, gl: Rc<GL>, colors: &MaterialRegistry) -> Self {
         Part {
             part: PartBuffer::create(&builder.part_builder, Rc::clone(&gl), colors),
-            features: builder.features.clone(),
             bounding_box: builder.bounding_box.clone(),
             rotation_center: builder.rotation_center,
         }

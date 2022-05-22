@@ -79,7 +79,7 @@ async fn main() {
 
     let ldrawpath = PathBuf::from(&ldrawdir);
     
-    let colors = parse_color_definition(&mut BufReader::new(
+    let colors = parse_color_definitions(&mut BufReader::new(
         File::open(ldrawpath.join("LDConfig.ldr")).await.expect("Could not load color definition.")
     )).await.expect("Could not parse color definition");
 
@@ -162,7 +162,7 @@ async fn bake(
     ).await;
 
     let part = spawn_blocking(move || {
-        bake_part_from_multipart_document(&document, &resolution_result, None, false)
+        bake_part_from_multipart_document(&document, &resolution_result, false)
     }).await.unwrap();
 
     let outpath = match output_path {

@@ -235,7 +235,7 @@ fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, P
             subparts: HashMap::new(),
         };
 
-        let part = bake_part_from_multipart_document(&prims, &ResolutionResult::default(), None, true);
+        let part = bake_part_from_multipart_document(&prims, &ResolutionResult::default(), true);
         let object = Object {
             id: Uuid::new_v4(),
             data: ObjectInstance::Part(
@@ -273,7 +273,6 @@ impl Model {
                     let part = bake_part_from_document(
                         subpart,
                         &resolution_result,
-                        None,
                         true,
                     );
 

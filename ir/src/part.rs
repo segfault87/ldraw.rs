@@ -210,12 +210,9 @@ impl PartBufferBuilder {
     }
 }
 
-pub type FeatureMap = HashMap<PartAlias, Vec<(ColorReference, Matrix4)>>;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PartBuilder {
     pub part_builder: PartBufferBuilder,
-    pub features: FeatureMap,
     pub bounding_box: BoundingBox3,
     pub rotation_center: Vector3,
 }
@@ -223,13 +220,11 @@ pub struct PartBuilder {
 impl PartBuilder {
     pub fn new(
         part_builder: PartBufferBuilder,
-        features: FeatureMap,
         bounding_box: BoundingBox3,
         rotation_center: &Vector3,
     ) -> Self {
         PartBuilder {
             part_builder,
-            features,
             bounding_box,
             rotation_center: *rotation_center,
         }
@@ -551,12 +546,10 @@ impl MeshBuilder {
 
 struct PartBaker<'a> {
     resolutions: &'a ResolutionResult,
-    enabled_features: Option<&'a HashSet<PartAlias>>,
 
     builder: PartBufferBuilder,
     mesh_builder: MeshBuilder,
     color_stack: Vec<ColorReference>,
-    features: FeatureMap,
     bounding_box: BoundingBox3,
 }
 
@@ -602,17 +595,8 @@ impl<'a> PartBaker<'a> {
                         ColorReference::Current => self.color_stack.last().unwrap().clone(),
                         e => e.clone(),
                     };
-
-                    if self.enabled_features.is_some()
-                        && self.enabled_features.unwrap().contains(&cmd.name)
-                        && !invert_child
-                    {
-                        (*self
-                            .features
-                            .entry(cmd.name.clone())
-                            .or_insert_with(Vec::new))
-                        .push((color.clone(), matrix));
-                    } else if let Some(part) = parent.get_subpart(&cmd.name) {
+                    
+                    if let Some(part) = parent.get_subpart(&cmd.name) {
                         self.color_stack.push(color);
                         self.traverse(part, &*parent, matrix, cull_next, invert_child, local);
                         self.color_stack.pop();
@@ -828,24 +812,20 @@ impl<'a> PartBaker<'a> {
 
         PartBuilder::new(
             mem::take(&mut self.builder),
-            self.features.clone(),
             bounding_box,
             &Vector3::new(0.0, 0.0, 0.0),
         )
     }
 
     pub fn new(
-        resolutions: &'a ResolutionResult,
-        enabled_features: Option<&'a HashSet<PartAlias>>,
+        resolutions: &'a ResolutionResult
     ) -> Self {
         let mut mb = PartBaker {
             resolutions,
-            enabled_features,
 
             builder: PartBufferBuilder::default(),
             mesh_builder: MeshBuilder::new(),
             color_stack: Vec::new(),
-            features: HashMap::new(),
             bounding_box: BoundingBox3::zero(),
         };
 
@@ -858,10 +838,9 @@ impl<'a> PartBaker<'a> {
 pub fn bake_part_from_multipart_document<D: Deref<Target = MultipartDocument>>(
     document: D,
     resolutions: &ResolutionResult,
-    enabled_features: Option<&HashSet<PartAlias>>,
     local: bool,
 ) -> PartBuilder {
-    let mut baker = PartBaker::new(resolutions, enabled_features);
+    let mut baker = PartBaker::new(resolutions);
 
     baker.traverse(
         &document.body,
@@ -877,10 +856,9 @@ pub fn bake_part_from_multipart_document<D: Deref<Target = MultipartDocument>>(
 pub fn bake_part_from_document(
     document: &Document,
     resolutions: &ResolutionResult,
-    enabled_features: Option<&HashSet<PartAlias>>,
     local: bool,
 ) -> PartBuilder {
-    let mut baker = PartBaker::new(resolutions, enabled_features);
+    let mut baker = PartBaker::new(resolutions);
 
     baker.traverse(
         &document,

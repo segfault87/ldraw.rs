@@ -119,7 +119,7 @@ async fn main() {
         .into_iter()
         .filter_map(|alias| {
             resolution_result.query(&alias, true).map(|(part, local)| {
-                (alias.clone(), Arc::new(Part::create(&bake_part_from_multipart_document(part, &resolution_result, None, local), Rc::clone(&gl), &colors)))
+                (alias.clone(), Arc::new(Part::create(&bake_part_from_multipart_document(part, &resolution_result, local), Rc::clone(&gl), &colors)))
             })
         })
         .collect::<HashMap<_, _>>();
