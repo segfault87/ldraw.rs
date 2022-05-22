@@ -6,7 +6,7 @@ use std::{
 use cgmath::EuclideanSpace;
 use glow::{Context as GlContext, HasContext};
 use image::RgbaImage;
-use ldraw::{color::{Material, MaterialRegistry}, Point3};
+use ldraw::{color::{Color, ColorCatalog}, Point3};
 use ldraw_ir::model::Model;
 use ldraw_renderer::{
     model::RenderableModel,
@@ -19,7 +19,7 @@ use crate::context::OlrContext;
 pub fn render_single_part(
     part: &Part<GlContext>,
     context: &OlrContext,
-    material: &Material,
+    color: &Color,
 ) -> RgbaImage {
     let gl = &context.gl;
 
@@ -36,8 +36,8 @@ pub fn render_single_part(
             &OrthographicViewBounds::BoundingBox3(part.bounding_box.clone()),
         )
         .unwrap();
-    rc.render_single_part(part, material, false);
-    rc.render_single_part(part, material, true);
+    rc.render_single_part(part, color, false);
+    rc.render_single_part(part, color, true);
 
     unsafe {
         gl.flush();
@@ -50,7 +50,7 @@ pub fn render_model<P: PartsPool<GlContext>>(
     model: &Model,
     context: &OlrContext,
     parts: Arc<RwLock<P>>,
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
 ) -> RgbaImage {
     let gl = &context.gl;
 

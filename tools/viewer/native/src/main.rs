@@ -15,7 +15,7 @@ use glutin::{
     ContextBuilder, GlProfile, GlRequest,
 };
 use ldraw::{
-    color::MaterialRegistry,
+    color::ColorCatalog,
     document::MultipartDocument,
     library::{DocumentLoader, LibraryLoader, PartCache},
     resolvers::{
@@ -27,7 +27,7 @@ use ldraw_renderer::shader::ProgramManager;
 use reqwest::Url;
 use viewer_common::App;
 
-async fn main_loop(document: MultipartDocument, colors: MaterialRegistry, dependency_loader: Box<dyn LibraryLoader>) {
+async fn main_loop(document: MultipartDocument, colors: ColorCatalog, dependency_loader: Box<dyn LibraryLoader>) {
     let evloop = EventLoop::new();
     let window_builder = WindowBuilder::new().with_title("ldraw.rs demo");
     let windowed_context = ContextBuilder::new()

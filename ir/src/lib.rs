@@ -2,10 +2,9 @@ use std::{
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
-    mem::replace,
 };
 
-use ldraw::color::{ColorReference, MaterialRegistry};
+use ldraw::color::{ColorReference, ColorCatalog};
 use serde::{
     de::{Deserializer, Error as DeError, Unexpected, Visitor},
     ser::Serializer,
@@ -68,8 +67,8 @@ impl<'de> Deserialize<'de> for MeshGroup {
 }
 
 impl MeshGroup {
-    pub fn resolve_color(&mut self, materials: &MaterialRegistry) {
-        self.color_ref.resolve_self(materials);
+    pub fn resolve_color(&mut self, colors: &ColorCatalog) {
+        self.color_ref.resolve_self(colors);
     }
 }
 
@@ -89,11 +88,11 @@ impl PartialOrd for MeshGroup {
 impl Ord for MeshGroup {
     fn cmp(&self, other: &MeshGroup) -> Ordering {
         let lhs_translucent = match &self.color_ref {
-            ColorReference::Material(m) => m.is_translucent(),
+            ColorReference::Color(c) => c.is_translucent(),
             _ => false,
         };
         let rhs_translucent = match &other.color_ref {
-            ColorReference::Material(m) => m.is_translucent(),
+            ColorReference::Color(c) => c.is_translucent(),
             _ => false,
         };
 

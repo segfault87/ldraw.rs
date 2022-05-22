@@ -3,7 +3,7 @@ use std::{collections::HashMap, mem::replace, rc::Rc, vec::Vec};
 use cgmath::{prelude::*, Deg, Ortho, PerspectiveFov, Point3, Rad, SquareMatrix};
 use glow::HasContext;
 use image::{load_from_memory_with_format, ImageFormat};
-use ldraw::{color::Material, Matrix3, Matrix4, PartAlias, Vector2, Vector3, Vector4};
+use ldraw::{color::Color, Matrix3, Matrix4, PartAlias, Vector2, Vector3, Vector4};
 use ldraw_ir::geometry::{BoundingBox2, BoundingBox3};
 
 use crate::{
@@ -502,7 +502,7 @@ impl<GL: HasContext> RenderingContext<GL> {
             let bind = program.bind(&self.projection_data, &self.shading_data);
             bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
             bind.bind_instanced_geometry_data(instance_buffer);
-            let color = match group.color_ref.get_color() {
+            let color = match group.color_ref.get_color_rgba() {
                 Some(e) => e,
                 None => continue,
             };
@@ -569,17 +569,17 @@ impl<GL: HasContext> RenderingContext<GL> {
         }
     }
 
-    pub fn render_single_part(&mut self, part: &Part<GL>, material: &Material, translucent: bool) {
+    pub fn render_single_part(&mut self, part: &Part<GL>, color: &Color, translucent: bool) {
         let gl = &self.gl;
         let part_buffer = &part.part;
 
-        let color: Vector4 = material.color.into();
-        let edge_color: Vector4 = material.edge.into();
+        let color_rgba: Vector4 = color.color.into();
+        let edge_color_rgba: Vector4 = color.edge.into();
 
         self.rendering_stats.parts += 1;
         self.rendering_stats.distinct_parts += 1;
 
-        if material.is_translucent() == translucent {
+        if color.is_translucent() == translucent {
             if let Some(uncolored_index) = &part_buffer.uncolored_index {
                 let program = self
                     .program_manager
@@ -587,7 +587,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
                 let bind = program.bind(&self.projection_data, &self.shading_data);
                 bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
-                bind.bind_non_instanced_color_data(&color);
+                bind.bind_non_instanced_color_data(&color_rgba);
 
                 unsafe {
                     gl.draw_arrays(
@@ -606,7 +606,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
                 let bind = program.bind(&self.projection_data, &self.shading_data);
                 bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
-                bind.bind_non_instanced_color_data(&color);
+                bind.bind_non_instanced_color_data(&color_rgba);
 
                 unsafe {
                     gl.disable(glow::CULL_FACE);
@@ -628,7 +628,7 @@ impl<GL: HasContext> RenderingContext<GL> {
             &part_buffer.opaque_indices
         };
         for (group, indices) in subparts.iter() {
-            let color = match group.color_ref.get_color() {
+            let color = match group.color_ref.get_color_rgba() {
                 Some(e) => e,
                 None => continue,
             };
@@ -663,7 +663,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data);
             bind.bind_attribs(edges);
-            bind.bind_non_instanced_properties(&color, &edge_color);
+            bind.bind_non_instanced_properties(&color_rgba, &edge_color_rgba);
 
             unsafe {
                 gl.draw_arrays(glow::LINES, 0, edges.length as i32);
@@ -677,7 +677,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data);
             bind.bind_attribs(optional_edges);
-            bind.bind_non_instanced_properties(&color, &edge_color);
+            bind.bind_non_instanced_properties(&color_rgba, &edge_color_rgba);
 
             unsafe {
                 gl.draw_arrays(glow::LINES, 0, optional_edges.length as i32);

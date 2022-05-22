@@ -25,7 +25,8 @@ impl fmt::Display for ColorReference {
             ColorReference::Unknown(code) => code,
             ColorReference::Current => &16u32,
             ColorReference::Complement => &24u32,
-            ColorReference::Material(material) => &material.code,
+            ColorReference::Color(color) => &color.code,
+            ColorReference::Unresolved(code) => code,
         };
         write!(f, "{}", code)
     }

@@ -97,7 +97,7 @@ pub enum CustomizedMaterial {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Finish {
+pub enum Material {
     Plastic,
     Chrome,
     Pearlescent,
@@ -108,42 +108,43 @@ pub enum Finish {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Material {
+pub struct Color {
     pub code: u32,
     pub name: String,
     pub color: Rgba,
     pub edge: Rgba,
     pub luminance: u8,
-    pub finish: Finish,
+    pub material: Material,
 }
 
-impl Default for Material {
+impl Default for Color {
     fn default() -> Self {
-        Material {
+        Color {
             code: 0,
             name: String::from("Black"),
             color: Rgba::new(0x05, 0x13, 0x1d, 0xff),
             edge: Rgba::new(0x59, 0x59, 0x59, 0xff),
             luminance: 0x00,
-            finish: Finish::Plastic,
+            material: Material::Plastic,
         }
     }
 }
 
-impl Material {
+impl Color {
     pub fn is_translucent(&self) -> bool {
         self.color.alpha() < 255u8
     }
 }
 
-pub type MaterialRegistry = HashMap<u32, Material>;
+pub type ColorCatalog = HashMap<u32, Color>;
 
 #[derive(Clone, Debug)]
 pub enum ColorReference {
     Unknown(u32),
     Current,
     Complement,
-    Material(Material),
+    Color(Color),
+    Unresolved(u32),
 }
 
 impl Serialize for ColorReference {
@@ -164,11 +165,11 @@ impl<'de> Deserialize<'de> for ColorReference {
             }
 
             fn visit_u64<E: DeError>(self, value: u64) -> Result<Self::Value, E> {
-                Ok(ColorReference::Unknown(value as u32))
+                Ok(ColorReference::Unresolved(value as u32))
             }
 
             fn visit_u32<E: DeError>(self, value: u32) -> Result<Self::Value, E> {
-                Ok(ColorReference::Unknown(value))
+                Ok(ColorReference::Unresolved(value))
             }
         }
 
@@ -197,7 +198,8 @@ impl ColorReference {
             ColorReference::Unknown(c) => *c,
             ColorReference::Current => 16,
             ColorReference::Complement => 24,
-            ColorReference::Material(m) => m.code,
+            ColorReference::Color(m) => m.code,
+            ColorReference::Unresolved(c) => *c,
         }
     }
 
@@ -209,18 +211,18 @@ impl ColorReference {
         matches!(self, ColorReference::Complement)
     }
 
-    pub fn is_material(&self) -> bool {
-        matches!(self, ColorReference::Material(_))
+    pub fn is_color(&self) -> bool {
+        matches!(self, ColorReference::Color(_))
     }
 
-    pub fn get_material(&self) -> Option<&Material> {
+    pub fn get_color(&self) -> Option<&Color> {
         match self {
-            ColorReference::Material(m) => Some(m),
+            ColorReference::Color(m) => Some(m),
             _ => None,
         }
     }
 
-    fn resolve_blended(code: u32, colors: &MaterialRegistry) -> Option<Material> {
+    fn resolve_blended(code: u32, colors: &ColorCatalog) -> Option<Color> {
         let code1 = code / 16;
         let code2 = code % 16;
 
@@ -239,17 +241,17 @@ impl ColorReference {
             color1.color.blue() / 2 + color2.color.blue() / 2,
             255,
         );
-        Some(Material {
+        Some(Color {
             code,
             name: format!("Blended Color ({} and {})", code1, code2),
             color: new_color,
             edge: Rgba::from_value(0xff59_5959),
             luminance: 0,
-            finish: Finish::Plastic,
+            material: Material::Plastic,
         })
     }
 
-    fn resolve_rgb_4(code: u32) -> Material {
+    fn resolve_rgb_4(code: u32) -> Color {
         let red = (((code & 0xf00) >> 8) * 16) as u8;
         let green = (((code & 0x0f0) >> 4) * 16) as u8;
         let blue = ((code & 0x00f) * 16) as u8;
@@ -258,28 +260,28 @@ impl ColorReference {
         let edge_green = (((code & 0x0f_0000) >> 16) * 16) as u8;
         let edge_blue = (((code & 0x00_f000) >> 12) * 16) as u8;
 
-        Material {
+        Color {
             code,
             name: format!("RGB Color ({:03x})", code & 0xfff),
             color: Rgba::new(red, green, blue, 255),
             edge: Rgba::new(edge_red, edge_green, edge_blue, 255),
             luminance: 0,
-            finish: Finish::Plastic,
+            material: Material::Plastic,
         }
     }
 
-    fn resolve_rgb_2(code: u32) -> Material {
-        Material {
+    fn resolve_rgb_2(code: u32) -> Color {
+        Color {
             code,
             name: format!("RGB Color ({:06x})", code & 0xff_ffff),
             color: Rgba::from_value(0xff00_0000 | (code & 0xff_ffff)),
             edge: Rgba::from_value(0xff59_5959),
             luminance: 0,
-            finish: Finish::Plastic,
+            material: Material::Plastic,
         }
     }
 
-    pub fn resolve(code: u32, colors: &MaterialRegistry) -> ColorReference {
+    pub fn resolve(code: u32, colors: &ColorCatalog) -> ColorReference {
         match code {
             16 => return ColorReference::Current,
             24 => return ColorReference::Complement,
@@ -287,40 +289,40 @@ impl ColorReference {
         }
 
         if let Some(c) = colors.get(&code) {
-            return ColorReference::Material(c.clone());
+            return ColorReference::Color(c.clone());
         }
 
         if (256..=512).contains(&code) {
             if let Some(c) = ColorReference::resolve_blended(code, colors) {
-                return ColorReference::Material(c);
+                return ColorReference::Color(c);
             }
         }
 
         if (code & 0xff00_0000) == 0x0200_0000 {
-            return ColorReference::Material(ColorReference::resolve_rgb_2(code));
+            return ColorReference::Color(ColorReference::resolve_rgb_2(code));
         } else if (code & 0xff00_0000) == 0x0400_0000 {
-            return ColorReference::Material(ColorReference::resolve_rgb_4(code));
+            return ColorReference::Color(ColorReference::resolve_rgb_4(code));
         }
 
         ColorReference::Unknown(code)
     }
 
-    pub fn resolve_self(&mut self, colors: &MaterialRegistry) {
-        if let ColorReference::Unknown(code) = self {
+    pub fn resolve_self(&mut self, colors: &ColorCatalog) {
+        if let ColorReference::Unresolved(code) = self {
             *self = ColorReference::resolve(*code, colors);
         }
     }
 
-    pub fn get_color(&self) -> Option<Vector4> {
+    pub fn get_color_rgba(&self) -> Option<Vector4> {
         match self {
-            ColorReference::Material(m) => Some(m.color.into()),
+            ColorReference::Color(c) => Some(c.color.into()),
             _ => None,
         }
     }
 
-    pub fn get_edge_color(&self) -> Option<Vector4> {
+    pub fn get_edge_color_rgba(&self) -> Option<Vector4> {
         match self {
-            ColorReference::Material(m) => Some(m.edge.into()),
+            ColorReference::Color(m) => Some(m.edge.into()),
             _ => None,
         }
     }

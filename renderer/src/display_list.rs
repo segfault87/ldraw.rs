@@ -8,7 +8,7 @@ use cgmath::SquareMatrix;
 use glow::HasContext;
 use itertools::izip;
 use ldraw::{
-    color::{ColorReference, Material},
+    color::{Color, ColorReference},
     document::{Document, MultipartDocument},
     Matrix4, PartAlias, Vector4,
 };
@@ -26,7 +26,7 @@ pub struct InstanceBuffer<GL: HasContext> {
     pub count: usize,
 
     pub model_view_matrices: Vec<Matrix4>,
-    pub colors: Vec<Material>,
+    pub colors: Vec<Color>,
     pub triangle_colors: Vec<Vector4>,
     pub edge_colors: Vec<Vector4>,
 
@@ -194,17 +194,17 @@ impl<GL: HasContext> DisplayItem<GL> {
     pub fn update_data(
         &mut self,
         model_view_matrices: &[Matrix4],
-        colors: &[Material],
+        colors: &[Color],
     ) {
         let mut new_model_view_matrices = vec![];
         let mut new_colors = vec![];
         let mut new_triangle_colors = vec![];
         let mut new_edge_colors = vec![];
-        for (model_view_matrix, material) in izip!(model_view_matrices, colors) {
+        for (model_view_matrix, color) in izip!(model_view_matrices, colors) {
             new_model_view_matrices.push(*model_view_matrix);
-            new_colors.push(material.clone());
-            new_triangle_colors.push(material.color.into());
-            new_edge_colors.push(material.edge.into());
+            new_colors.push(color.clone());
+            new_triangle_colors.push(color.color.into());
+            new_edge_colors.push(color.edge.into());
         }
 
         let buffer = &mut self.instances;
@@ -216,12 +216,12 @@ impl<GL: HasContext> DisplayItem<GL> {
         buffer.modified = true;
     }
 
-    pub fn add(&mut self, matrix: &Matrix4, material: &Material) {
+    pub fn add(&mut self, matrix: &Matrix4, color: &Color) {
         let buffer = &mut self.instances;
         buffer.model_view_matrices.push(*matrix);
-        buffer.colors.push(material.clone());
-        buffer.triangle_colors.push(Vector4::from(&material.color));
-        buffer.edge_colors.push(Vector4::from(&material.edge));
+        buffer.colors.push(color.clone());
+        buffer.triangle_colors.push(Vector4::from(&color.color));
+        buffer.edge_colors.push(Vector4::from(&color.edge));
         buffer.count += 1;
         buffer.modified = true;
     }
@@ -255,13 +255,13 @@ fn build_display_list_multipart<'a, GL: HasContext>(
     parent: &'a MultipartDocument,
     gl: Rc<GL>,
     tr: &mut DisplayListTransaction<GL>,
-    material_stack: &mut Vec<Material>,
+    color_stack: &mut Vec<Color>,
 ) {
     for e in document.iter_refs() {
         if parent.subparts.contains_key(&e.name) {
-            material_stack.push(match &e.color {
-                ColorReference::Material(m) => m.clone(),
-                _ => material_stack.last().unwrap().clone(),
+            color_stack.push(match &e.color {
+                ColorReference::Color(c) => c.clone(),
+                _ => color_stack.last().unwrap().clone(),
             });
 
             build_display_list_multipart(
@@ -270,21 +270,21 @@ fn build_display_list_multipart<'a, GL: HasContext>(
                 parent,
                 Rc::clone(&gl),
                 tr,
-                material_stack,
+                color_stack,
             );
 
-            material_stack.pop();
+            color_stack.pop();
         } else {
-            let material = match &e.color {
-                ColorReference::Material(m) => m,
-                _ => material_stack.last().unwrap(),
+            let color = match &e.color {
+                ColorReference::Color(c) => c,
+                _ => color_stack.last().unwrap(),
             };
 
             tr.add(
-                Rc::clone(&gl),
                 e.name.clone(),
                 matrix * e.matrix,
-                material.clone(),
+                color.clone(),
+                Rc::clone(&gl),
             );
         }
     }
@@ -305,15 +305,15 @@ fn build_display_list_contents<GL: HasContext>(
         match &object.data {
             ObjectInstance::Part(part) => {
                 let material = match &part.color {
-                    ColorReference::Material(m) => Some(m.clone()),
+                    ColorReference::Color(c) => Some(c.clone()),
                     _ => None,
                 };
 
                 tr.add(
-                    Rc::clone(&gl),
                     part.part.clone(),
                     matrix * part.matrix,
-                    material.unwrap_or_else(|| Material::default()),
+                    material.unwrap_or_else(|| Color::default()),
+                    Rc::clone(&gl),
                 );
             }
             ObjectInstance::PartGroup(group_instance) => {
@@ -340,8 +340,8 @@ pub struct DisplayListTransaction<'a, GL: HasContext> {
 
 impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
 
-    pub fn add(&mut self, gl: Rc<GL>, name: PartAlias, matrix: Matrix4, material: Material) {
-        let display_item = if material.is_translucent() {
+    pub fn add(&mut self, name: PartAlias, matrix: Matrix4, color: Color, gl: Rc<GL>) {
+        let display_item = if color.is_translucent() {
             &mut self.list.translucent
         } else {
             &mut self.list.opaque
@@ -351,7 +351,7 @@ impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
             .entry(name.clone())
             .or_insert_with(|| DisplayItem::new(Rc::clone(&gl), &name));
 
-        entry.add(&matrix, &material);
+        entry.add(&matrix, &color);
         self.affected_items.insert(name);
     }
 
@@ -384,7 +384,7 @@ impl<GL: HasContext> DisplayList<GL> {
 
     pub fn from_multipart_document(gl: Rc<GL>, document: &MultipartDocument) -> Self {
         let mut display_list = DisplayList::new(Rc::clone(&gl));
-        let mut material_stack = vec![Material::default()];
+        let mut color_stack = vec![Color::default()];
 
         let mut tr = display_list.start_modification();
 
@@ -394,7 +394,7 @@ impl<GL: HasContext> DisplayList<GL> {
             document,
             gl,
             &mut tr,
-            &mut material_stack,
+            &mut color_stack,
         );
 
         tr.end();

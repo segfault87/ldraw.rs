@@ -10,7 +10,7 @@ use cgmath::Deg;
 use glow::HasContext;
 use instant::{Duration, Instant};
 use ldraw::{
-    color::MaterialRegistry,
+    color::ColorCatalog,
     document::MultipartDocument,
     error::ResolutionError,
     library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
@@ -154,7 +154,7 @@ pub struct App<GL: HasContext> {
     gl: Rc<GL>,
 
     loader: Rc<Box<dyn LibraryLoader>>,
-    colors: Rc<MaterialRegistry>,
+    colors: Rc<ColorCatalog>,
 
     parts: Arc<RwLock<SimplePartsPool<GL>>>,
 
@@ -176,7 +176,7 @@ impl<GL: HasContext> App<GL>
     pub fn new(
         gl: Rc<GL>,
         loader: Rc<Box<dyn LibraryLoader>>,
-        colors: Rc<MaterialRegistry>,
+        colors: Rc<ColorCatalog>,
         program_manager: ProgramManager<GL>,
     ) -> Self {
         let context = RenderingContext::new(Rc::clone(&gl), program_manager);

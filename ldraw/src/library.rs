@@ -9,7 +9,7 @@ use futures::future::{join_all};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    color::MaterialRegistry,
+    color::ColorCatalog,
     document::{Document, MultipartDocument},
     error::ResolutionError,
     PartAlias,
@@ -32,19 +32,19 @@ pub trait DocumentLoader<T> {
     async fn load_document(
         &self,
         locator: &T,
-        colors: &MaterialRegistry,
+        colors: &ColorCatalog,
     ) -> Result<MultipartDocument, ResolutionError>;
 }
 
 #[async_trait(?Send)]
 pub trait LibraryLoader {
-    async fn load_colors(&self) -> Result<MaterialRegistry, ResolutionError>;
+    async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError>;
 
     async fn load_ref(
         &self,
         alias: PartAlias,
         local: bool,
-        colors: &MaterialRegistry,
+        colors: &ColorCatalog,
     ) -> Result<(FileLocation, MultipartDocument), ResolutionError>;
 }
 
@@ -144,7 +144,7 @@ pub enum ResolutionState {
 }
 
 struct DependencyResolver<'a, F> {
-    colors: &'a MaterialRegistry,
+    colors: &'a ColorCatalog,
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
     on_update: &'a F,
@@ -158,7 +158,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
     DependencyResolver<'a, F>
 {
     pub fn new(
-        colors: &'a MaterialRegistry,
+        colors: &'a ColorCatalog,
         cache: Arc<RwLock<PartCache>>,
         on_update: &'a F,
         loader: &'a Box<dyn LibraryLoader>,
@@ -404,7 +404,7 @@ impl ResolutionResult {
 pub async fn resolve_dependencies_multipart<F>(
     document: &MultipartDocument,
     cache: Arc<RwLock<PartCache>>,
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
     loader: &Box<dyn LibraryLoader>,
     on_update: &F,
 ) -> ResolutionResult
@@ -439,7 +439,7 @@ where
 pub async fn resolve_dependencies<F>(
     document: &Document,
     cache: Arc<RwLock<PartCache>>,
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
     loader: &Box<dyn LibraryLoader>,
     on_update: &F,
 ) -> ResolutionResult

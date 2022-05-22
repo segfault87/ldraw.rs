@@ -7,7 +7,7 @@ use std::{
 
 use cgmath::SquareMatrix;
 use ldraw::{
-    color::{ColorReference, MaterialRegistry},
+    color::{ColorReference, ColorCatalog},
     document::{
         Document as LdrawDocument,
         MultipartDocument as LdrawMultipartDocument
@@ -200,7 +200,7 @@ fn build_objects(document: &LdrawDocument, subparts: Option<&HashMap<PartAlias, 
     }).collect::<Vec<_>>()
 }
 
-fn resolve_colors(objects: &mut Vec<Object>, colors: &MaterialRegistry) {
+fn resolve_colors(objects: &mut Vec<Object>, colors: &ColorCatalog) {
     for object in objects.iter_mut() {
         match &mut object.data {
             ObjectInstance::Part(ref mut p) => {
@@ -257,7 +257,7 @@ impl Model {
 
     pub async fn from_ldraw_multipart_document(
         document: &LdrawMultipartDocument,
-        colors: &MaterialRegistry,
+        colors: &ColorCatalog,
         inline_loader: Option<(&Box<dyn LibraryLoader>, Arc<RwLock<PartCache>>)>,
     ) -> Self {
         let subparts = document.subparts.keys().map(|alias| (alias.clone(), Uuid::new_v4())).collect::<HashMap<_, _>>();
@@ -322,7 +322,7 @@ impl Model {
         }
     }
 
-    pub fn resolve_colors(&mut self, colors: &MaterialRegistry) {
+    pub fn resolve_colors(&mut self, colors: &ColorCatalog) {
         resolve_colors(&mut self.objects, colors);
         for group in self.object_groups.values_mut() {
             resolve_colors(&mut group.objects, colors);

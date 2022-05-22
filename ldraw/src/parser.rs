@@ -6,7 +6,7 @@ use futures::{io::Lines, stream::Enumerate, AsyncBufReadExt, StreamExt};
 
 use crate::{
     color::{
-        ColorReference, CustomizedMaterial, Finish, Material, MaterialGlitter, MaterialRegistry,
+        Color, ColorCatalog, ColorReference, CustomizedMaterial, Material, MaterialGlitter,
         MaterialSpeckle, Rgba,
     },
     document::{BfcCertification, Document, MultipartDocument},
@@ -177,7 +177,7 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
 }
 
 fn parse_line_1(
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
     iterator: &mut Chars,
 ) -> Result<PartReference, ParseError> {
     let color = next_token_u32(iterator)?;
@@ -211,7 +211,7 @@ fn parse_line_1(
     })
 }
 
-fn parse_line_2(colors: &MaterialRegistry, iterator: &mut Chars) -> Result<Line, ParseError> {
+fn parse_line_2(colors: &ColorCatalog, iterator: &mut Chars) -> Result<Line, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -233,7 +233,7 @@ fn parse_line_2(colors: &MaterialRegistry, iterator: &mut Chars) -> Result<Line,
 }
 
 fn parse_line_3(
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
     iterator: &mut Chars,
 ) -> Result<Triangle, ParseError> {
     let color = next_token_u32(iterator)?;
@@ -263,7 +263,7 @@ fn parse_line_3(
     })
 }
 
-fn parse_line_4(colors: &MaterialRegistry, iterator: &mut Chars) -> Result<Quad, ParseError> {
+fn parse_line_4(colors: &ColorCatalog, iterator: &mut Chars) -> Result<Quad, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -299,7 +299,7 @@ fn parse_line_4(colors: &MaterialRegistry, iterator: &mut Chars) -> Result<Quad,
 }
 
 fn parse_line_5(
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
     iterator: &mut Chars,
 ) -> Result<OptionalLine, ParseError> {
     let color = next_token_u32(iterator)?;
@@ -337,7 +337,7 @@ fn parse_line_5(
 }
 
 async fn parse_inner<T: BufRead + Unpin>(
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
     iterator: &mut Enumerate<Lines<T>>,
     multipart: bool,
 ) -> Result<(Document, Option<String>), DocumentParseError> {
@@ -485,7 +485,7 @@ async fn parse_inner<T: BufRead + Unpin>(
 
 pub async fn parse_single_document<T: BufRead + Unpin>(
     reader: &mut T,
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
 ) -> Result<Document, DocumentParseError> {
     let mut it = reader.lines().enumerate();
     let (document, _) = parse_inner(colors, &mut it, false).await?;
@@ -495,7 +495,7 @@ pub async fn parse_single_document<T: BufRead + Unpin>(
 
 pub async fn parse_multipart_document<T: BufRead + Unpin>(
     reader: &mut T,
-    colors: &MaterialRegistry,
+    colors: &ColorCatalog,
 ) -> Result<MultipartDocument, DocumentParseError> {
     let mut it = reader.lines().enumerate();
     let (document, mut next) = parse_inner(colors, &mut it, true).await?;
@@ -645,14 +645,14 @@ fn parse_customized_material(
 
 pub async fn parse_color_definitions<T: BufRead + Unpin>(
     reader: &mut T,
-) -> Result<MaterialRegistry, ColorDefinitionParseError> {
+) -> Result<ColorCatalog, ColorDefinitionParseError> {
     // Use an empty context here
-    let colors = MaterialRegistry::new();
+    let colors = ColorCatalog::new();
     let document = parse_single_document(reader, &colors).await?;
 
-    let mut colors = MaterialRegistry::new();
+    let mut colors = ColorCatalog::new();
     for Header(_, value) in document.headers.iter().filter(|s| s.0 == "COLOUR") {
-        let mut finish = Finish::Plastic;
+        let mut material = Material::Plastic;
         let mut alpha = 255u8;
         let mut luminance = 0u8;
 
@@ -704,22 +704,22 @@ pub async fn parse_color_definitions<T: BufRead + Unpin>(
                     luminance = next_token_u32(&mut it)? as u8;
                 }
                 "CHROME" => {
-                    finish = Finish::Chrome;
+                    material = Material::Chrome;
                 }
                 "PEARLESCENT" => {
-                    finish = Finish::Pearlescent;
+                    material = Material::Pearlescent;
                 }
                 "METAL" => {
-                    finish = Finish::Metal;
+                    material = Material::Metal;
                 }
                 "RUBBER" => {
-                    finish = Finish::Rubber;
+                    material = Material::Rubber;
                 }
                 "MATTE_METALLIC" => {
-                    finish = Finish::MatteMetallic;
+                    material = Material::MatteMetallic;
                 }
                 "MATERIAL" => {
-                    finish = Finish::Custom(parse_customized_material(&mut it)?);
+                    material = Material::Custom(parse_customized_material(&mut it)?);
                 }
                 _ => {
                     return Err(ColorDefinitionParseError::ParseError(
@@ -731,13 +731,13 @@ pub async fn parse_color_definitions<T: BufRead + Unpin>(
 
         colors.insert(
             code,
-            Material {
+            Color {
                 code,
                 name,
                 color: Rgba::new(cr, cg, cb, alpha),
                 edge: Rgba::new(er, eg, eb, 255),
                 luminance,
-                finish,
+                material,
             },
         );
     }
@@ -1048,61 +1048,61 @@ mod tests {
             .await
             .unwrap();
         let colors = [
-            Material {
+            Color {
                 code: 0,
                 name: "Solid".into(),
                 color: Rgba::new(0x00, 0x00, 0x00, 255),
                 edge: Rgba::new(0x59, 0x59, 0x59, 255),
                 luminance: 0,
-                finish: Finish::Plastic,
+                material: Material::Plastic,
             },
-            Material {
+            Color {
                 code: 1,
                 name: "Transparent".into(),
                 color: Rgba::new(0xff, 0x00, 0x00, 128),
                 edge: Rgba::new(0x00, 0xff, 0x00, 255),
                 luminance: 0,
-                finish: Finish::Plastic,
+                material: Material::Plastic,
             },
-            Material {
+            Color {
                 code: 2,
                 name: "Chrome".into(),
                 color: Rgba::new(0x00, 0xff, 0x00, 255),
                 edge: Rgba::new(0xff, 0x00, 0x00, 255),
                 luminance: 0,
-                finish: Finish::Chrome,
+                material: Material::Chrome,
             },
-            Material {
+            Color {
                 code: 3,
                 name: "Pearl".into(),
                 color: Rgba::new(0x00, 0x00, 0xff, 255),
                 edge: Rgba::new(0x00, 0xff, 0x00, 255),
                 luminance: 0,
-                finish: Finish::Pearlescent,
+                material: Material::Pearlescent,
             },
-            Material {
+            Color {
                 code: 4,
                 name: "Metal".into(),
                 color: Rgba::new(0xff, 0x00, 0x00, 255),
                 edge: Rgba::new(0x00, 0x00, 0xff, 255),
                 luminance: 0,
-                finish: Finish::Metal,
+                material: Material::Metal,
             },
-            Material {
+            Color {
                 code: 5,
                 name: "Phosphorescent".into(),
                 color: Rgba::new(0xff, 0x00, 0xff, 240),
                 edge: Rgba::new(0x00, 0xff, 0x00, 255),
                 luminance: 15,
-                finish: Finish::Plastic,
+                material: Material::Plastic,
             },
-            Material {
+            Color {
                 code: 6,
                 name: "Glitter".into(),
                 color: Rgba::new(0xff, 0xff, 0x00, 255),
                 edge: Rgba::new(0x00, 0xff, 0xff, 255),
                 luminance: 0,
-                finish: Finish::Custom(CustomizedMaterial::Glitter(MaterialGlitter {
+                material: Material::Custom(CustomizedMaterial::Glitter(MaterialGlitter {
                     value: Rgba::new(0xff, 0x00, 0xff, 255),
                     luminance: 0,
                     fraction: 0.17,
@@ -1112,13 +1112,13 @@ mod tests {
                     maxsize: 0.,
                 })),
             },
-            Material {
+            Color {
                 code: 7,
                 name: "Glitter_Transparent".into(),
                 color: Rgba::new(0x00, 0xff, 0xff, 128),
                 edge: Rgba::new(0xff, 0xff, 0x00, 255),
                 luminance: 0,
-                finish: Finish::Custom(CustomizedMaterial::Glitter(MaterialGlitter {
+                material: Material::Custom(CustomizedMaterial::Glitter(MaterialGlitter {
                     value: Rgba::new(0xff, 0x00, 0xff, 255),
                     luminance: 0,
                     fraction: 0.17,
@@ -1128,13 +1128,13 @@ mod tests {
                     maxsize: 0.,
                 })),
             },
-            Material {
+            Color {
                 code: 8,
                 name: "Speckle".into(),
                 color: Rgba::new(0x12, 0x34, 0x56, 255),
                 edge: Rgba::new(0x65, 0x43, 0x21, 255),
                 luminance: 0,
-                finish: Finish::Custom(CustomizedMaterial::Speckle(MaterialSpeckle {
+                material: Material::Custom(CustomizedMaterial::Speckle(MaterialSpeckle {
                     value: Rgba::new(0x89, 0x87, 0x88, 255),
                     luminance: 0,
                     fraction: 0.4,
@@ -1143,13 +1143,13 @@ mod tests {
                     maxsize: 3.,
                 })),
             },
-            Material {
+            Color {
                 code: 9,
                 name: "Rubber".into(),
                 color: Rgba::new(0xab, 0xcd, 0xef, 255),
                 edge: Rgba::new(0xfe, 0xdc, 0xba, 255),
                 luminance: 0,
-                finish: Finish::Rubber,
+                material: Material::Rubber,
             },
         ];
         for material in colors {
@@ -1167,7 +1167,7 @@ mod tests {
         assert_eq!(
             parsed,
             PartReference {
-                color: ColorReference::Material(colors[&1].clone()),
+                color: ColorReference::Color(colors[&1].clone()),
                 matrix: Matrix4::new(
                     2., 0., 0., 0., 0., 1., 0., 0., 0., 0., -2., 0., 11., -0.25, -16., 1.,
                 ),
@@ -1221,7 +1221,7 @@ mod tests {
         assert_eq!(
             parsed,
             Quad {
-                color: ColorReference::Material(colors[&1].clone()),
+                color: ColorReference::Color(colors[&1].clone()),
                 a: Vector4::new(-11., -0.25, -18., 1.),
                 b: Vector4::new(11., -0.25, -18., 1.),
                 c: Vector4::new(11., -0.25, -12.7, 1.),
@@ -1351,13 +1351,13 @@ mod tests {
                         Command::Meta(Meta::Comment("Unofficial Model".into())),
                         Command::Meta(Meta::Comment("ROTATION CENTER 0 0 0 1 \"Custom\"".into())),
                         Command::Triangle(Triangle {
-                            color: ColorReference::Material(colors[&7].clone()),
+                            color: ColorReference::Color(colors[&7].clone()),
                             a: Vector4::new(22.04, -0.25, -1.16, 1.),
                             b: Vector4::new(23.72, -0.25, -4.49, 1.),
                             c: Vector4::new(23.72, -0.25, -2.61, 1.),
                         }),
                         Command::PartReference(PartReference {
-                            color: ColorReference::Material(colors[&3].clone()),
+                            color: ColorReference::Color(colors[&3].clone()),
                             matrix: Matrix4::new(
                                 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.,
                             ),

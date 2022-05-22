@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     f32,
     fmt::Debug,
     mem,
@@ -13,11 +13,11 @@ use std::{
 use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
 use kdtree::{distance::squared_euclidean, KdTree};
 use ldraw::{
-    color::{ColorReference, MaterialRegistry},
+    color::{ColorReference, ColorCatalog},
     document::{Document, MultipartDocument},
     elements::{BfcStatement, Command, Meta},
     library::ResolutionResult,
-    Matrix4, PartAlias, Vector3, Vector4, Winding,
+    Matrix4, Vector3, Winding,
 };
 use serde::{Deserialize, Serialize};
 
@@ -62,23 +62,24 @@ impl EdgeBufferBuilder {
         self.vertices.push(vec.y);
         self.vertices.push(vec.z);
 
-        if color.is_current() {
-            if let Some(c) = top.get_material() {
-                self.colors.push(2 << 31 | c.code);
+        let code = if color.is_current() {
+            if let Some(c) = top.get_color() {
+                2 << 31 | c.code
             } else {
-                self.colors.push(2 << 30);
+                2 << 30
             }
         } else if color.is_complement() {
-            if let Some(c) = top.get_material() {
-                self.colors.push(c.code);
+            if let Some(c) = top.get_color() {
+                c.code
             } else {
-                self.colors.push(2 << 29);
+                2 << 29
             }
-        } else if let Some(c) = color.get_material() {
-            self.colors.push(2 << 31 | c.code);
+        } else if let Some(c) = color.get_color() {
+            2 << 31 | c.code
         } else {
-            self.colors.push(0);
-        }
+            0
+        };
+        self.colors.push(code);
     }
 
     pub fn len(&self) -> usize {
@@ -96,7 +97,7 @@ pub struct OptionalEdgeBufferBuilder {
     pub controls_1: Vec<f32>,
     pub controls_2: Vec<f32>,
     pub direction: Vec<f32>,
-    pub colors: Vec<f32>,
+    pub colors: Vec<u32>,
 }
 
 impl OptionalEdgeBufferBuilder {
@@ -118,26 +119,24 @@ impl OptionalEdgeBufferBuilder {
             .extend(&[c2.x, c2.y, c2.z, c2.x, c2.y, c2.z]);
         self.direction.extend(&[d.x, d.y, d.z, d.x, d.y, d.z]);
 
-        if color.is_current() {
-            if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.color.into();
-                self.colors.extend(&[mv.x, mv.y, mv.z, mv.x, mv.y, mv.z]);
+        let code = if color.is_current() {
+            if let Some(c) = top.get_color() {
+                2 << 31 | c.code
             } else {
-                self.colors.extend(&[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]);
+                2 << 30
             }
         } else if color.is_complement() {
-            if let Some(c) = top.get_material() {
-                let mv: Vector4 = c.edge.into();
-                self.colors.extend(&[mv.x, mv.y, mv.z, mv.x, mv.y, mv.z]);
+            if let Some(c) = top.get_color() {
+                c.code
             } else {
-                self.colors.extend(&[-2.0, -2.0, -2.0, -2.0, -2.0, -2.0]);
+                2 << 29
             }
-        } else if let Some(c) = color.get_material() {
-            let mv: Vector4 = c.color.into();
-            self.colors.extend(&[mv.x, mv.y, mv.z, mv.x, mv.y, mv.z]);
+        } else if let Some(c) = color.get_color() {
+            2 << 31 | c.code
         } else {
-            self.colors.extend(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        }
+            0
+        };
+        self.colors.push(code);
     }
 
     pub fn len(&self) -> usize {
@@ -170,8 +169,8 @@ impl PartBufferBuilder {
         match (&group.color_ref, group.bfc) {
             (ColorReference::Current, true) => Some(&mut self.uncolored_mesh),
             (ColorReference::Current, false) => Some(&mut self.uncolored_without_bfc_mesh),
-            (ColorReference::Material(m), _) => {
-                let entry = if m.is_translucent() {
+            (ColorReference::Color(c), _) => {
+                let entry = if c.is_translucent() {
                     self.translucent_meshes
                         .entry(group.clone())
                         .or_insert_with(MeshBufferBuilder::default)
@@ -186,7 +185,7 @@ impl PartBufferBuilder {
         }
     }
 
-    pub fn resolve_colors(&mut self, colors: &MaterialRegistry) {
+    pub fn resolve_colors(&mut self, colors: &ColorCatalog) {
         let keys = self.opaque_meshes.keys().cloned().collect::<Vec<_>>();
         for key in keys.iter() {
             let val = match self.opaque_meshes.remove(key) {
@@ -550,7 +549,6 @@ struct PartBaker<'a> {
     builder: PartBufferBuilder,
     mesh_builder: MeshBuilder,
     color_stack: Vec<ColorReference>,
-    bounding_box: BoundingBox3,
 }
 
 impl<'a> PartBaker<'a> {
@@ -826,7 +824,6 @@ impl<'a> PartBaker<'a> {
             builder: PartBufferBuilder::default(),
             mesh_builder: MeshBuilder::new(),
             color_stack: Vec::new(),
-            bounding_box: BoundingBox3::zero(),
         };
 
         mb.color_stack.push(ColorReference::Current);

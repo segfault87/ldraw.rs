@@ -6,7 +6,7 @@ use async_std::{
 use async_trait::async_trait;
 
 use crate::{
-    color::MaterialRegistry,
+    color::ColorCatalog,
     document::MultipartDocument,
     error::ResolutionError,
     library::{DocumentLoader, LibraryLoader, FileLocation, PartKind},
@@ -32,7 +32,7 @@ impl DocumentLoader<PathBuf> for LocalLoader {
     async fn load_document(
         &self,
         locator: &PathBuf,
-        colors: &MaterialRegistry,
+        colors: &ColorCatalog,
     ) -> Result<MultipartDocument, ResolutionError> {
         if !locator.exists().await {
             return Err(ResolutionError::FileNotFound);
@@ -47,7 +47,7 @@ impl DocumentLoader<PathBuf> for LocalLoader {
 
 #[async_trait(?Send)]
 impl LibraryLoader for LocalLoader {
-    async fn load_colors(&self) -> Result<MaterialRegistry, ResolutionError> {
+    async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError> {
         let ldrawdir = match self.ldrawdir.clone() {
             Some(e) => e,
             None => return Err(ResolutionError::NoLDrawDir),
@@ -70,7 +70,7 @@ impl LibraryLoader for LocalLoader {
         &self,
         alias: PartAlias,
         local: bool,
-        colors: &MaterialRegistry,
+        colors: &ColorCatalog,
     ) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
         let ldrawdir = match self.ldrawdir.clone() {
             Some(e) => e,

@@ -17,7 +17,7 @@ use futures::{
 };
 use itertools::Itertools;
 use ldraw::{
-    color::MaterialRegistry,
+    color::ColorCatalog,
     library::{
         CacheCollectionStrategy,
         LibraryLoader,
@@ -127,7 +127,7 @@ async fn main() {
 
 async fn bake(
         loader: &Box<dyn LibraryLoader>,
-        colors: &MaterialRegistry,
+        colors: &ColorCatalog,
         cache: Arc<RwLock<PartCache>>,
         path: PathBuf,
         output_path: &Option<&Path>) {

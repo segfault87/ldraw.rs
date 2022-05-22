@@ -7,7 +7,7 @@ use std::{
 use cgmath::SquareMatrix;
 use glow::HasContext;
 use ldraw::{
-    color::MaterialRegistry,
+    color::ColorCatalog,
     Matrix4, PartAlias,
 };
 use ldraw_ir::{
@@ -115,7 +115,7 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
         model: Model,
         gl: Rc<GL>,
         parts_pool: Arc<RwLock<P>>,
-        colors: &MaterialRegistry
+        colors: &ColorCatalog
     ) -> Self {
         let display_list = DisplayList::from_model(&model, Rc::clone(&gl));
         let embedded_parts = model.embedded_parts.iter().map(

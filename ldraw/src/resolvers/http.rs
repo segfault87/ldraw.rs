@@ -4,7 +4,7 @@ use futures::join;
 use reqwest::{Client, Error, Response, StatusCode, Url};
 
 use crate::{
-    color::MaterialRegistry,
+    color::ColorCatalog,
     document::MultipartDocument,
     error::ResolutionError,
     library::{DocumentLoader, LibraryLoader, FileLocation, PartKind},
@@ -34,7 +34,7 @@ impl DocumentLoader<String> for HttpLoader {
     async fn load_document(
         &self,
         locator: &String,
-        colors: &MaterialRegistry,
+        colors: &ColorCatalog,
     ) -> Result<MultipartDocument, ResolutionError> {
         let url = match Url::parse(locator) {
             Ok(e) => e,
@@ -48,7 +48,7 @@ impl DocumentLoader<String> for HttpLoader {
 
 #[async_trait(?Send)]
 impl LibraryLoader for HttpLoader {
-    async fn load_colors(&self) -> Result<MaterialRegistry, ResolutionError> {
+    async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError> {
         let ldraw_url_base = self.ldraw_url_base.as_ref();
         let ldraw_url_base = match ldraw_url_base {
             Some(ref e) => e,
@@ -69,7 +69,7 @@ impl LibraryLoader for HttpLoader {
         &self,
         alias: PartAlias,
         local: bool,
-        colors: &MaterialRegistry,
+        colors: &ColorCatalog,
     ) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
         let ldraw_url_base = self.ldraw_url_base.as_ref();
         let ldraw_url_base = match ldraw_url_base {
