@@ -6,7 +6,10 @@ use std::{
 use cgmath::EuclideanSpace;
 use glow::{Context as GlContext, HasContext};
 use image::RgbaImage;
-use ldraw::{color::{Color, ColorCatalog}, Point3};
+use ldraw::{
+    color::{Color, ColorCatalog},
+    Point3,
+};
 use ldraw_ir::model::Model;
 use ldraw_renderer::{
     model::RenderableModel,
@@ -56,7 +59,7 @@ pub fn render_model<P: PartsPool<GlContext>>(
 
     let mut rc = context.rendering_context.borrow_mut();
 
-    let renderable_model = RenderableModel::new(model.clone(), Rc::clone(&gl), parts, colors);
+    let renderable_model = RenderableModel::new(model.clone(), Rc::clone(gl), parts, colors);
 
     unsafe {
         gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
@@ -65,7 +68,10 @@ pub fn render_model<P: PartsPool<GlContext>>(
     let bounding_box = &renderable_model.bounding_box;
     let camera = OrthographicCamera::new_isometric(Point3::from_vec(bounding_box.center()));
     let bounds = rc
-        .apply_orthographic_camera(&camera, &OrthographicViewBounds::BoundingBox3(bounding_box.clone()))
+        .apply_orthographic_camera(
+            &camera,
+            &OrthographicViewBounds::BoundingBox3(bounding_box.clone()),
+        )
         .unwrap();
 
     renderable_model.render(&mut rc, false);
