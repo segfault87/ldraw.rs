@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem::replace, rc::Rc, vec::Vec};
+use std::{collections::HashMap, mem::take, rc::Rc, vec::Vec};
 
 use cgmath::{prelude::*, Deg, Ortho, PerspectiveFov, Point3, Rad, SquareMatrix};
 use glow::HasContext;
@@ -186,7 +186,7 @@ impl OrthographicCamera {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RenderingStats {
     pub triangles: usize,
     pub lines: usize,
@@ -194,23 +194,9 @@ pub struct RenderingStats {
 
     pub distinct_parts: usize,
     pub parts: usize,
-    
+
     pub draw_calls: usize,
     pub instanced_draw_calls: usize,
-}
-
-impl Default for RenderingStats {
-    fn default() -> Self {
-        RenderingStats {
-            triangles: 0,
-            lines: 0,
-            optional_lines: 0,
-            distinct_parts: 0,
-            parts: 0,
-            draw_calls: 0,
-            instanced_draw_calls: 0,
-        }
-    }
 }
 
 pub struct RenderingContext<GL: HasContext> {
@@ -402,7 +388,8 @@ impl<GL: HasContext> RenderingContext<GL> {
 
     pub fn begin(&mut self) {
         unsafe {
-            self.gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+            self.gl
+                .clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
         }
     }
 
@@ -410,8 +397,8 @@ impl<GL: HasContext> RenderingContext<GL> {
         unsafe {
             self.gl.flush();
         }
-        
-        replace(&mut self.rendering_stats, RenderingStats::default())
+
+        take(&mut self.rendering_stats)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -453,8 +440,8 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
             bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
-            bind.bind_instanced_geometry_data(&instance_buffer);
-            bind.bind_instanced_color_data(&instance_buffer);
+            bind.bind_instanced_geometry_data(instance_buffer);
+            bind.bind_instanced_color_data(instance_buffer);
 
             unsafe {
                 gl.draw_arrays_instanced(
@@ -465,7 +452,8 @@ impl<GL: HasContext> RenderingContext<GL> {
                 );
             }
             self.rendering_stats.instanced_draw_calls += 1;
-            self.rendering_stats.triangles += part.part.uncolored_triangles_count * instance_buffer.count;
+            self.rendering_stats.triangles +=
+                part.part.uncolored_triangles_count * instance_buffer.count;
         }
         if let Some(uncolored_without_bfc_index) = &part_buffer.uncolored_without_bfc_index {
             let program = self
@@ -474,8 +462,8 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data, &self.shading_data);
             bind.bind_geometry_data(part_buffer.mesh.as_ref().unwrap());
-            bind.bind_instanced_geometry_data(&instance_buffer);
-            bind.bind_instanced_color_data(&instance_buffer);
+            bind.bind_instanced_geometry_data(instance_buffer);
+            bind.bind_instanced_color_data(instance_buffer);
 
             unsafe {
                 gl.disable(glow::CULL_FACE);
@@ -488,7 +476,8 @@ impl<GL: HasContext> RenderingContext<GL> {
                 gl.enable(glow::CULL_FACE);
             }
             self.rendering_stats.instanced_draw_calls += 1;
-            self.rendering_stats.triangles += part.part.uncolored_without_bfc_triangles_count * instance_buffer.count;
+            self.rendering_stats.triangles +=
+                part.part.uncolored_without_bfc_triangles_count * instance_buffer.count;
         }
         let subparts = if translucent {
             &part_buffer.translucent_indices
@@ -535,7 +524,7 @@ impl<GL: HasContext> RenderingContext<GL> {
 
             let bind = program.bind(&self.projection_data);
             bind.bind_attribs(edges);
-            bind.bind_instanced_attribs(&instance_buffer);
+            bind.bind_instanced_attribs(instance_buffer);
 
             unsafe {
                 gl.draw_arrays_instanced(
@@ -565,7 +554,8 @@ impl<GL: HasContext> RenderingContext<GL> {
                 );
             }
             self.rendering_stats.instanced_draw_calls += 1;
-            self.rendering_stats.optional_lines += part.part.optional_edges_count * instance_buffer.count;
+            self.rendering_stats.optional_lines +=
+                part.part.optional_edges_count * instance_buffer.count;
         }
     }
 

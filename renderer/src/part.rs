@@ -1,15 +1,12 @@
 use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 use glow::HasContext;
-use ldraw::{
-    color::ColorCatalog,
-    PartAlias, Vector3,
-};
+use ldraw::{color::ColorCatalog, PartAlias, Vector3};
 use ldraw_ir::{
     geometry::BoundingBox3,
     part::{
-        EdgeBufferBuilder, MeshBufferBuilder, OptionalEdgeBufferBuilder,
-        PartBufferBuilder, PartBuilder, SubpartIndex,
+        EdgeBufferBuilder, MeshBufferBuilder, OptionalEdgeBufferBuilder, PartBufferBuilder,
+        PartBuilder, SubpartIndex,
     },
     MeshGroup,
 };
@@ -128,12 +125,12 @@ fn build_edge_color_buffer(code_buffer: &Vec<u32>, colors: &ColorCatalog) -> Vec
                     let r = buf.red() as f32 / 255.0;
                     let g = buf.green() as f32 / 255.0;
                     let b = buf.blue() as f32 / 255.0;
-        
+
                     buffer.extend(&[r, g, b, r, g, b]);
-                },
+                }
                 None => {
                     buffer.extend(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-                },
+                }
             }
         }
     }
@@ -482,7 +479,11 @@ impl<GL: HasContext> PartBuffer<GL> {
             uncolored_triangles_count: builder.uncolored_mesh.len() / 3,
             uncolored_without_bfc_triangles_count: builder.uncolored_without_bfc_mesh.len() / 3,
             opaque_triangles_count: builder.opaque_meshes.values().map(|v| v.len() / 3).sum(),
-            translucent_triangles_count: builder.translucent_meshes.values().map(|v| v.len() / 3).sum(),
+            translucent_triangles_count: builder
+                .translucent_meshes
+                .values()
+                .map(|v| v.len() / 3)
+                .sum(),
             edges_count: builder.edges.len() / 2,
             optional_edges_count: builder.optional_edges.len() / 2,
         }
@@ -519,7 +520,5 @@ impl<GL: HasContext> Part<GL> {
 }
 
 pub trait PartsPool<GL: HasContext> {
-
     fn query(&self, name: &PartAlias) -> Option<Arc<Part<GL>>>;
-
 }

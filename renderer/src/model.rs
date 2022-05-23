@@ -4,15 +4,11 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use cgmath::SquareMatrix;
 use glow::HasContext;
-use ldraw::{
-    color::ColorCatalog,
-    Matrix4, PartAlias,
-};
+use ldraw::{color::ColorCatalog, PartAlias};
 use ldraw_ir::{
     geometry::BoundingBox3,
-    model::{Object, ObjectInstance, Model},
+    model::{Model, Object, ObjectInstance},
 };
 use uuid::Uuid;
 
@@ -36,7 +32,7 @@ pub struct RenderableModel<GL: HasContext, P: PartsPool<GL>> {
 }
 
 fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
-    objects: &Vec<Object>,
+    objects: &[Object],
     model: &Model,
     parts: Arc<RwLock<P>>,
     subpart_bounding_boxes: &mut HashMap<Uuid, BoundingBox3>,
@@ -48,11 +44,12 @@ fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
             ObjectInstance::Part(part_instance) => {
                 let matrix = part_instance.matrix;
 
-                let bounding_box = if let Some(part) = parts.read().unwrap().query(&part_instance.part) {
-                    part.bounding_box.clone()
-                } else {
-                    continue;
-                };
+                let bounding_box =
+                    if let Some(part) = parts.read().unwrap().query(&part_instance.part) {
+                        part.bounding_box.clone()
+                    } else {
+                        continue;
+                    };
 
                 (matrix, bounding_box)
             }
@@ -60,9 +57,7 @@ fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
                 let matrix = group_instance.matrix;
 
                 let bounding_box = match subpart_bounding_boxes.get(&group_instance.group_id) {
-                    Some(sub_bb) => {
-                        sub_bb.clone()
-                    }
+                    Some(sub_bb) => sub_bb.clone(),
                     None => {
                         if let Some(group) = model.object_groups.get(&group_instance.group_id) {
                             let sub_bb = calculate_bounding_box(
@@ -71,7 +66,8 @@ fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
                                 Arc::clone(&parts),
                                 subpart_bounding_boxes,
                             );
-                            subpart_bounding_boxes.insert(group_instance.group_id.clone(), sub_bb.clone());
+                            subpart_bounding_boxes
+                                .insert(group_instance.group_id, sub_bb.clone());
 
                             sub_bb
                         } else {
@@ -82,7 +78,7 @@ fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
 
                 (matrix, bounding_box)
             }
-            _ => continue
+            _ => continue,
         };
 
         bb.update(&bounding_box.translate(&matrix));
@@ -104,23 +100,24 @@ fn calculate_subpart_bounding_boxes<GL: HasContext, P: PartsPool<GL>>(
                 Arc::clone(&parts),
                 subpart_bounding_boxes,
             );
-            subpart_bounding_boxes.insert(id.clone(), bb);
+            subpart_bounding_boxes.insert(*id, bb);
         }
     }
 }
 
 impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
-
     pub fn new(
         model: Model,
         gl: Rc<GL>,
         parts_pool: Arc<RwLock<P>>,
-        colors: &ColorCatalog
+        colors: &ColorCatalog,
     ) -> Self {
         let display_list = DisplayList::from_model(&model, Rc::clone(&gl));
-        let embedded_parts = model.embedded_parts.iter().map(
-            |(alias, part)| (alias.clone(), Part::create(part, Rc::clone(&gl), colors))
-        ).collect::<HashMap<_, _>>();
+        let embedded_parts = model
+            .embedded_parts
+            .iter()
+            .map(|(alias, part)| (alias.clone(), Part::create(part, Rc::clone(&gl), colors)))
+            .collect::<HashMap<_, _>>();
 
         let mut subpart_bounding_boxes = HashMap::new();
         let bounding_box = calculate_bounding_box(
@@ -132,7 +129,7 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
         calculate_subpart_bounding_boxes(
             &model,
             Arc::clone(&parts_pool),
-            &mut subpart_bounding_boxes
+            &mut subpart_bounding_boxes,
         );
 
         RenderableModel {
@@ -141,7 +138,7 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
             model,
             embedded_parts,
             display_list,
-            
+
             bounding_box,
             subpart_bounding_boxes,
             display_target: None,
@@ -150,7 +147,8 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
     }
 
     fn update_display_list(&mut self) {
-        self.display_list.rebuild(&self.model, self.display_target, &self.exclusion_set);
+        self.display_list
+            .rebuild(&self.model, self.display_target, &self.exclusion_set);
     }
 
     pub fn set_render_target(&mut self, group_id: Option<Uuid>) {
@@ -159,7 +157,7 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
     }
 
     pub fn clear_exclusion_set(&mut self) {
-        if self.exclusion_set.len() > 0 {
+        if !self.exclusion_set.is_empty() {
             self.exclusion_set.clear();
             self.update_display_list();
         }
@@ -170,11 +168,7 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
         self.update_display_list();
     }
 
-    pub fn render(
-        &self,
-        context: &mut RenderingContext<GL>,
-        translucent: bool,
-    ) {
+    pub fn render(&self, context: &mut RenderingContext<GL>, translucent: bool) {
         if let Ok(parts) = self.parts.read() {
             let display_items = if translucent {
                 &self.display_list.translucent
@@ -192,5 +186,4 @@ impl<GL: HasContext, P: PartsPool<GL>> RenderableModel<GL, P> {
             }
         }
     }
-
 }

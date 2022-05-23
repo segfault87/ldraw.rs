@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     rc::Rc,
-    vec::Vec
+    vec::Vec,
 };
 
 use cgmath::SquareMatrix;
@@ -14,7 +14,7 @@ use ldraw::{
 };
 use ldraw_ir::{
     geometry::BoundingBox3,
-    model::{Object, ObjectGroup, ObjectInstance, Model},
+    model::{Model, Object, ObjectGroup, ObjectInstance},
 };
 use uuid::Uuid;
 
@@ -191,11 +191,7 @@ impl<GL: HasContext> DisplayItem<GL> {
     }
 
     /* TODO: This is temporary; should be superseded with sophisticated editor stuffs */
-    pub fn update_data(
-        &mut self,
-        model_view_matrices: &[Matrix4],
-        colors: &[Color],
-    ) {
+    pub fn update_data(&mut self, model_view_matrices: &[Matrix4], colors: &[Color]) {
         let mut new_model_view_matrices = vec![];
         let mut new_colors = vec![];
         let mut new_triangle_colors = vec![];
@@ -291,7 +287,7 @@ fn build_display_list_multipart<'a, GL: HasContext>(
 }
 
 fn build_display_list_contents<GL: HasContext>(
-    objects: &Vec<Object>,
+    objects: &[Object],
     matrix: Matrix4,
     gl: Rc<GL>,
     tr: &mut DisplayListTransaction<GL>,
@@ -312,7 +308,7 @@ fn build_display_list_contents<GL: HasContext>(
                 tr.add(
                     part.part.clone(),
                     matrix * part.matrix,
-                    material.unwrap_or_else(|| Color::default()),
+                    material.unwrap_or_default(),
                     Rc::clone(&gl),
                 );
             }
@@ -339,7 +335,6 @@ pub struct DisplayListTransaction<'a, GL: HasContext> {
 }
 
 impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
-
     pub fn add(&mut self, name: PartAlias, matrix: Matrix4, color: Color, gl: Rc<GL>) {
         let display_item = if color.is_translucent() {
             &mut self.list.translucent
@@ -370,7 +365,6 @@ impl<'a, GL: HasContext> DisplayListTransaction<'a, GL> {
             }
         }
     }
-
 }
 
 impl<GL: HasContext> DisplayList<GL> {
@@ -417,11 +411,16 @@ impl<GL: HasContext> DisplayList<GL> {
         );
 
         tr.end();
-        
+
         display_list
     }
 
-    pub fn rebuild(&mut self, model: &Model, group_id: Option<Uuid>, exclusion_set: &HashSet<Uuid>) {
+    pub fn rebuild(
+        &mut self,
+        model: &Model,
+        group_id: Option<Uuid>,
+        exclusion_set: &HashSet<Uuid>,
+    ) {
         let gl = Rc::clone(&self.gl);
 
         let mut tr = self.start_modification();
@@ -471,5 +470,4 @@ impl<GL: HasContext> DisplayList<GL> {
             affected_items: HashSet::new(),
         }
     }
-
 }

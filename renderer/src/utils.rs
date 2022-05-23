@@ -24,52 +24,37 @@ pub(crate) fn derive_normal_matrix(m: &Matrix4) -> Matrix3 {
         .transpose()
 }
 
-
 #[cfg(test)]
 mod tests {
-    use ldraw::{Matrix4, Matrix3};
+    use ldraw::{Matrix3, Matrix4};
 
-    use super::{truncate_matrix4, derive_normal_matrix};
+    use super::{derive_normal_matrix, truncate_matrix4};
 
     #[test]
     fn test_truncate_matrix4() {
         let matrix = Matrix4::new(
-            1.0, 2.0, 3.0, 4.0,
-            5.0, 6.0, 7.0, 8.0,
-            9.0, 10.0, 11.0, 12.0,
-            13.0, 14.0, 15.0, 16.0
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
         );
 
         let truncated = truncate_matrix4(&matrix);
 
         assert_eq!(
             truncated,
-            Matrix3::new(
-                1.0, 2.0, 3.0,
-                5.0, 6.0, 7.0,
-                9.0, 10.0, 11.0
-            )
+            Matrix3::new(1.0, 2.0, 3.0, 5.0, 6.0, 7.0, 9.0, 10.0, 11.0)
         )
     }
 
     #[test]
     fn test_derive_normal_matrix() {
         let matrix = Matrix4::new(
-            1.0, 1.0, 0.0, 1.0,
-            1.0, 0.0, 1.0, 1.0,
-            0.0, 1.0, 1.0, 1.0,
-            1.0, 1.0, 1.0, 0.0
+            1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0,
         );
 
         let normalized = derive_normal_matrix(&matrix);
 
         assert_eq!(
             normalized,
-            Matrix3::new(
-                0.5, 0.5, -0.5,
-                0.5, -0.5, 0.5,
-                -0.5, 0.5, 0.5
-            )
+            Matrix3::new(0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5)
         )
     }
 }

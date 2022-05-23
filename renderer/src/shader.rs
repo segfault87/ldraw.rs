@@ -51,10 +51,12 @@ impl ShaderSource {
         self
     }
 
+    /*
     pub fn with_value(mut self, flag: &'static str, value: String) -> Self {
         self.flags.push((flag, Some(value)));
         self
     }
+    */
 
     pub fn build(&self) -> String {
         let mut buf = BufWriter::new(Vec::new());
