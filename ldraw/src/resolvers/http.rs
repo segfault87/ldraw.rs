@@ -7,7 +7,7 @@ use crate::{
     color::ColorCatalog,
     document::MultipartDocument,
     error::ResolutionError,
-    library::{DocumentLoader, LibraryLoader, FileLocation, PartKind},
+    library::{DocumentLoader, FileLocation, LibraryLoader, PartKind},
     parser::{parse_color_definitions, parse_multipart_document},
     PartAlias,
 };
@@ -77,8 +77,12 @@ impl LibraryLoader for HttpLoader {
             None => return Err(ResolutionError::NoLDrawDir),
         };
 
-        let parts_url = ldraw_url_base.join(&format!("parts/{}", alias.normalized)).unwrap();
-        let p_url = ldraw_url_base.join(&format!("p/{}", alias.normalized)).unwrap();
+        let parts_url = ldraw_url_base
+            .join(&format!("parts/{}", alias.normalized))
+            .unwrap();
+        let p_url = ldraw_url_base
+            .join(&format!("p/{}", alias.normalized))
+            .unwrap();
 
         let parts_fut = self.client.get(parts_url).send();
         let p_fut = self.client.get(p_url).send();
@@ -111,7 +115,10 @@ impl LibraryLoader for HttpLoader {
         };
 
         let bytes = res.bytes().await?;
-        Ok((location, parse_multipart_document(&mut BufReader::new(&*bytes), colors).await?))
+        Ok((
+            location,
+            parse_multipart_document(&mut BufReader::new(&*bytes), colors).await?,
+        ))
     }
 }
 
@@ -123,7 +130,7 @@ fn select_response(response: Result<Response, Error>) -> Option<Response> {
             } else {
                 None
             }
-        },
+        }
         Err(_) => None,
     }
 }

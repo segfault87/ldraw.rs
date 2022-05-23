@@ -40,7 +40,7 @@ impl PartAlias {
     }
 
     pub fn normalize(alias: &str) -> String {
-        alias.trim().to_lowercase().replace("\\", "/")
+        alias.trim().to_lowercase().replace('\\', "/")
     }
 }
 
@@ -165,7 +165,7 @@ impl BitXor<bool> for &Winding {
 #[cfg(test)]
 mod tests {
     use crate::PartAlias;
-    
+
     #[test]
     fn test_part_alias_directory_sep_normalization() {
         let alias = PartAlias::from("test\\directory\\disc.dat".to_string());

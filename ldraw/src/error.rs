@@ -5,7 +5,7 @@ use reqwest::Error as ReqwestError;
 
 #[cfg(not(any(target_arch = "wasm32", feature = "http")))]
 mod stub {
-    use super::{Error, fmt};
+    use super::{fmt, Error};
 
     #[derive(Debug)]
     pub struct ReqwestError;

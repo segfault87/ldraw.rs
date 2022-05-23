@@ -176,10 +176,7 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
     }
 }
 
-fn parse_line_1(
-    colors: &ColorCatalog,
-    iterator: &mut Chars,
-) -> Result<PartReference, ParseError> {
+fn parse_line_1(colors: &ColorCatalog, iterator: &mut Chars) -> Result<PartReference, ParseError> {
     let color = next_token_u32(iterator)?;
     let x = next_token_f32(iterator)?;
     let y = next_token_f32(iterator)?;
@@ -232,10 +229,7 @@ fn parse_line_2(colors: &ColorCatalog, iterator: &mut Chars) -> Result<Line, Par
     })
 }
 
-fn parse_line_3(
-    colors: &ColorCatalog,
-    iterator: &mut Chars,
-) -> Result<Triangle, ParseError> {
+fn parse_line_3(colors: &ColorCatalog, iterator: &mut Chars) -> Result<Triangle, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,
@@ -298,10 +292,7 @@ fn parse_line_4(colors: &ColorCatalog, iterator: &mut Chars) -> Result<Quad, Par
     })
 }
 
-fn parse_line_5(
-    colors: &ColorCatalog,
-    iterator: &mut Chars,
-) -> Result<OptionalLine, ParseError> {
+fn parse_line_5(colors: &ColorCatalog, iterator: &mut Chars) -> Result<OptionalLine, ParseError> {
     let color = next_token_u32(iterator)?;
     let a = Vector4::new(
         next_token_f32(iterator)?,

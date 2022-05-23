@@ -1,15 +1,11 @@
-use async_std::{
-    fs::File,
-    io::BufReader,
-    path::PathBuf,
-};
+use async_std::{fs::File, io::BufReader, path::PathBuf};
 use async_trait::async_trait;
 
 use crate::{
     color::ColorCatalog,
     document::MultipartDocument,
     error::ResolutionError,
-    library::{DocumentLoader, LibraryLoader, FileLocation, PartKind},
+    library::{DocumentLoader, FileLocation, LibraryLoader, PartKind},
     parser::{parse_color_definitions, parse_multipart_document},
     PartAlias,
 };
@@ -21,9 +17,7 @@ pub struct LocalLoader {
 
 impl LocalLoader {
     pub fn new(ldrawdir: Option<PathBuf>, cwd: Option<PathBuf>) -> Self {
-        LocalLoader {
-            ldrawdir, cwd
-        }
+        LocalLoader { ldrawdir, cwd }
     }
 }
 
@@ -95,15 +89,16 @@ impl LibraryLoader for LocalLoader {
             path
         };
 
-        let (kind, path) = if local && cwd_path.is_some() && cwd_path.as_ref().unwrap().exists().await {
-            (FileLocation::Local, cwd_path.as_ref().unwrap())
-        } else if parts_path.exists().await {
-            (FileLocation::Library(PartKind::Part), &parts_path)
-        } else if p_path.exists().await {
-            (FileLocation::Library(PartKind::Primitive), &p_path)
-        } else {
-            return Err(ResolutionError::FileNotFound);
-        };
+        let (kind, path) =
+            if local && cwd_path.is_some() && cwd_path.as_ref().unwrap().exists().await {
+                (FileLocation::Local, cwd_path.as_ref().unwrap())
+            } else if parts_path.exists().await {
+                (FileLocation::Library(PartKind::Part), &parts_path)
+            } else if p_path.exists().await {
+                (FileLocation::Library(PartKind::Primitive), &p_path)
+            } else {
+                return Err(ResolutionError::FileNotFound);
+            };
 
         let document =
             parse_multipart_document(&mut BufReader::new(File::open(&**path).await?), colors)

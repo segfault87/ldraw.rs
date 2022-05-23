@@ -1,9 +1,6 @@
 use std::fmt;
 
-use async_std::{
-    io::Write,
-    prelude::*,
-};
+use async_std::{io::Write, prelude::*};
 use async_trait::async_trait;
 use cgmath::{Matrix, Vector4};
 
@@ -40,7 +37,9 @@ trait LDrawWriter {
 #[async_trait]
 impl LDrawWriter for Header {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
-        writer.write_all(format!("0 !{} {}\n", self.0, self.1).as_bytes()).await?;
+        writer
+            .write_all(format!("0 !{} {}\n", self.0, self.1).as_bytes())
+            .await?;
         Ok(())
     }
 }
@@ -50,8 +49,12 @@ impl LDrawWriter for BfcCertification {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         match self {
             BfcCertification::NoCertify => writer.write_all(b"0 BFC NOCERTIFY\n").await?,
-            BfcCertification::Certify(Winding::Ccw) => writer.write_all(b"0 BFC CERTIFY CCW\n").await?,
-            BfcCertification::Certify(Winding::Cw) => writer.write_all(b"0 BFC CERTIFY CW\n").await?,
+            BfcCertification::Certify(Winding::Ccw) => {
+                writer.write_all(b"0 BFC CERTIFY CCW\n").await?
+            }
+            BfcCertification::Certify(Winding::Cw) => {
+                writer.write_all(b"0 BFC CERTIFY CW\n").await?
+            }
             _ => return Err(SerializeError::NoSerializable),
         };
         Ok(())
@@ -77,9 +80,15 @@ impl LDrawWriter for BfcStatement {
 #[async_trait]
 impl LDrawWriter for Document {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
-        writer.write_all(format!("0 {}\n", self.description).as_bytes()).await?;
-        writer.write_all(format!("0 Name: {}\n", self.name).as_bytes()).await?;
-        writer.write_all(format!("0 Author: {}\n", self.author).as_bytes()).await?;
+        writer
+            .write_all(format!("0 {}\n", self.description).as_bytes())
+            .await?;
+        writer
+            .write_all(format!("0 Name: {}\n", self.name).as_bytes())
+            .await?;
+        writer
+            .write_all(format!("0 Author: {}\n", self.author).as_bytes())
+            .await?;
         for header in &self.headers {
             header.write(writer).await?;
         }
@@ -105,7 +114,9 @@ impl LDrawWriter for MultipartDocument {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         self.body.write(writer).await?;
         for subpart in self.subparts.values() {
-            writer.write_all(format!("0 FILE {}\n", subpart.name).as_bytes()).await?;
+            writer
+                .write_all(format!("0 FILE {}\n", subpart.name).as_bytes())
+                .await?;
             subpart.write(writer).await?;
         }
 
@@ -127,12 +138,16 @@ impl LDrawWriter for Meta {
             }
             Meta::Write(message) => {
                 for line in message.lines() {
-                    writer.write_all(format!("0 WRITE {}\n", line).as_bytes()).await?;
+                    writer
+                        .write_all(format!("0 WRITE {}\n", line).as_bytes())
+                        .await?;
                 }
             }
             Meta::Print(message) => {
                 for line in message.lines() {
-                    writer.write_all(format!("0 PRINT {}\n", line).as_bytes()).await?;
+                    writer
+                        .write_all(format!("0 PRINT {}\n", line).as_bytes())
+                        .await?;
                 }
             }
             Meta::Clear => {
@@ -157,25 +172,27 @@ impl LDrawWriter for Meta {
 impl LDrawWriter for PartReference {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
         let m = self.matrix.transpose();
-        writer.write_all(
-            format!(
-                "1 {} {} {} {} {} {} {} {} {} {} {} {} {}\n",
-                self.color,
-                m.x.w,
-                m.y.w,
-                m.z.w,
-                m.x.x,
-                m.x.y,
-                m.x.z,
-                m.y.x,
-                m.y.y,
-                m.y.z,
-                m.z.x,
-                m.z.y,
-                m.z.z
+        writer
+            .write_all(
+                format!(
+                    "1 {} {} {} {} {} {} {} {} {} {} {} {} {}\n",
+                    self.color,
+                    m.x.w,
+                    m.y.w,
+                    m.z.w,
+                    m.x.x,
+                    m.x.y,
+                    m.x.z,
+                    m.y.x,
+                    m.y.y,
+                    m.y.z,
+                    m.z.x,
+                    m.z.y,
+                    m.z.z
+                )
+                .as_bytes(),
             )
-            .as_bytes(),
-        ).await?;
+            .await?;
         Ok(())
     }
 }
@@ -183,15 +200,17 @@ impl LDrawWriter for PartReference {
 #[async_trait]
 impl LDrawWriter for Line {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
-        writer.write_all(
-            format!(
-                "2 {} {} {}\n",
-                self.color,
-                serialize_vec3(&self.a),
-                serialize_vec3(&self.b)
+        writer
+            .write_all(
+                format!(
+                    "2 {} {} {}\n",
+                    self.color,
+                    serialize_vec3(&self.a),
+                    serialize_vec3(&self.b)
+                )
+                .as_bytes(),
             )
-            .as_bytes(),
-        ).await?;
+            .await?;
         Ok(())
     }
 }
@@ -199,16 +218,18 @@ impl LDrawWriter for Line {
 #[async_trait]
 impl LDrawWriter for Triangle {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
-        writer.write_all(
-            format!(
-                "2 {} {} {} {}\n",
-                self.color,
-                serialize_vec3(&self.a),
-                serialize_vec3(&self.b),
-                serialize_vec3(&self.c)
+        writer
+            .write_all(
+                format!(
+                    "2 {} {} {} {}\n",
+                    self.color,
+                    serialize_vec3(&self.a),
+                    serialize_vec3(&self.b),
+                    serialize_vec3(&self.c)
+                )
+                .as_bytes(),
             )
-            .as_bytes(),
-        ).await?;
+            .await?;
         Ok(())
     }
 }
@@ -216,17 +237,19 @@ impl LDrawWriter for Triangle {
 #[async_trait]
 impl LDrawWriter for Quad {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
-        writer.write_all(
-            format!(
-                "2 {} {} {} {} {}\n",
-                self.color,
-                serialize_vec3(&self.a),
-                serialize_vec3(&self.b),
-                serialize_vec3(&self.c),
-                serialize_vec3(&self.d)
+        writer
+            .write_all(
+                format!(
+                    "2 {} {} {} {} {}\n",
+                    self.color,
+                    serialize_vec3(&self.a),
+                    serialize_vec3(&self.b),
+                    serialize_vec3(&self.c),
+                    serialize_vec3(&self.d)
+                )
+                .as_bytes(),
             )
-            .as_bytes(),
-        ).await?;
+            .await?;
         Ok(())
     }
 }
@@ -234,17 +257,19 @@ impl LDrawWriter for Quad {
 #[async_trait]
 impl LDrawWriter for OptionalLine {
     async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
-        writer.write_all(
-            format!(
-                "2 {} {} {} {} {}\n",
-                self.color,
-                serialize_vec3(&self.a),
-                serialize_vec3(&self.b),
-                serialize_vec3(&self.c),
-                serialize_vec3(&self.d)
+        writer
+            .write_all(
+                format!(
+                    "2 {} {} {} {} {}\n",
+                    self.color,
+                    serialize_vec3(&self.a),
+                    serialize_vec3(&self.b),
+                    serialize_vec3(&self.c),
+                    serialize_vec3(&self.d)
+                )
+                .as_bytes(),
             )
-            .as_bytes(),
-        ).await?;
+            .await?;
         Ok(())
     }
 }

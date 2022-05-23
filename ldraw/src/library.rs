@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::{join_all};
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -148,20 +148,18 @@ struct DependencyResolver<'a, F> {
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
     on_update: &'a F,
-    loader: &'a Box<dyn LibraryLoader>,
+    loader: &'a dyn LibraryLoader,
 
     pub map: HashMap<PartAlias, ResolutionState>,
     pub local_map: HashMap<PartAlias, ResolutionState>,
 }
 
-impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
-    DependencyResolver<'a, F>
-{
+impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)> DependencyResolver<'a, F> {
     pub fn new(
         colors: &'a ColorCatalog,
         cache: Arc<RwLock<PartCache>>,
         on_update: &'a F,
-        loader: &'a Box<dyn LibraryLoader>,
+        loader: &'a dyn LibraryLoader,
     ) -> DependencyResolver<'a, F> {
         DependencyResolver {
             colors,
@@ -198,11 +196,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
         }
     }
 
-    pub fn scan_dependencies(
-        &mut self,
-        document: &Document,
-        local: bool
-    ) {
+    pub fn scan_dependencies(&mut self, document: &Document, local: bool) {
         for r in document.iter_refs() {
             let alias = &r.name;
 
@@ -235,11 +229,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
                 continue;
             }
 
-            self.put_state(
-                alias.clone(),
-                local,
-                ResolutionState::Pending
-            );
+            self.put_state(alias.clone(), local, ResolutionState::Pending);
         }
     }
 
@@ -247,7 +237,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
         &mut self,
         alias: Option<&PartAlias>,
         parent: D,
-        local: bool
+        local: bool,
     ) {
         let document = match alias {
             Some(e) => match parent.subparts.get(e) {
@@ -295,36 +285,33 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
                 continue;
             }
 
-            self.put_state(
-                alias.clone(),
-                local,
-                ResolutionState::Pending
-            );
+            self.put_state(alias.clone(), local, ResolutionState::Pending);
         }
     }
 
     pub async fn resolve_pending_dependencies(&mut self) -> bool {
-        let mut pending = self.local_map.iter().filter_map(|(k, v)| {
-            match v {
+        let mut pending = self
+            .local_map
+            .iter()
+            .filter_map(|(k, v)| match v {
                 ResolutionState::Pending => Some((k.clone(), true)),
                 _ => None,
-            }
-        }).collect::<Vec<_>>();
-        pending.extend(self.map.iter().filter_map(|(k, v)| {
-            match v {
-                ResolutionState::Pending => Some((k.clone(), false)),
-                _ => None,
-            }
+            })
+            .collect::<Vec<_>>();
+        pending.extend(self.map.iter().filter_map(|(k, v)| match v {
+            ResolutionState::Pending => Some((k.clone(), false)),
+            _ => None,
         }));
 
         if pending.is_empty() {
             return false;
         }
 
-        let futs = pending.iter().map(
-            |(alias, local)| self.loader.load_ref(alias.clone(), *local, self.colors)
-        ).collect::<Vec<_>>();
-        
+        let futs = pending
+            .iter()
+            .map(|(alias, local)| self.loader.load_ref(alias.clone(), *local, self.colors))
+            .collect::<Vec<_>>();
+
         let result = join_all(futs).await;
 
         for ((alias, mut local), result) in pending.iter().zip(result) {
@@ -343,7 +330,6 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
                                 alias.clone(),
                                 Arc::clone(&document),
                             );
-                            
                         }
                         FileLocation::Local => {
                             self.local_cache
@@ -354,7 +340,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
                     self.scan_dependencies_with_parent(None, Arc::clone(&document), local);
 
                     ResolutionState::Associated(document)
-                },
+                }
                 Err(err) => {
                     (self.on_update)(alias.clone(), Err(err));
                     ResolutionState::Missing
@@ -365,7 +351,6 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)>
 
         true
     }
-
 }
 
 #[derive(Debug, Default)]
@@ -394,8 +379,8 @@ impl ResolutionResult {
     pub fn list_dependencies(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
-        result.extend(self.library_entries.keys().map(|x| x.clone()));
-        result.extend(self.local_entries.keys().map(|x| x.clone()));
+        result.extend(self.library_entries.keys().cloned());
+        result.extend(self.local_entries.keys().cloned());
 
         result
     }
@@ -405,7 +390,7 @@ pub async fn resolve_dependencies_multipart<F>(
     document: &MultipartDocument,
     cache: Arc<RwLock<PartCache>>,
     colors: &ColorCatalog,
-    loader: &Box<dyn LibraryLoader>,
+    loader: &dyn LibraryLoader,
     on_update: &F,
 ) -> ResolutionResult
 where
@@ -440,7 +425,7 @@ pub async fn resolve_dependencies<F>(
     document: &Document,
     cache: Arc<RwLock<PartCache>>,
     colors: &ColorCatalog,
-    loader: &Box<dyn LibraryLoader>,
+    loader: &dyn LibraryLoader,
     on_update: &F,
 ) -> ResolutionResult
 where
@@ -475,8 +460,11 @@ where
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
-    use crate::{PartAlias, document::{MultipartDocument, Document, BfcCertification}};
     use super::{PartCache, PartKind};
+    use crate::{
+        document::{BfcCertification, Document, MultipartDocument},
+        PartAlias,
+    };
 
     #[test]
     fn test_part_cache_query_existing() {
@@ -499,10 +487,7 @@ mod tests {
 
         cache.register(PartKind::Primitive, existing_key.clone(), document.clone());
 
-        assert_eq!(
-            cache.query(&existing_key).unwrap(),
-            document
-        );
+        assert_eq!(cache.query(&existing_key).unwrap(), document);
     }
 
     #[test]
