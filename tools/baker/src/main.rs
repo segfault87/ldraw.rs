@@ -10,24 +10,13 @@ use async_std::{
     stream::StreamExt,
 };
 use bincode::serialize;
-use clap::{Arg, App};
-use futures::{
-    AsyncWriteExt,
-    future::join_all,
-};
+use clap::{App, Arg};
+use futures::{future::join_all, AsyncWriteExt};
 use itertools::Itertools;
 use ldraw::{
     color::ColorCatalog,
-    library::{
-        CacheCollectionStrategy,
-        LibraryLoader,
-        PartCache,
-        resolve_dependencies_multipart,
-    },
-    parser::{
-        parse_color_definitions,
-        parse_multipart_document
-    },
+    library::{resolve_dependencies_multipart, CacheCollectionStrategy, LibraryLoader, PartCache},
+    parser::{parse_color_definitions, parse_multipart_document},
     resolvers::local::LocalLoader,
 };
 use ldraw_ir::part::bake_part_from_multipart_document;
@@ -37,33 +26,37 @@ use tokio::task::spawn_blocking;
 async fn main() {
     let matches = App::new("baker")
         .about("Postprocess LDraw model files")
-        .arg(Arg::with_name("ldraw_dir")
-             .long("ldraw-dir")
-             .value_name("PATH")
-             .takes_value(true)
-             .help("Path to LDraw directory"))
-        .arg(Arg::with_name("files")
-             .multiple(true)
-             .takes_value(true)
-             .required(true)
-             .help("Files to process"))
-        .arg(Arg::with_name("output_path")
-             .short("o")
-             .long("output-path")
-             .takes_value(true)
-             .help("Output path"))
+        .arg(
+            Arg::with_name("ldraw_dir")
+                .long("ldraw-dir")
+                .value_name("PATH")
+                .takes_value(true)
+                .help("Path to LDraw directory"),
+        )
+        .arg(
+            Arg::with_name("files")
+                .multiple(true)
+                .takes_value(true)
+                .required(true)
+                .help("Files to process"),
+        )
+        .arg(
+            Arg::with_name("output_path")
+                .short("o")
+                .long("output-path")
+                .takes_value(true)
+                .help("Output path"),
+        )
         .get_matches();
 
     let ldrawdir = match matches.value_of("ldraw_dir") {
         Some(v) => v.to_string(),
-        None => {
-            match env::var("LDRAWDIR") {
-                Ok(v) => v,
-                Err(_) => {
-                    panic!("--ldraw-dir option or LDRAWDIR environment variable is required.");
-                }
+        None => match env::var("LDRAWDIR") {
+            Ok(v) => v,
+            Err(_) => {
+                panic!("--ldraw-dir option or LDRAWDIR environment variable is required.");
             }
-        }
+        },
     };
 
     let output_path = match matches.value_of("output_path") {
@@ -73,17 +66,21 @@ async fn main() {
                 panic!("{} is not a proper output directory", v);
             }
             Some(path)
-        },
+        }
         None => None,
     };
 
     let ldrawpath = PathBuf::from(&ldrawdir);
-    
-    let colors = parse_color_definitions(&mut BufReader::new(
-        File::open(ldrawpath.join("LDConfig.ldr")).await.expect("Could not load color definition.")
-    )).await.expect("Could not parse color definition");
 
-    let loader: Box<dyn LibraryLoader> = Box::new(LocalLoader::new(Some(ldrawpath), None));
+    let colors = parse_color_definitions(&mut BufReader::new(
+        File::open(ldrawpath.join("LDConfig.ldr"))
+            .await
+            .expect("Could not load color definition."),
+    ))
+    .await
+    .expect("Could not parse color definition");
+
+    let loader = LocalLoader::new(Some(ldrawpath), None);
 
     let mut tasks = vec![];
 
@@ -104,11 +101,23 @@ async fn main() {
                     }
                     let ext = ext.unwrap().to_str().unwrap().to_string().to_lowercase();
                     if ext == "dat" || ext == "ldr" {
-                        tasks.push(bake(&loader, &colors, Arc::clone(&cache), path, &output_path));
+                        tasks.push(bake(
+                            &loader,
+                            &colors,
+                            Arc::clone(&cache),
+                            path,
+                            &output_path,
+                        ));
                     }
                 }
             } else {
-                tasks.push(bake(&loader, &colors, Arc::clone(&cache), path, &output_path));
+                tasks.push(bake(
+                    &loader,
+                    &colors,
+                    Arc::clone(&cache),
+                    path,
+                    &output_path,
+                ));
             }
         }
     } else {
@@ -116,27 +125,40 @@ async fn main() {
     }
 
     let cpus = num_cpus::get();
-    let tasks = tasks.into_iter().chunks(cpus).into_iter().map(|chunk| chunk.collect()).collect::<Vec<Vec<_>>>();
+    let tasks = tasks
+        .into_iter()
+        .chunks(cpus)
+        .into_iter()
+        .map(|chunk| chunk.collect())
+        .collect::<Vec<Vec<_>>>();
     for items in tasks {
         join_all(items).await;
     }
 
-    let collected = cache.write().unwrap().collect(CacheCollectionStrategy::PartsAndPrimitives);
+    let collected = cache
+        .write()
+        .unwrap()
+        .collect(CacheCollectionStrategy::PartsAndPrimitives);
     println!("Collected {} entries.", collected);
 }
 
 async fn bake(
-        loader: &Box<dyn LibraryLoader>,
-        colors: &ColorCatalog,
-        cache: Arc<RwLock<PartCache>>,
-        path: PathBuf,
-        output_path: &Option<&Path>) {
+    loader: &dyn LibraryLoader,
+    colors: &ColorCatalog,
+    cache: Arc<RwLock<PartCache>>,
+    path: PathBuf,
+    output_path: &Option<&Path>,
+) {
     println!("{}", path.to_str().unwrap());
 
     let file = match File::open(path.clone()).await {
         Ok(v) => v,
         Err(err) => {
-            println!("Could not open document {}: {}", path.to_str().unwrap(), err);
+            println!(
+                "Could not open document {}: {}",
+                path.to_str().unwrap(),
+                err
+            );
             return;
         }
     };
@@ -144,10 +166,14 @@ async fn bake(
     let document = match parse_multipart_document(&mut BufReader::new(&file), colors).await {
         Ok(v) => v,
         Err(err) => {
-            println!("Could not parse document {}: {}", path.to_str().unwrap(), err);
+            println!(
+                "Could not parse document {}: {}",
+                path.to_str().unwrap(),
+                err
+            );
             return;
         }
-    };   
+    };
 
     let resolution_result = resolve_dependencies_multipart(
         &document,
@@ -158,18 +184,21 @@ async fn bake(
             if let Err(err) = result {
                 println!("Could not open file {}: {}", alias, err);
             }
-        }
-    ).await;
+        },
+    )
+    .await;
 
     let part = spawn_blocking(move || {
         bake_part_from_multipart_document(&document, &resolution_result, false)
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
 
     let outpath = match output_path {
-        Some(e) => {
-            e.to_path_buf()
-                .join(format!("{}.part", path.file_name().unwrap().to_str().unwrap()))
-        },
+        Some(e) => e.to_path_buf().join(format!(
+            "{}.part",
+            path.file_name().unwrap().to_str().unwrap()
+        )),
         None => {
             let mut path_buf = path.to_path_buf();
             path_buf.set_extension(match path.extension() {
@@ -181,16 +210,14 @@ async fn bake(
     };
 
     match serialize(&part) {
-        Ok(serialized) => {
-            match File::create(&outpath).await {
-                Ok(file) => {
-                    let mut writer = BufWriter::new(file);
-                    writer.write_all(&serialized).await.unwrap();
-                    writer.close().await.unwrap();
-                },
-                Err(_err) => {
-                    format!("Could not create {}", outpath.to_str().unwrap());
-                }
+        Ok(serialized) => match File::create(&outpath).await {
+            Ok(file) => {
+                let mut writer = BufWriter::new(file);
+                writer.write_all(&serialized).await.unwrap();
+                writer.close().await.unwrap();
+            }
+            Err(_err) => {
+                format!("Could not create {}", outpath.to_str().unwrap());
             }
         },
         Err(err) => {
@@ -198,5 +225,8 @@ async fn bake(
         }
     };
 
-    cache.write().unwrap().collect(CacheCollectionStrategy::Parts);
+    cache
+        .write()
+        .unwrap()
+        .collect(CacheCollectionStrategy::Parts);
 }
