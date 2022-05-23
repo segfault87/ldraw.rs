@@ -5,8 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use async_std::path::{PathBuf};
-use clap::{Arg, App as ClapApp};
+use async_std::path::PathBuf;
+use clap::{App as ClapApp, Arg};
 use glow::{self, Context};
 use glutin::{
     event::{ElementState, Event, MouseButton, StartCause, VirtualKeyCode, WindowEvent},
@@ -18,16 +18,17 @@ use ldraw::{
     color::ColorCatalog,
     document::MultipartDocument,
     library::{DocumentLoader, LibraryLoader, PartCache},
-    resolvers::{
-        local::LocalLoader,
-        http::HttpLoader,
-    },
+    resolvers::{http::HttpLoader, local::LocalLoader},
 };
 use ldraw_renderer::shader::ProgramManager;
 use reqwest::Url;
 use viewer_common::App;
 
-async fn main_loop(document: MultipartDocument, colors: ColorCatalog, dependency_loader: Box<dyn LibraryLoader>) {
+async fn main_loop(
+    document: MultipartDocument,
+    colors: ColorCatalog,
+    dependency_loader: Rc<dyn LibraryLoader>,
+) {
     let evloop = EventLoop::new();
     let window_builder = WindowBuilder::new().with_title("ldraw.rs demo");
     let windowed_context = ContextBuilder::new()
@@ -48,7 +49,12 @@ async fn main_loop(document: MultipartDocument, colors: ColorCatalog, dependency
         Err(e) => panic!("{}", e),
     };
 
-    let mut app = App::new(Rc::clone(&gl), Rc::new(dependency_loader), Rc::new(colors), program_manager);
+    let mut app = App::new(
+        Rc::clone(&gl),
+        dependency_loader,
+        Rc::new(colors),
+        program_manager,
+    );
     let cache = Arc::new(RwLock::new(PartCache::new()));
     app.set_document(cache, &document, &|alias, result| {
         match result {
@@ -126,28 +132,30 @@ async fn main_loop(document: MultipartDocument, colors: ColorCatalog, dependency
 async fn main() {
     let matches = ClapApp::new("viewer")
         .about("LDraw Model Viewer")
-        .arg(Arg::with_name("ldraw_dir")
-             .long("ldraw-dir")
-             .value_name("PATH_OR_URL")
-             .takes_value(true)
-             .help("Path or URL to LDraw directory"))
-        .arg(Arg::with_name("file")
-             .takes_value(true)
-             .required(true)
-             .value_name("PATH_OR_URL")
-             .help("Path or URL to model file"))
+        .arg(
+            Arg::with_name("ldraw_dir")
+                .long("ldraw-dir")
+                .value_name("PATH_OR_URL")
+                .takes_value(true)
+                .help("Path or URL to LDraw directory"),
+        )
+        .arg(
+            Arg::with_name("file")
+                .takes_value(true)
+                .required(true)
+                .value_name("PATH_OR_URL")
+                .help("Path or URL to model file"),
+        )
         .get_matches();
 
     let ldrawdir = match matches.value_of("ldraw_dir") {
         Some(v) => v.to_string(),
-        None => {
-            match env::var("LDRAWDIR") {
-                Ok(v) => v,
-                Err(_) => {
-                    panic!("--ldraw-dir option or LDRAWDIR environment variable is required.");
-                }
+        None => match env::var("LDRAWDIR") {
+            Ok(v) => v,
+            Err(_) => {
+                panic!("--ldraw-dir option or LDRAWDIR environment variable is required.");
             }
-        }
+        },
     };
 
     let path = String::from(matches.value_of("file").expect("Path is required"));
@@ -162,7 +170,7 @@ async fn main() {
     } else {
         (None, Some(PathBuf::from(&ldrawdir)))
     };
-    
+
     let (document_base_url, document_base_path) = if is_document_remote {
         let mut url = Url::parse(&path).unwrap();
         url.path_segments_mut().unwrap().pop();
@@ -178,19 +186,21 @@ async fn main() {
         http_loader.load_colors().await
     } else {
         local_loader.load_colors().await
-    }.unwrap();
+    }
+    .unwrap();
 
     let path_local = PathBuf::from(&path);
     let document = if is_document_remote {
         http_loader.load_document(&path, &colors).await
     } else {
         local_loader.load_document(&path_local, &colors).await
-    }.unwrap();
+    }
+    .unwrap();
 
-    let loader: Box<dyn LibraryLoader> = if is_library_remote {
-        Box::new(http_loader)
+    let loader: Rc<dyn LibraryLoader> = if is_library_remote {
+        Rc::new(http_loader)
     } else {
-        Box::new(local_loader)
+        Rc::new(local_loader)
     };
 
     main_loop(document, colors, loader).await;

@@ -22,14 +22,11 @@ use ldraw_renderer::shader::ProgramManager;
 use reqwest::{Client, Url};
 use uuid::Uuid;
 use viewer_common::{App, State};
-use wasm_bindgen::{
-    prelude::*,
-    JsCast
-};
-use wasm_bindgen_futures::{spawn_local};
+use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen_futures::spawn_local;
 use web_sys::{
     HtmlButtonElement, HtmlCanvasElement, HtmlDivElement, HtmlSelectElement, HtmlTextAreaElement,
-    WebGl2RenderingContext
+    WebGl2RenderingContext,
 };
 
 fn log(s: &str, error: bool) {
@@ -74,7 +71,7 @@ async fn fetch_raw_data(base_url: &Url, path: &String) -> Option<String> {
     let client = Client::new();
 
     let url = if path.starts_with("http://") || path.starts_with("https://") {
-        Url::parse(&path)
+        Url::parse(path)
     } else {
         base_url.join(path)
     };
@@ -88,13 +85,11 @@ async fn fetch_raw_data(base_url: &Url, path: &String) -> Option<String> {
     };
 
     match client.get(url.clone()).send().await {
-        Ok(e) => {
-            match e.text().await {
-                Ok(e) => Some(e),
-                Err(err) => {
-                    alert(&format!("Could not fetch from url {}: {}", url, err));
-                    None
-                }
+        Ok(e) => match e.text().await {
+            Ok(e) => Some(e),
+            Err(err) => {
+                alert(&format!("Could not fetch from url {}: {}", url, err));
+                None
             }
         },
         Err(err) => {
@@ -108,10 +103,10 @@ fn log_part_resolution(alias: PartAlias, result: Result<(), ResolutionError>) {
     match result {
         Ok(_) => {
             console_log!("Part {} loaded", alias);
-        },
+        }
         Err(err) => {
             console_error!("Could not load part {}: {}", alias, err);
-        },
+        }
     }
 }
 
@@ -148,15 +143,22 @@ pub async fn run(path: JsValue) -> JsValue {
         Err(e) => {
             console_log!("{}", e);
             return JsValue::undefined();
-        },
+        }
     };
 
-    let document_view = web_document.get_element_by_id("document").unwrap().dyn_into::<HtmlTextAreaElement>().unwrap();
+    let document_view = web_document
+        .get_element_by_id("document")
+        .unwrap()
+        .dyn_into::<HtmlTextAreaElement>()
+        .unwrap();
 
     let mut location = Url::parse(&window.location().href().unwrap()).unwrap();
     location.set_fragment(None);
-    
-    let loader: Rc<Box<dyn LibraryLoader>> = Rc::new(Box::new(HttpLoader::new(Some(location.join("ldraw/").unwrap()), Some(location.clone()))));
+
+    let loader: Rc<dyn LibraryLoader> = Rc::new(HttpLoader::new(
+        Some(location.join("ldraw/").unwrap()),
+        Some(location.clone()),
+    ));
 
     let colors = match loader.load_colors().await {
         Ok(e) => Rc::new(e),
@@ -166,7 +168,12 @@ pub async fn run(path: JsValue) -> JsValue {
         }
     };
 
-    let app = Rc::new(RefCell::new(App::new(Rc::clone(&gl), Rc::clone(&loader), Rc::clone(&colors), program_manager)));
+    let app = Rc::new(RefCell::new(App::new(
+        Rc::clone(&gl),
+        Rc::clone(&loader),
+        Rc::clone(&colors),
+        program_manager,
+    )));
     console_log!("Rendering context initialization done.");
 
     let cache = Arc::new(RwLock::new(PartCache::default()));
@@ -191,7 +198,12 @@ pub async fn run(path: JsValue) -> JsValue {
                 }
             };
 
-            let document = match parse_multipart_document(&mut BufReader::new(document_text.as_bytes()), &*colors).await {
+            let document = match parse_multipart_document(
+                &mut BufReader::new(document_text.as_bytes()),
+                &*colors,
+            )
+            .await
+            {
                 Ok(v) => v,
                 Err(err) => {
                     console_error!("Could not parse document: {}", err);
@@ -199,10 +211,17 @@ pub async fn run(path: JsValue) -> JsValue {
                 }
             };
 
-            if let Err(err) = app.borrow_mut().set_document(Arc::clone(&cache), &document, &log_part_resolution).await {
+            if let Err(err) = app
+                .borrow_mut()
+                .set_document(Arc::clone(&cache), &document, &log_part_resolution)
+                .await
+            {
                 console_error!("Could not load model: {}", err);
             }
-            cache.write().unwrap().collect(CacheCollectionStrategy::Parts);
+            cache
+                .write()
+                .unwrap()
+                .collect(CacheCollectionStrategy::Parts);
 
             let subparts = web_document.get_element_by_id("subparts").unwrap();
             subparts.set_inner_html("");
@@ -225,19 +244,16 @@ pub async fn run(path: JsValue) -> JsValue {
                 let subparts = web_document.get_element_by_id("subparts").unwrap();
                 let subparts = JsCast::dyn_ref::<HtmlSelectElement>(&subparts).unwrap();
                 let value = subparts.value();
-                
-                app.borrow_mut().set_render_target(
-                    if value.is_empty() {
-                        None
-                    } else {
-                        Some(value.parse::<Uuid>().unwrap())
-                    }
-                );
+
+                app.borrow_mut().set_render_target(if value.is_empty() {
+                    None
+                } else {
+                    Some(value.parse::<Uuid>().unwrap())
+                });
             }) as Box<dyn FnMut(_)>);
-            subparts.add_event_listener_with_callback(
-                "change",
-                closure.as_ref().unchecked_ref()
-            ).unwrap();
+            subparts
+                .add_event_listener_with_callback("change", closure.as_ref().unchecked_ref())
+                .unwrap();
             closure.forget();
 
             document_view.set_value(&document_text);
@@ -256,20 +272,27 @@ pub async fn run(path: JsValue) -> JsValue {
             spawn_local(async move {
                 let document_text = document_view.value();
 
-                let document = match parse_multipart_document(&mut BufReader::new(document_text.as_bytes()), &*colors).await {
+                let document = match parse_multipart_document(
+                    &mut BufReader::new(document_text.as_bytes()),
+                    &*colors,
+                )
+                .await
+                {
                     Ok(v) => v,
                     Err(err) => {
                         console_error!("Could not parse document: {}", err);
                         return;
                     }
                 };
-    
+
                 *new_doc.borrow_mut() = Some(document);
             });
         }) as Box<dyn FnMut(_)>);
         let submit_button = web_document.get_element_by_id("submit").unwrap();
         let submit_button = JsCast::dyn_ref::<HtmlButtonElement>(&submit_button).unwrap();
-        submit_button.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref()).unwrap();
+        submit_button
+            .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
 
@@ -278,10 +301,13 @@ pub async fn run(path: JsValue) -> JsValue {
         let app = Rc::clone(&app);
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if let Ok(mut a) = app.try_borrow_mut() {
-                a.orbit.on_mouse_move(event.offset_x() as f32, event.offset_y() as f32);
+                a.orbit
+                    .on_mouse_move(event.offset_x() as f32, event.offset_y() as f32);
             }
         }) as Box<dyn FnMut(_)>);
-        canvas.add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref()).unwrap();
+        canvas
+            .add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
     {
@@ -289,7 +315,9 @@ pub async fn run(path: JsValue) -> JsValue {
         let closure = Closure::wrap(Box::new(move |_event: web_sys::MouseEvent| {
             app.borrow_mut().orbit.on_mouse_press(true);
         }) as Box<dyn FnMut(_)>);
-        canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref()).unwrap();
+        canvas
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
     {
@@ -297,7 +325,9 @@ pub async fn run(path: JsValue) -> JsValue {
         let closure = Closure::wrap(Box::new(move |_event: web_sys::MouseEvent| {
             app.borrow_mut().orbit.on_mouse_press(false);
         }) as Box<dyn FnMut(_)>);
-        canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref()).unwrap();
+        canvas
+            .add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
     {
@@ -306,7 +336,9 @@ pub async fn run(path: JsValue) -> JsValue {
             let app = &mut app.borrow_mut();
             app.orbit.radius = (app.orbit.radius + event.delta_y() as f32).clamp(100.0, 10000.0);
         }) as Box<dyn FnMut(_)>);
-        canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref()).unwrap();
+        canvas
+            .add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
 
@@ -321,7 +353,7 @@ pub async fn run(path: JsValue) -> JsValue {
                     1 => {
                         let t = event.touches().item(0).unwrap();
                         a.orbit.on_mouse_move(t.page_x() as _, t.page_y() as _);
-                    },
+                    }
                     2 => {
                         let t1 = event.touches().item(0).unwrap();
                         let t2 = event.touches().item(1).unwrap();
@@ -331,20 +363,24 @@ pub async fn run(path: JsValue) -> JsValue {
                         let x2 = t2.page_x();
                         let y2 = t2.page_y();
 
-                        let sd = (((x2 - x1) as f32).powf(2.0) + ((y2 - y1) as f32).powf(2.0)).sqrt();
+                        let sd =
+                            (((x2 - x1) as f32).powf(2.0) + ((y2 - y1) as f32).powf(2.0)).sqrt();
                         let pd = *distance.borrow();
                         if pd != 0.0 {
                             let distance_delta = sd - pd;
 
-                            a.orbit.radius = (a.orbit.radius - distance_delta).clamp(100.0, 10000.0);
+                            a.orbit.radius =
+                                (a.orbit.radius - distance_delta).clamp(100.0, 10000.0);
                         }
                         *distance.borrow_mut() = sd;
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
             }
         }) as Box<dyn FnMut(_)>);
-        canvas.add_event_listener_with_callback("touchmove", closure.as_ref().unchecked_ref()).unwrap();
+        canvas
+            .add_event_listener_with_callback("touchmove", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
     {
@@ -352,7 +388,9 @@ pub async fn run(path: JsValue) -> JsValue {
         let closure = Closure::wrap(Box::new(move |_event: web_sys::TouchEvent| {
             app.borrow_mut().orbit.on_mouse_press(true);
         }) as Box<dyn FnMut(_)>);
-        canvas.add_event_listener_with_callback("touchstart", closure.as_ref().unchecked_ref()).unwrap();
+        canvas
+            .add_event_listener_with_callback("touchstart", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
     {
@@ -362,7 +400,9 @@ pub async fn run(path: JsValue) -> JsValue {
             app.borrow_mut().orbit.on_mouse_press(false);
             *distance.borrow_mut() = 0.0;
         }) as Box<dyn FnMut(_)>);
-        canvas.add_event_listener_with_callback("touchend", closure.as_ref().unchecked_ref()).unwrap();
+        canvas
+            .add_event_listener_with_callback("touchend", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
 
@@ -375,7 +415,9 @@ pub async fn run(path: JsValue) -> JsValue {
             canvas.set_height(canvas.client_height() as _);
             app.resize(canvas.client_width() as _, canvas.client_height() as _);
         }) as Box<dyn FnMut(_)>);
-        window.add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref()).unwrap();
+        window
+            .add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref())
+            .unwrap();
         closure.forget();
     }
 
@@ -383,11 +425,12 @@ pub async fn run(path: JsValue) -> JsValue {
         let next_button = web_document.get_element_by_id("next-button").unwrap();
         let next_button = JsCast::dyn_ref::<HtmlDivElement>(&next_button).unwrap();
         let a = Rc::clone(&app);
-        let closure = EventListener::new(&next_button, "click", move |_event| {
+        let closure = EventListener::new(next_button, "click", move |_event| {
             let window = web_sys::window().unwrap();
             let perf = window.performance().unwrap();
 
-            a.borrow_mut().advance(((perf.now() - start_time) / 1000.0) as f32);
+            a.borrow_mut()
+                .advance(((perf.now() - start_time) / 1000.0) as f32);
         });
         closure.forget();
     }
@@ -408,10 +451,16 @@ pub async fn run(path: JsValue) -> JsValue {
             let web_document = web_document.clone();
             spawn_local(async move {
                 if let Ok(mut m) = app.try_borrow_mut() {
-                    if let Err(err) = m.set_document(Arc::clone(&cache), &document, &log_part_resolution).await {
+                    if let Err(err) = m
+                        .set_document(Arc::clone(&cache), &document, &log_part_resolution)
+                        .await
+                    {
                         console_error!("Could not reload model: {}", err);
                     };
-                    cache.write().unwrap().collect(CacheCollectionStrategy::Parts);
+                    cache
+                        .write()
+                        .unwrap()
+                        .collect(CacheCollectionStrategy::Parts);
 
                     let subparts = web_document.get_element_by_id("subparts").unwrap();
                     subparts.set_inner_html("");
@@ -435,7 +484,7 @@ pub async fn run(path: JsValue) -> JsValue {
             });
         }
 
-        if let Ok(mut m) = app.try_borrow_mut() {            
+        if let Ok(mut m) = app.try_borrow_mut() {
             m.set_up();
             m.animate(((perf.now() - start_time) / 1000.0) as f32);
             let (stats, duration) = m.render();

@@ -16,11 +16,7 @@ use ldraw::{
     library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
     PartAlias, Point2, Point3, Vector2,
 };
-use ldraw_ir::{
-    geometry::BoundingBox3,
-    model::Model,
-    part::bake_part_from_multipart_document
-};
+use ldraw_ir::{geometry::BoundingBox3, model::Model, part::bake_part_from_multipart_document};
 use ldraw_renderer::{
     model::RenderableModel,
     part::{Part, PartsPool},
@@ -31,10 +27,6 @@ use uuid::Uuid;
 
 pub struct OrbitController {
     last_pos: Option<Point2>,
-    pressed_at: f32,
-    pressed_position: Point2,
-    released_at: f32,
-    released_position: Point2,
     pressing: bool,
 
     latitude: f32,
@@ -52,10 +44,6 @@ impl OrbitController {
     pub fn new() -> Self {
         OrbitController {
             last_pos: None,
-            pressed_at: 0.0,
-            pressed_position: Point2::new(0.0, 0.0),
-            released_at: 0.0,
-            released_position: Point2::new(0.0, 0.0),
             pressing: false,
 
             latitude: 0.785,
@@ -133,15 +121,12 @@ pub enum State {
     Finished,
 }
 
-
 struct SimplePartsPool<GL: HasContext>(pub HashMap<PartAlias, Arc<Part<GL>>>);
 
 impl<GL: HasContext> PartsPool<GL> for SimplePartsPool<GL> {
-
     fn query(&self, alias: &PartAlias) -> Option<Arc<Part<GL>>> {
         self.0.get(alias).map(Arc::clone)
     }
-
 }
 
 impl<GL: HasContext> SimplePartsPool<GL> {
@@ -153,7 +138,7 @@ impl<GL: HasContext> SimplePartsPool<GL> {
 pub struct App<GL: HasContext> {
     gl: Rc<GL>,
 
-    loader: Rc<Box<dyn LibraryLoader>>,
+    loader: Rc<dyn LibraryLoader>,
     colors: Rc<ColorCatalog>,
 
     parts: Arc<RwLock<SimplePartsPool<GL>>>,
@@ -171,11 +156,10 @@ pub struct App<GL: HasContext> {
 const FALL_INTERVAL_UPPER_BOUND: f32 = 5.0;
 const FALL_DURATION: f32 = 0.5;*/
 
-impl<GL: HasContext> App<GL>
-{
+impl<GL: HasContext> App<GL> {
     pub fn new(
         gl: Rc<GL>,
-        loader: Rc<Box<dyn LibraryLoader>>,
+        loader: Rc<dyn LibraryLoader>,
         colors: Rc<ColorCatalog>,
         program_manager: ProgramManager<GL>,
     ) -> Self {
@@ -213,32 +197,50 @@ impl<GL: HasContext> App<GL>
             document,
             Arc::clone(&cache),
             &self.colors,
-            &self.loader,
+            &*self.loader,
             on_update,
         )
         .await;
 
-        let model = Model::from_ldraw_multipart_document(document, &self.colors, Some((&self.loader, cache))).await;
+        let model = Model::from_ldraw_multipart_document(
+            document,
+            &self.colors,
+            Some((&*self.loader, cache)),
+        )
+        .await;
 
-        self.parts.write().unwrap().0.extend(
-            document
-                .list_dependencies()
-                .into_iter()
-                .filter_map(|alias| {
-                    resolution_result.query(&alias, true).map(|(part, local)| {
-                        (
-                            alias.clone(),
-                            Arc::new(Part::create(
-                                &bake_part_from_multipart_document(part, &resolution_result, local),
-                                Rc::clone(&self.gl),
-                                &self.colors
-                            )),
-                        )
-                    })
-                })
-        );
+        self.parts
+            .write()
+            .unwrap()
+            .0
+            .extend(
+                document
+                    .list_dependencies()
+                    .into_iter()
+                    .filter_map(|alias| {
+                        resolution_result.query(&alias, true).map(|(part, local)| {
+                            (
+                                alias.clone(),
+                                Arc::new(Part::create(
+                                    &bake_part_from_multipart_document(
+                                        part,
+                                        &resolution_result,
+                                        local,
+                                    ),
+                                    Rc::clone(&self.gl),
+                                    &self.colors,
+                                )),
+                            )
+                        })
+                    }),
+            );
         self.state = State::Playing;
-        let model = RenderableModel::new(model, Rc::clone(&self.gl), Arc::clone(&self.parts), &self.colors);
+        let model = RenderableModel::new(
+            model,
+            Rc::clone(&self.gl),
+            Arc::clone(&self.parts),
+            &self.colors,
+        );
         let bounding_box = model.bounding_box.clone();
         let center = bounding_box.center();
         self.model = Some(model);
@@ -256,7 +258,7 @@ impl<GL: HasContext> App<GL>
         self.context.set_initial_state();
     }
 
-    pub fn advance(&mut self, time: f32) {
+    pub fn advance(&mut self, _time: f32) {
         /*if self.state == State::Step || self.pointer.is_none() {
             let start = self.pointer.unwrap_or(0);
 
@@ -359,9 +361,12 @@ impl<GL: HasContext> App<GL>
 
     pub fn get_subparts(&self) -> Vec<(Uuid, String)> {
         if let Some(v) = &self.model {
-            let mut result = v.model.object_groups.iter().map(
-                |(k, v)| (k.clone(), v.name.clone())
-            ).collect::<Vec<_>>();
+            let mut result = v
+                .model
+                .object_groups
+                .iter()
+                .map(|(k, v)| (*k, v.name.clone()))
+                .collect::<Vec<_>>();
             result.sort_by(|a, b| a.1.cmp(&b.1));
             result
         } else {
@@ -375,10 +380,12 @@ impl<GL: HasContext> App<GL>
 
             let bounding_box = match group_id {
                 None => v.bounding_box.clone(),
-                Some(uuid) => if let Some(v) = v.subpart_bounding_boxes.get(&uuid) {
-                    v.clone()
-                } else {
-                    BoundingBox3::zero()
+                Some(uuid) => {
+                    if let Some(v) = v.subpart_bounding_boxes.get(&uuid) {
+                        v.clone()
+                    } else {
+                        BoundingBox3::zero()
+                    }
                 }
             };
             let center = bounding_box.center();
