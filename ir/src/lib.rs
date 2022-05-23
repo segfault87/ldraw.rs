@@ -4,11 +4,11 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use ldraw::color::{ColorReference, ColorCatalog};
+use ldraw::color::{ColorCatalog, ColorReference};
 use serde::{
     de::{Deserializer, Error as DeError, Unexpected, Visitor},
     ser::Serializer,
-    Deserialize, Serialize
+    Deserialize, Serialize,
 };
 
 pub mod constraints;
@@ -40,29 +40,32 @@ impl<'de> Deserialize<'de> for MeshGroup {
             type Value = MeshGroup;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a string with number in it and optional exclamation mark preceding to it")
+                formatter.write_str(
+                    "a string with number in it and optional exclamation mark preceding to it",
+                )
             }
 
             fn visit_str<E: DeError>(self, value: &str) -> Result<Self::Value, E> {
-                let (slice, bfc) = if value.starts_with("!") {
-                    (&value[1..], false)
+                let (slice, bfc) = if let Some(stripped) = value.strip_prefix('!') {
+                    (stripped, false)
                 } else {
-                    (&value[..], true)
+                    (value, true)
                 };
 
                 match slice.parse::<u32>() {
                     Ok(v) => Ok(MeshGroup {
                         color_ref: ColorReference::Unknown(v),
-                        bfc: bfc,
+                        bfc,
                     }),
                     Err(_) => Err(DeError::invalid_value(
-                        Unexpected::Str(value), &"a string with number in it and optional exclamation mark preceding to it"
+                        Unexpected::Str(value),
+                        &"a string with number in it and optional exclamation mark preceding to it",
                     )),
                 }
             }
         }
 
-        Ok(deserializer.deserialize_str(MeshGroupVisitor)?)
+        deserializer.deserialize_str(MeshGroupVisitor)
     }
 }
 

@@ -7,28 +7,20 @@ use std::{
 
 use cgmath::SquareMatrix;
 use ldraw::{
-    color::{ColorReference, ColorCatalog},
-    document::{
-        Document as LdrawDocument,
-        MultipartDocument as LdrawMultipartDocument
-    },
+    color::{ColorCatalog, ColorReference},
+    document::{Document as LdrawDocument, MultipartDocument as LdrawMultipartDocument},
     elements::Command,
-    library::{
-        LibraryLoader,
-        PartCache,
-        ResolutionResult,
-        resolve_dependencies,
-    },
+    library::{resolve_dependencies, LibraryLoader, PartCache, ResolutionResult},
     Matrix4, PartAlias, Vector3,
 };
 use serde::{
-    de::{Error as DeError, Deserializer, Visitor, MapAccess},
+    de::{Deserializer, Error as DeError, MapAccess, Visitor},
     ser::{SerializeMap, Serializer},
-    Deserialize, Serialize
+    Deserialize, Serialize,
 };
 use uuid::Uuid;
 
-use crate::part::{PartBuilder, bake_part_from_document, bake_part_from_multipart_document};
+use crate::part::{bake_part_from_document, bake_part_from_multipart_document, PartBuilder};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectInstance {
@@ -82,10 +74,13 @@ pub struct Model {
 impl Serialize for Model {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer
+        S: Serializer,
     {
         let mut map = serializer.serialize_map(Some(2))?;
-        map.serialize_entry("object_groups", &self.object_groups.values().collect::<Vec<_>>())?;
+        map.serialize_entry(
+            "object_groups",
+            &self.object_groups.values().collect::<Vec<_>>(),
+        )?;
         map.serialize_entry("objects", &self.objects)?;
         map.serialize_entry("embedded_parts", &self.embedded_parts)?;
         map.end()
@@ -145,62 +140,65 @@ impl<'de> Deserialize<'de> for Model {
                     }
                 }
 
-                let object_groups: Vec<ObjectGroup> = object_groups.unwrap_or_else(Vec::new);
-                let object_groups = object_groups.into_iter().map(|v| (v.id.clone(), v)).collect::<HashMap<_, _>>();
+                let object_groups: Vec<ObjectGroup> = object_groups.unwrap_or_default();
+                let object_groups = object_groups
+                    .into_iter()
+                    .map(|v| (v.id, v))
+                    .collect::<HashMap<_, _>>();
                 let objects = objects.ok_or_else(|| DeError::missing_field("objects"))?;
-                let embedded_parts: HashMap<PartAlias, PartBuilder> = embedded_parts.unwrap_or_else(HashMap::new);
+                let embedded_parts: HashMap<PartAlias, PartBuilder> =
+                    embedded_parts.unwrap_or_default();
 
-                Ok(Model { object_groups, objects, embedded_parts })
+                Ok(Model {
+                    object_groups,
+                    objects,
+                    embedded_parts,
+                })
             }
         }
 
-        const FIELDS: &'static [&'static str] = &["object_groups", "items", "embedded_parts"];
-
+        const FIELDS: &[&str] = &["object_groups", "items", "embedded_parts"];
 
         deserializer.deserialize_struct("Document", FIELDS, DocumentVisitor)
     }
 }
 
-fn build_objects(document: &LdrawDocument, subparts: Option<&HashMap<PartAlias, Uuid>>) -> Vec<Object> {
-    document.iter_refs().map(|v| {
-        let data = match subparts {
-            Some(subparts) => {
-                match subparts.get(&v.name) {
-                    Some(e) => ObjectInstance::PartGroup(
-                        PartGroupInstance {
-                            matrix: v.matrix.clone(),
-                            color: v.color.clone(),
-                            group_id: e.clone(),
-                        }
-                    ),
-                    None => ObjectInstance::Part(
-                        PartInstance {
-                            matrix: v.matrix.clone(),
-                            color: v.color.clone(),
-                            part: v.name.clone(),
-                        }
-                    )
-                }
-            },
-            None => {
-                ObjectInstance::Part(
-                    PartInstance {
-                        matrix: v.matrix.clone(),
-                            color: v.color.clone(),
-                            part: v.name.clone(),
-                    }
-                )
-            }
-        };
+fn build_objects(
+    document: &LdrawDocument,
+    subparts: Option<&HashMap<PartAlias, Uuid>>,
+) -> Vec<Object> {
+    document
+        .iter_refs()
+        .map(|v| {
+            let data = match subparts {
+                Some(subparts) => match subparts.get(&v.name) {
+                    Some(e) => ObjectInstance::PartGroup(PartGroupInstance {
+                        matrix: v.matrix,
+                        color: v.color.clone(),
+                        group_id: *e,
+                    }),
+                    None => ObjectInstance::Part(PartInstance {
+                        matrix: v.matrix,
+                        color: v.color.clone(),
+                        part: v.name.clone(),
+                    }),
+                },
+                None => ObjectInstance::Part(PartInstance {
+                    matrix: v.matrix,
+                    color: v.color.clone(),
+                    part: v.name.clone(),
+                }),
+            };
 
-        Object {
-            id: Uuid::new_v4(),
-            data,
-        }
-    }).collect::<Vec<_>>()
+            Object {
+                id: Uuid::new_v4(),
+                data,
+            }
+        })
+        .collect::<Vec<_>>()
 }
 
-fn resolve_colors(objects: &mut Vec<Object>, colors: &ColorCatalog) {
+fn resolve_colors(objects: &mut [Object], colors: &ColorCatalog) {
     for object in objects.iter_mut() {
         match &mut object.data {
             ObjectInstance::Part(ref mut p) => {
@@ -214,7 +212,9 @@ fn resolve_colors(objects: &mut Vec<Object>, colors: &ColorCatalog) {
     }
 }
 
-fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, PartBuilder, Object)> {
+fn extract_document_primitives(
+    document: &LdrawDocument,
+) -> Option<(PartAlias, PartBuilder, Object)> {
     if document.has_primitives() {
         let name = &document.name;
         let prims = LdrawDocument {
@@ -223,12 +223,17 @@ fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, P
             author: document.author.clone(),
             bfc: document.bfc.clone(),
             headers: document.headers.clone(),
-            commands: document.commands.iter().filter_map(|e| {
-                match e {
-                    Command::Line(_) | Command::Triangle(_) | Command::Quad(_) | Command::OptionalLine(_) => Some(e.clone()),
-                    _ => None
-                }
-            }).collect::<Vec<_>>(),
+            commands: document
+                .commands
+                .iter()
+                .filter_map(|e| match e {
+                    Command::Line(_)
+                    | Command::Triangle(_)
+                    | Command::Quad(_)
+                    | Command::OptionalLine(_) => Some(e.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
         };
         let prims = LdrawMultipartDocument {
             body: prims,
@@ -238,13 +243,11 @@ fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, P
         let part = bake_part_from_multipart_document(&prims, &ResolutionResult::default(), true);
         let object = Object {
             id: Uuid::new_v4(),
-            data: ObjectInstance::Part(
-                PartInstance {
-                    matrix: Matrix4::identity(),
-                    color: ColorReference::Current,
-                    part: PartAlias::from(name.clone()),
-                }
-            ),
+            data: ObjectInstance::Part(PartInstance {
+                matrix: Matrix4::identity(),
+                color: ColorReference::Current,
+                part: PartAlias::from(name.clone()),
+            }),
         };
 
         Some((PartAlias::from(name.clone()), part, object))
@@ -254,27 +257,31 @@ fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, P
 }
 
 impl Model {
-
     pub async fn from_ldraw_multipart_document(
         document: &LdrawMultipartDocument,
         colors: &ColorCatalog,
-        inline_loader: Option<(&Box<dyn LibraryLoader>, Arc<RwLock<PartCache>>)>,
+        inline_loader: Option<(&dyn LibraryLoader, Arc<RwLock<PartCache>>)>,
     ) -> Self {
-        let subparts = document.subparts.keys().map(|alias| (alias.clone(), Uuid::new_v4())).collect::<HashMap<_, _>>();
+        let subparts = document
+            .subparts
+            .keys()
+            .map(|alias| (alias.clone(), Uuid::new_v4()))
+            .collect::<HashMap<_, _>>();
 
         let mut embedded_parts = HashMap::new();
         if let Some((loader, cache)) = inline_loader {
             for (alias, subpart) in document.subparts.iter() {
                 if subpart.has_primitives() {
                     let resolution_result = resolve_dependencies(
-                        subpart, Arc::clone(&cache), colors, loader, &|_, _| {}
-                    ).await;
-
-                    let part = bake_part_from_document(
                         subpart,
-                        &resolution_result,
-                        true,
-                    );
+                        Arc::clone(&cache),
+                        colors,
+                        loader,
+                        &|_, _| {},
+                    )
+                    .await;
+
+                    let part = bake_part_from_document(subpart, &resolution_result, true);
 
                     embedded_parts.insert(alias.clone(), part);
                 }
@@ -284,33 +291,37 @@ impl Model {
         let mut object_groups = HashMap::new();
         for (alias, subpart) in document.subparts.iter() {
             if !embedded_parts.contains_key(alias) {
-                let id = subparts.get(&alias).unwrap().clone();
+                let id = *subparts.get(alias).unwrap();
                 object_groups.insert(
-                    id.clone(), 
+                    id,
                     ObjectGroup {
                         id,
                         name: subpart.name.clone(),
                         objects: build_objects(subpart, Some(&subparts)),
                         pivot: Vector3::new(0.0, 0.0, 0.0),
-                    }
+                    },
                 );
             }
         }
         let mut objects = build_objects(&document.body, Some(&subparts));
-        
+
         if let Some((alias, part, object)) = extract_document_primitives(&document.body) {
             embedded_parts.insert(alias, part);
             objects.push(object);
         }
 
-        Model { object_groups, objects, embedded_parts }
+        Model {
+            object_groups,
+            objects,
+            embedded_parts,
+        }
     }
 
     pub fn from_ldraw_document(document: &LdrawDocument) -> Self {
         let mut embedded_parts = HashMap::new();
-        let mut objects = build_objects(&document, None);
+        let mut objects = build_objects(document, None);
 
-        if let Some((alias, part, object)) = extract_document_primitives(&document) {
+        if let Some((alias, part, object)) = extract_document_primitives(document) {
             embedded_parts.insert(alias, part);
             objects.push(object);
         }
@@ -328,5 +339,4 @@ impl Model {
             resolve_colors(&mut group.objects, colors);
         }
     }
-
 }

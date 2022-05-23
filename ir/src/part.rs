@@ -1,19 +1,12 @@
 use std::{
-    cell::RefCell,
-    collections::HashMap,
-    f32,
-    fmt::Debug,
-    mem,
-    ops::Deref,
-    rc::Rc,
-    sync::Arc,
+    cell::RefCell, collections::HashMap, f32, fmt::Debug, mem, ops::Deref, rc::Rc, sync::Arc,
     vec::Vec,
 };
 
-use cgmath::{abs_diff_eq, AbsDiffEq, InnerSpace, Rad, SquareMatrix};
+use cgmath::{AbsDiffEq, InnerSpace, Rad, SquareMatrix};
 use kdtree::{distance::squared_euclidean, KdTree};
 use ldraw::{
-    color::{ColorReference, ColorCatalog},
+    color::{ColorCatalog, ColorReference},
     document::{Document, MultipartDocument},
     elements::{BfcStatement, Command, Meta},
     library::ResolutionResult,
@@ -290,13 +283,6 @@ impl<'a> Iterator for FaceIterator<'a> {
 }
 
 impl<'a> FaceVertices {
-    pub fn center(&self) -> Vector3 {
-        match self {
-            FaceVertices::Triangle(a) => (a[0].position + a[1].position + a[2].position) / 3.0,
-            FaceVertices::Quad(a) => (a[0].position + a[1].position + a[2].position + a[3].position) / 4.0,
-        }
-    }
-
     pub fn triangles(&self, reverse: bool) -> FaceIterator {
         let order = match self {
             FaceVertices::Triangle(_) => TRIANGLE_INDEX_ORDER,
@@ -328,26 +314,6 @@ impl<'a> FaceVertices {
             FaceVertices::Quad(a) => a.get_mut(QUAD_INDEX_ORDER[index]).unwrap(),
         }
     }
-
-    pub fn contains(&self, vec: &Vector3) -> bool {
-        match self {
-            FaceVertices::Triangle(v) => {
-                for i in v {
-                    if abs_diff_eq!(vec, &i.position) {
-                        return true;
-                    }
-                }
-            }
-            FaceVertices::Quad(v) => {
-                for i in v {
-                    if abs_diff_eq!(vec, &i.position) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -358,14 +324,12 @@ struct Face {
 
 #[derive(Debug)]
 struct Adjacency {
-    pub position: Vector3,
     pub faces: Vec<(Rc<RefCell<Face>>, usize)>,
 }
 
 impl<'a> Adjacency {
-    pub fn new(position: &Vector3) -> Adjacency {
+    pub fn new() -> Adjacency {
         Adjacency {
-            position: *position,
             faces: Vec::new(),
         }
     }
@@ -420,10 +384,12 @@ impl MeshBuilder {
                     e.borrow_mut().add(Rc::clone(&face), index);
                 }
                 None => {
-                    let adjacency = Rc::new(RefCell::new(Adjacency::new(&vertex.position)));
+                    let adjacency = Rc::new(RefCell::new(Adjacency::new()));
                     adjacency.borrow_mut().add(Rc::clone(&face), index);
                     self.adjacencies.push(Rc::clone(&adjacency));
-                    self.point_cloud.add(*vertex.position.as_ref(), adjacency).unwrap();
+                    self.point_cloud
+                        .add(*vertex.position.as_ref(), adjacency)
+                        .unwrap();
                 }
             };
         }
@@ -439,34 +405,34 @@ impl MeshBuilder {
                 let mut ops = 0;
 
                 for i in 0..length {
-                    if flags[i] == false {
+                    if !flags[i] {
                         marked.clear();
                         marked.push(i);
                         flags[i] = true;
                         let (face, index) = &adjacency.faces[i];
-                        let base_normal = face.borrow().vertices.query(*index).normal.clone();
-                        let mut smoothed_normal = base_normal.clone();
-                        for j in 0..length {
+                        let base_normal = face.borrow().vertices.query(*index).normal;
+                        let mut smoothed_normal = base_normal;
+                        for (j, flag) in flags.iter_mut().enumerate() {
                             if i != j {
                                 let (face, index) = &adjacency.faces[j];
                                 let c_normal = face.borrow().vertices.query(*index).normal;
                                 let angle = base_normal.angle(c_normal);
                                 if angle.0 < f32::default_epsilon() {
-                                    flags[j] = true;
+                                    *flag = true;
                                 }
                                 if angle < NORMAL_BLEND_THRESHOLD {
                                     ops += 1;
-                                    flags[j] = true;
+                                    *flag = true;
                                     marked.push(j);
                                     smoothed_normal += c_normal;
                                 }
                             }
                         }
 
-                        if marked.len() > 0 {
+                        if !marked.is_empty() {
                             smoothed_normal /= marked.len() as f32;
                         }
-    
+
                         for j in marked.iter() {
                             let (face, index) = &adjacency.faces[*j];
                             face.borrow_mut().vertices.query_mut(*index).normal = smoothed_normal;
@@ -593,7 +559,7 @@ impl<'a> PartBaker<'a> {
                         ColorReference::Current => self.color_stack.last().unwrap().clone(),
                         e => e.clone(),
                     };
-                    
+
                     if let Some(part) = parent.get_subpart(&cmd.name) {
                         self.color_stack.push(color);
                         self.traverse(part, &*parent, matrix, cull_next, invert_child, local);
@@ -652,20 +618,20 @@ impl<'a> PartBaker<'a> {
                                 vertices: FaceVertices::Triangle([
                                     FaceVertex {
                                         position: v1,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v2,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v3,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                 ]),
                                 winding: Winding::Ccw,
                             }
-                        },
+                        }
                         Winding::Cw => {
                             let v1 = (matrix * cmd.c).truncate();
                             let v2 = (matrix * cmd.b).truncate();
@@ -675,20 +641,20 @@ impl<'a> PartBaker<'a> {
                                 vertices: FaceVertices::Triangle([
                                     FaceVertex {
                                         position: v1,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v2,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v3,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                 ]),
                                 winding: Winding::Cw,
                             }
-                        },
+                        }
                     };
 
                     let category = MeshGroup {
@@ -700,7 +666,8 @@ impl<'a> PartBaker<'a> {
                         },
                     };
 
-                    self.mesh_builder.add(&category, Rc::new(RefCell::new(face)));
+                    self.mesh_builder
+                        .add(&category, Rc::new(RefCell::new(face)));
                 }
                 Command::Quad(cmd) => {
                     let color = match &cmd.color {
@@ -719,24 +686,24 @@ impl<'a> PartBaker<'a> {
                                 vertices: FaceVertices::Quad([
                                     FaceVertex {
                                         position: v1,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v2,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v3,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v4,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                 ]),
                                 winding: Winding::Ccw,
                             }
-                        },
+                        }
                         Winding::Cw => {
                             let v1 = (matrix * cmd.d).truncate();
                             let v2 = (matrix * cmd.c).truncate();
@@ -747,24 +714,24 @@ impl<'a> PartBaker<'a> {
                                 vertices: FaceVertices::Quad([
                                     FaceVertex {
                                         position: v1,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v2,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v3,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                     FaceVertex {
                                         position: v4,
-                                        normal: normal.clone(),
+                                        normal,
                                     },
                                 ]),
                                 winding: Winding::Cw,
                             }
-                        },
+                        }
                     };
 
                     let category = MeshGroup {
@@ -776,7 +743,8 @@ impl<'a> PartBaker<'a> {
                         },
                     };
 
-                    self.mesh_builder.add(&category, Rc::new(RefCell::new(face)));
+                    self.mesh_builder
+                        .add(&category, Rc::new(RefCell::new(face)));
                 }
                 Command::Meta(cmd) => {
                     if let Meta::Bfc(statement) = cmd {
@@ -815,9 +783,7 @@ impl<'a> PartBaker<'a> {
         )
     }
 
-    pub fn new(
-        resolutions: &'a ResolutionResult
-    ) -> Self {
+    pub fn new(resolutions: &'a ResolutionResult) -> Self {
         let mut mb = PartBaker {
             resolutions,
 
@@ -858,7 +824,7 @@ pub fn bake_part_from_document(
     let mut baker = PartBaker::new(resolutions);
 
     baker.traverse(
-        &document,
+        document,
         // NOTE: Workaround as it's a bit tricky to pass parent in Option<T> form
         &MultipartDocument {
             body: Default::default(),
