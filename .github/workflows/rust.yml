@@ -20,7 +20,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
-        target: wasm32-unknown-unknown x86_64-unknown-linux-gnu
+        target: wasm32-unknown-unknown
         component: clippy
     - name: Build (native binaries)
       run: cargo build -p viewer_native -p ldr2img -p baker --verbose
