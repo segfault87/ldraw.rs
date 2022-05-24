@@ -111,6 +111,7 @@ fn log_part_resolution(alias: PartAlias, result: Result<(), ResolutionError>) {
 }
 
 #[wasm_bindgen]
+#[allow(clippy::await_holding_refcell_ref)]
 pub async fn run(path: JsValue) -> JsValue {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
 
