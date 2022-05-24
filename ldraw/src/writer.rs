@@ -130,7 +130,7 @@ impl LDrawWriter for Meta {
         match self {
             Meta::Comment(message) => {
                 for line in message.lines() {
-                    writer.write_all(format!("0 {}\n", line).as_bytes()).await?;
+                    writer.write_all(format!("0 // {}\n", line).as_bytes()).await?;
                 }
             }
             Meta::Step => {

@@ -119,10 +119,10 @@ fn parse_bfc_statement(iterator: &mut Chars) -> Result<Line0, ParseError> {
         "CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Winding(Winding::Cw)))),
         "CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Winding(Winding::Ccw)))),
         "CLIP" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(None)))),
-        "CLIP CW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(Some(
+        "CLIP CW" | "CW CLIP" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(Some(
             Winding::Cw,
         ))))),
-        "CLIP CCW" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(Some(
+        "CLIP CCW" | "CCW CLIP" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::Clip(Some(
             Winding::Ccw,
         ))))),
         "NOCLIP" => Ok(Line0::Meta(Meta::Bfc(BfcStatement::NoClip))),
@@ -142,7 +142,7 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
 
     if cmd.starts_with('!') {
         let key: String = cmd.chars().skip(1).collect();
-        let value = next_token(&mut inner_iterator, true)?;
+        let value = next_token(&mut inner_iterator, true).unwrap_or_default();
         return Ok(Line0::Header(Header(key, value)));
     }
 
@@ -172,7 +172,13 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
         "CLEAR" => Ok(Line0::Meta(Meta::Clear)),
         "PAUSE" => Ok(Line0::Meta(Meta::Pause)),
         "SAVE" => Ok(Line0::Meta(Meta::Save)),
-        _ => Ok(Line0::Meta(Meta::Comment(text))),
+        _ => {
+            let comment = match text.strip_prefix("//") {
+                Some(e) => e.trim(),
+                None => &text,
+            };
+            Ok(Line0::Meta(Meta::Comment(comment.to_string())))
+        },
     }
 }
 
