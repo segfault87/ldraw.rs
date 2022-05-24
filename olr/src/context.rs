@@ -1,10 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
 use glow::{Context as GlContext, HasContext, PixelPackData};
-use glutin::{
-    dpi::PhysicalSize, event_loop::EventLoop, Context,
-    ContextBuilder, CreationError, GlProfile, GlRequest, NotCurrent, PossiblyCurrent,
-};
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
@@ -12,8 +8,10 @@ use glutin::{
     target_os = "netbsd",
     target_os = "openbsd",
 ))]
-use glutin::platform::{
-    unix::HeadlessContextExt,
+use glutin::platform::unix::HeadlessContextExt;
+use glutin::{
+    dpi::PhysicalSize, event_loop::EventLoop, Context, ContextBuilder, CreationError, GlProfile,
+    GlRequest, NotCurrent, PossiblyCurrent,
 };
 use image::RgbaImage;
 use ldraw::Vector2;
@@ -239,9 +237,7 @@ pub fn create_offscreen_context(
             Ok(e) => e,
             Err(_) => match cb.clone().build_headless(&evloop, size) {
                 Ok(e) => e,
-                Err(e) => {
-                    cb.build_osmesa(size)?
-                }
+                Err(_) => cb.build_osmesa(size)?,
             },
         }
     };
@@ -281,7 +277,7 @@ pub fn create_offscreen_context(
         Ok(e) => e,
         Err(e) => {
             return Err(ContextCreationError::GlContextError(e));
-        },
+        }
     };
 
     create_context(context, width, height)

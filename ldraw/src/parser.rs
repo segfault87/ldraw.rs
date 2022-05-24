@@ -178,7 +178,7 @@ fn parse_line_0(iterator: &mut Chars) -> Result<Line0, ParseError> {
                 None => &text,
             };
             Ok(Line0::Meta(Meta::Comment(comment.to_string())))
-        },
+        }
     }
 }
 

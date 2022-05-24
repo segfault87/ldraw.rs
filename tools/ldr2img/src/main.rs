@@ -19,10 +19,7 @@ use ldraw::{
     PartAlias,
 };
 use ldraw_ir::{model::Model, part::bake_part_from_multipart_document};
-use ldraw_olr::{
-    context::create_offscreen_context,
-    ops::render_model,
-};
+use ldraw_olr::{context::create_offscreen_context, ops::render_model};
 use ldraw_renderer::part::{Part, PartsPool};
 
 #[tokio::main]

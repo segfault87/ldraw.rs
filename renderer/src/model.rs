@@ -66,8 +66,7 @@ fn calculate_bounding_box<GL: HasContext, P: PartsPool<GL>>(
                                 Arc::clone(&parts),
                                 subpart_bounding_boxes,
                             );
-                            subpart_bounding_boxes
-                                .insert(group_instance.group_id, sub_bb.clone());
+                            subpart_bounding_boxes.insert(group_instance.group_id, sub_bb.clone());
 
                             sub_bb
                         } else {

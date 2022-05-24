@@ -329,9 +329,7 @@ struct Adjacency {
 
 impl<'a> Adjacency {
     pub fn new() -> Adjacency {
-        Adjacency {
-            faces: Vec::new(),
-        }
+        Adjacency { faces: Vec::new() }
     }
 
     pub fn add(&mut self, face: Rc<RefCell<Face>>, index: usize) {
