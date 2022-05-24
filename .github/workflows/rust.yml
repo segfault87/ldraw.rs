@@ -16,8 +16,16 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
+    - name: Setup Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: wasm32-unknown-unknown x86_64-unknown-linux-gnu
+        component: clippy
+    - name: Build (native binaries)
+      run: cargo build -p viewer_native -p ldr2img -p baker --verbose
+    - name: Build (webassembly)
+      run: cargo build -p viewer_web --target=wasm32-unknown-unknown --verbose
     - name: Lint
       run: cargo clippy
     - name: Run tests
