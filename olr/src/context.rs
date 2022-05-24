@@ -2,8 +2,18 @@ use std::{cell::RefCell, rc::Rc};
 
 use glow::{Context as GlContext, HasContext, PixelPackData};
 use glutin::{
-    dpi::PhysicalSize, event_loop::EventLoop, platform::unix::HeadlessContextExt, Context,
+    dpi::PhysicalSize, event_loop::EventLoop, Context,
     ContextBuilder, CreationError, GlProfile, GlRequest, NotCurrent, PossiblyCurrent,
+};
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+))]
+use glutin::platform::{
+    unix::HeadlessContextExt,
 };
 use image::RgbaImage;
 use ldraw::Vector2;
@@ -202,10 +212,17 @@ fn create_context(
     })
 }
 
-pub fn create_headless_context<T: 'static>(
-    ev: EventLoop<T>,
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+))]
+pub fn create_offscreen_context(
     width: usize,
     height: usize,
+    force_software: bool,
 ) -> Result<OlrContext, ContextCreationError> {
     let size = PhysicalSize::new(1, 1);
     let cb = ContextBuilder::new()
@@ -213,29 +230,70 @@ pub fn create_headless_context<T: 'static>(
         .with_gl(GlRequest::Latest)
         .with_pixel_format(24, 8);
 
-    let context = match cb.clone().build_surfaceless(&ev) {
-        Ok(e) => e,
-        Err(_) => match cb.clone().build_headless(&ev, size) {
+    let evloop = EventLoop::new();
+
+    let context = if force_software {
+        cb.build_osmesa(size)?
+    } else {
+        match cb.clone().build_surfaceless(&evloop) {
             Ok(e) => e,
-            Err(e) => {
-                if cfg!(any(
-                    target_os = "linux",
-                    target_os = "freebsd",
-                    target_os = "dragonfly",
-                    target_os = "netbsd",
-                    target_os = "openbsd"
-                )) {
+            Err(_) => match cb.clone().build_headless(&evloop, size) {
+                Ok(e) => e,
+                Err(e) => {
                     cb.build_osmesa(size)?
-                } else {
-                    return Err(ContextCreationError::GlContextError(e));
                 }
-            }
+            },
+        }
+    };
+
+    create_context(context, width, height)
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+)))]
+pub fn create_offscreen_context(
+    width: usize,
+    height: usize,
+    force_software: bool,
+) -> Result<OlrContext, ContextCreationError> {
+    if force_software {
+        return Err(ContextCreationError::GlContextError(
+            CreationError::OsError(String::from(
+                "Software GL context (osmesa) is only available for *nix systems.",
+            )),
+        ));
+    }
+
+    let evloop = EventLoop::new();
+
+    let size = PhysicalSize::new(1, 1);
+    let cb = ContextBuilder::new()
+        .with_gl_profile(GlProfile::Core)
+        .with_gl(GlRequest::Latest)
+        .with_pixel_format(24, 8);
+
+    let context = match cb.clone().build_headless(&evloop, size) {
+        Ok(e) => e,
+        Err(e) => {
+            return Err(ContextCreationError::GlContextError(e));
         },
     };
 
     create_context(context, width, height)
 }
 
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+))]
 pub fn create_osmesa_context(
     width: usize,
     height: usize,
@@ -259,7 +317,7 @@ pub fn create_osmesa_context(
     } else {
         Err(ContextCreationError::GlContextError(
             CreationError::OsError(String::from(
-                "Osmesa context is only available for *nix systems.",
+                "Software GL context (osmesa) is only available for *nix systems.",
             )),
         ))
     }

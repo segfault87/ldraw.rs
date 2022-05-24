@@ -12,7 +12,6 @@ use async_std::{
 };
 use clap::{App, Arg};
 use glow::Context as GlContext;
-use glutin::event_loop::EventLoop;
 use ldraw::{
     library::{resolve_dependencies_multipart, PartCache},
     parser::{parse_color_definitions, parse_multipart_document},
@@ -21,7 +20,7 @@ use ldraw::{
 };
 use ldraw_ir::{model::Model, part::bake_part_from_multipart_document};
 use ldraw_olr::{
-    context::{create_headless_context, create_osmesa_context},
+    context::create_offscreen_context,
     ops::render_model,
 };
 use ldraw_renderer::part::{Part, PartsPool};
@@ -38,9 +37,9 @@ async fn main() {
                 .help("Path to LDraw directory"),
         )
         .arg(
-            Arg::with_name("use_window_system")
+            Arg::with_name("use_software_renderer")
                 .short("w")
-                .help("Use window system to utilize GPU rendering"),
+                .help("Use software GL context"),
         )
         .arg(
             Arg::with_name("output")
@@ -74,20 +73,14 @@ async fn main() {
     };
     let ldraw_path = PathBuf::from(&ldrawdir);
 
-    let use_window_system = matches.is_present("use_window_system");
+    let use_software_renderer = matches.is_present("use_software_renderer");
     let size = matches
         .value_of("size")
         .unwrap_or("1024")
         .parse::<usize>()
         .unwrap();
 
-    let context = if use_window_system {
-        let evloop = EventLoop::new();
-        create_headless_context(evloop, size, size)
-    } else {
-        create_osmesa_context(size, size)
-    }
-    .unwrap();
+    let context = create_offscreen_context(size, size, use_software_renderer).unwrap();
 
     let gl = Rc::clone(&context.gl);
 
