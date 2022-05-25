@@ -221,6 +221,10 @@ impl PartBuilder {
             rotation_center: *rotation_center,
         }
     }
+
+    pub fn resolve_colors(&mut self, colors: &ColorCatalog) {
+        self.part_builder.resolve_colors(colors);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
