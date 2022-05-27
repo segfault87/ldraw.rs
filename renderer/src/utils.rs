@@ -3,7 +3,7 @@ use std::slice::{from_raw_parts, from_raw_parts_mut};
 use cgmath::{Matrix, SquareMatrix};
 use ldraw::{Matrix3, Matrix4};
 
-pub(crate) fn cast_as_bytes<T>(input: &[T]) -> &[u8] {
+pub fn cast_as_bytes<T>(input: &[T]) -> &[u8] {
     unsafe { from_raw_parts(input.as_ptr() as *const u8, input.len() * 4) }
 }
 
