@@ -16,16 +16,17 @@ use crate::{
 };
 
 #[derive(Debug)]
-struct Program<GL: HasContext> {
+pub struct Program<GL: HasContext> {
     gl: Rc<GL>, // This is used only when unallocating
 
     vertex_shader: GL::Shader,
     fragment_shader: GL::Shader,
-    program: GL::Program,
+
+    pub program: GL::Program,
 }
 
 impl<GL: HasContext> Program<GL> {
-    fn use_program(&self) {
+    pub fn use_program(&self) {
         unsafe {
             self.gl.use_program(Some(self.program));
         }
@@ -33,7 +34,7 @@ impl<GL: HasContext> Program<GL> {
 }
 
 #[derive(Clone)]
-struct ShaderSource {
+pub struct ShaderSource {
     source: String,
     flags: Vec<(&'static str, Option<String>)>,
 }
@@ -105,7 +106,7 @@ impl<GL: HasContext> Program<GL> {
         }
     }
 
-    fn compile(
+    pub fn compile(
         gl: Rc<GL>,
         vertex_shader: &ShaderSource,
         fragment_shader: &ShaderSource,
