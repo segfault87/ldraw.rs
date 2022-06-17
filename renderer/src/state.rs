@@ -7,6 +7,7 @@ use ldraw::{color::Color, Matrix3, Matrix4, PartAlias, Vector2, Vector3, Vector4
 use ldraw_ir::geometry::{BoundingBox2, BoundingBox3};
 
 use crate::{
+    camera::Camera,
     display_list::{DisplayItem, DisplayList},
     part::Part,
     shader::{DefaultProgramInstancingKind, ProgramManager},
@@ -205,6 +206,7 @@ pub struct RenderingContext<GL: HasContext> {
     pub program_manager: ProgramManager<GL>,
     width: u32,
     height: u32,
+    aspect_ratio: f32,
 
     pub projection_data: ProjectionData,
     pub shading_data: ShadingData,
@@ -267,11 +269,21 @@ impl<GL: HasContext> RenderingContext<GL> {
             program_manager,
             width: 1,
             height: 1,
+            aspect_ratio: 1.0,
             projection_data: ProjectionData::default(),
             shading_data: ShadingData::default(),
             rendering_stats: RenderingStats::default(),
             envmap,
         }
+    }
+
+    pub fn apply_camera(&mut self, camera: &impl Camera) {
+        let projection = camera.get_projection_matrix(self.aspect_ratio);
+        let view = camera.get_view_matrix();
+
+        self.projection_data.update_projection_matrix(&projection);
+        self.projection_data.update_view_matrix(&view);
+        self.projection_data.orthographic = camera.is_orthographic();
     }
 
     pub fn apply_perspective_camera(&mut self, camera: &PerspectiveCamera) {
@@ -404,6 +416,7 @@ impl<GL: HasContext> RenderingContext<GL> {
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
+        self.aspect_ratio = width as f32 / height as f32;
         unsafe {
             self.gl.viewport(0, 0, width as _, height as _);
         }

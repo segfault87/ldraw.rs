@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct BoundingBox2 {
     pub min: Vector2,
     pub max: Vector2,
+    null: bool,
 }
 
 impl BoundingBox2 {
@@ -12,6 +13,7 @@ impl BoundingBox2 {
         BoundingBox2 {
             min: Vector2::new(0.0, 0.0),
             max: Vector2::new(0.0, 0.0),
+            null: true,
         }
     }
 
@@ -22,25 +24,35 @@ impl BoundingBox2 {
         BoundingBox2 {
             min: Vector2::new(min_x, min_y),
             max: Vector2::new(max_x, max_y),
+            null: false,
         }
     }
 
     pub fn len_x(&self) -> f32 {
-        self.max.x - self.min.x
+        if self.null {
+            0.0
+        } else {
+            self.max.x - self.min.x
+        }
     }
 
     pub fn len_y(&self) -> f32 {
-        self.max.y - self.min.y
+        if self.null {
+            0.0
+        } else {
+            self.max.y - self.min.y
+        }
     }
 
     pub fn is_null(&self) -> bool {
-        self.min.x == 0.0 && self.min.y == 0.0 && self.max.x == 0.0 && self.max.y == 0.0
+        self.null
     }
 
     pub fn update_point(&mut self, v: &Vector2) {
-        if self.is_null() {
+        if self.null {
             self.min = *v;
             self.max = *v;
+            self.null = false;
         } else {
             if self.min.x > v.x {
                 self.min.x = v.x;
@@ -63,7 +75,11 @@ impl BoundingBox2 {
     }
 
     pub fn center(&self) -> Vector2 {
-        (self.min + self.max) * 0.5
+        if self.null {
+            Vector2::new(0.0, 0.0)
+        } else {
+            (self.min + self.max) * 0.5
+        }
     }
 
     pub fn points(&self) -> [Vector2; 4] {
