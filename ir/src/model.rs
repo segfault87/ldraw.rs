@@ -20,7 +20,7 @@ use serde::{
 };
 use uuid::Uuid;
 
-use crate::part::{bake_part_from_document, bake_part_from_multipart_document, PartBuilder};
+use crate::part::{bake_part_from_document, bake_part_from_multipart_document, Part};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectInstance {
@@ -68,7 +68,7 @@ pub struct ObjectGroup {
 pub struct Model {
     pub object_groups: HashMap<Uuid, ObjectGroup>,
     pub objects: Vec<Object>,
-    pub embedded_parts: HashMap<PartAlias, PartBuilder>,
+    pub embedded_parts: HashMap<PartAlias, Part>,
 }
 
 impl Serialize for Model {
@@ -146,8 +146,7 @@ impl<'de> Deserialize<'de> for Model {
                     .map(|v| (v.id, v))
                     .collect::<HashMap<_, _>>();
                 let objects = objects.ok_or_else(|| DeError::missing_field("objects"))?;
-                let embedded_parts: HashMap<PartAlias, PartBuilder> =
-                    embedded_parts.unwrap_or_default();
+                let embedded_parts: HashMap<PartAlias, Part> = embedded_parts.unwrap_or_default();
 
                 Ok(Model {
                     object_groups,
@@ -212,9 +211,7 @@ fn resolve_colors(objects: &mut [Object], colors: &ColorCatalog) {
     }
 }
 
-fn extract_document_primitives(
-    document: &LdrawDocument,
-) -> Option<(PartAlias, PartBuilder, Object)> {
+fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, Part, Object)> {
     if document.has_primitives() {
         let name = &document.name;
         let prims = LdrawDocument {

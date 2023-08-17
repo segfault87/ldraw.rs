@@ -3,10 +3,11 @@ members = [
     "ir",
     "ldraw",
     "olr",
+    "renderer",
+    "renderer_v2",
     "tools/baker",
     "tools/ldr2img",
     "tools/viewer/common",
     "tools/viewer/native",
     "tools/viewer/web"
 ]
-
