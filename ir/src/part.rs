@@ -50,6 +50,7 @@ impl VertexBufferBuilder {
         let index = self.current_index;
         match self.index_table.add(vertex_ref.clone(), index) {
             Ok(_) => {
+                self.vertices.push(vertex);
                 self.current_index += 1;
                 index
             }
@@ -216,7 +217,7 @@ pub struct SubpartIndex {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct PartBuffer {
+pub struct PartBufferBundle {
     pub vertex_buffer: VertexBuffer,
     pub uncolored_mesh: MeshBuffer,
     pub uncolored_without_bfc_mesh: MeshBuffer,
@@ -227,7 +228,7 @@ pub struct PartBuffer {
 }
 
 #[derive(Default)]
-pub struct PartBufferBuilder {
+pub struct PartBufferBundleBuilder {
     pub vertex_buffer_builder: VertexBufferBuilder,
     uncolored_mesh: MeshBuffer,
     uncolored_without_bfc_mesh: MeshBuffer,
@@ -237,7 +238,7 @@ pub struct PartBufferBuilder {
     optional_edges: OptionalEdgeBuffer,
 }
 
-impl PartBufferBuilder {
+impl PartBufferBundleBuilder {
     pub fn resolve_colors(&mut self, colors: &ColorCatalog) {
         let keys = self.opaque_meshes.keys().cloned().collect::<Vec<_>>();
         for key in keys.iter() {
@@ -281,8 +282,8 @@ impl PartBufferBuilder {
         }
     }
 
-    pub fn build(self) -> PartBuffer {
-        PartBuffer {
+    pub fn build(self) -> PartBufferBundle {
+        PartBufferBundle {
             vertex_buffer: self.vertex_buffer_builder.build(),
             uncolored_mesh: self.uncolored_mesh,
             uncolored_without_bfc_mesh: self.uncolored_without_bfc_mesh,
@@ -296,19 +297,19 @@ impl PartBufferBuilder {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Part {
-    pub part_buffer: PartBuffer,
+    pub geometry: PartBufferBundle,
     pub bounding_box: BoundingBox3,
     pub rotation_center: Vector3,
 }
 
 impl Part {
     pub fn new(
-        part_buffer: PartBuffer,
+        geometry: PartBufferBundle,
         bounding_box: BoundingBox3,
         rotation_center: Vector3,
     ) -> Self {
         Part {
-            part_buffer,
+            geometry,
             bounding_box,
             rotation_center,
         }
@@ -542,7 +543,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn bake(&self, builder: &mut PartBufferBuilder, bounding_box: &mut BoundingBox3) {
+    pub fn bake(&self, builder: &mut PartBufferBundleBuilder, bounding_box: &mut BoundingBox3) {
         let mut bounding_box_min = None;
         let mut bounding_box_max = None;
 
@@ -609,7 +610,7 @@ impl MeshBuilder {
 struct PartBaker<'a> {
     resolutions: &'a ResolutionResult,
 
-    builder: PartBufferBuilder,
+    builder: PartBufferBundleBuilder,
     mesh_builder: MeshBuilder,
     color_stack: Vec<ColorReference>,
 }
@@ -891,7 +892,7 @@ impl<'a> PartBaker<'a> {
         let mut mb = PartBaker {
             resolutions,
 
-            builder: PartBufferBuilder::default(),
+            builder: PartBufferBundleBuilder::default(),
             mesh_builder: MeshBuilder::new(),
             color_stack: Vec::new(),
         };
