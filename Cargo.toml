@@ -9,5 +9,6 @@ members = [
     "tools/ldr2img",
     "tools/viewer/common",
     "tools/viewer/native",
-    "tools/viewer/web"
+    "tools/viewer/web",
+    "tools/viewer_v2"
 ]

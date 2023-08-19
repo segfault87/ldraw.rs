@@ -13,12 +13,18 @@ use ldraw::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{geometry::BoundingBox3, MeshGroup};
+use crate::{geometry::BoundingBox3, MeshGroupKey};
 
 const NORMAL_BLEND_THRESHOLD: Rad<f32> = Rad(f32::consts::FRAC_PI_6);
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct VertexBuffer(pub Vec<f32>);
+
+impl VertexBuffer {
+    pub fn check_range(&self, range: &std::ops::Range<usize>) -> bool {
+        self.0.len() >= range.end
+    }
+}
 
 pub struct VertexBufferBuilder {
     vertices: Vec<Vector3>,
@@ -90,7 +96,11 @@ impl MeshBuffer {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.vertex_indices.is_empty() || self.normal_indices.is_empty()
+        self.vertex_indices.is_empty()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.vertex_indices.len() == self.normal_indices.len()
     }
 
     pub fn add(
@@ -152,6 +162,10 @@ impl EdgeBuffer {
     pub fn is_empty(&self) -> bool {
         self.vertex_indices.is_empty()
     }
+
+    pub fn is_valid(&self) -> bool {
+        self.vertex_indices.len() == self.colors.len()
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -177,8 +191,12 @@ impl OptionalEdgeBuffer {
         let d = v2 - v1;
 
         self.vertex_indices.push(vertex_buffer.add(v1));
+        self.vertex_indices.push(vertex_buffer.add(v2));
+        self.control_1_indices.push(vertex_buffer.add(c1));
         self.control_1_indices.push(vertex_buffer.add(c1));
         self.control_2_indices.push(vertex_buffer.add(c2));
+        self.control_2_indices.push(vertex_buffer.add(c2));
+        self.direction_indices.push(vertex_buffer.add(d));
         self.direction_indices.push(vertex_buffer.add(d));
 
         let code = if color.is_current() {
@@ -199,6 +217,7 @@ impl OptionalEdgeBuffer {
             0
         };
         self.colors.push(code);
+        self.colors.push(code);
     }
 
     pub fn len(&self) -> usize {
@@ -208,10 +227,17 @@ impl OptionalEdgeBuffer {
     pub fn is_empty(&self) -> bool {
         self.vertex_indices.is_empty()
     }
+
+    pub fn is_valid(&self) -> bool {
+        self.vertex_indices.len() == self.control_1_indices.len()
+            && self.vertex_indices.len() == self.control_2_indices.len()
+            && self.vertex_indices.len() == self.direction_indices.len()
+            && self.vertex_indices.len() == self.colors.len()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SubpartIndex {
+pub struct BufferRange {
     pub start: usize,
     pub span: usize,
 }
@@ -221,8 +247,8 @@ pub struct PartBufferBundle {
     pub vertex_buffer: VertexBuffer,
     pub uncolored_mesh: MeshBuffer,
     pub uncolored_without_bfc_mesh: MeshBuffer,
-    pub opaque_meshes: HashMap<MeshGroup, MeshBuffer>,
-    pub translucent_meshes: HashMap<MeshGroup, MeshBuffer>,
+    pub opaque_meshes: HashMap<MeshGroupKey, MeshBuffer>,
+    pub translucent_meshes: HashMap<MeshGroupKey, MeshBuffer>,
     pub edges: EdgeBuffer,
     pub optional_edges: OptionalEdgeBuffer,
 }
@@ -232,8 +258,8 @@ pub struct PartBufferBundleBuilder {
     pub vertex_buffer_builder: VertexBufferBuilder,
     uncolored_mesh: MeshBuffer,
     uncolored_without_bfc_mesh: MeshBuffer,
-    opaque_meshes: HashMap<MeshGroup, MeshBuffer>,
-    translucent_meshes: HashMap<MeshGroup, MeshBuffer>,
+    opaque_meshes: HashMap<MeshGroupKey, MeshBuffer>,
+    translucent_meshes: HashMap<MeshGroupKey, MeshBuffer>,
     edges: EdgeBuffer,
     optional_edges: OptionalEdgeBuffer,
 }
@@ -262,7 +288,7 @@ impl PartBufferBundleBuilder {
         }
     }
 
-    fn query_mesh<'a>(&'a mut self, group: &MeshGroup) -> Option<&'a mut MeshBuffer> {
+    fn query_mesh<'a>(&'a mut self, group: &MeshGroupKey) -> Option<&'a mut MeshBuffer> {
         match (&group.color_ref, group.bfc) {
             (ColorReference::Current, true) => Some(&mut self.uncolored_mesh),
             (ColorReference::Current, false) => Some(&mut self.uncolored_without_bfc_mesh),
@@ -296,7 +322,27 @@ impl PartBufferBundleBuilder {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PartMetadata {
+    pub name: String,
+    pub description: String,
+    pub author: String,
+    pub extras: HashMap<String, String>,
+}
+
+impl From<&Document> for PartMetadata {
+    fn from(document: &Document) -> PartMetadata {
+        PartMetadata {
+            name: document.name.clone(),
+            description: document.description.clone(),
+            author: document.author.clone(),
+            extras: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Part {
+    pub metadata: PartMetadata,
     pub geometry: PartBufferBundle,
     pub bounding_box: BoundingBox3,
     pub rotation_center: Vector3,
@@ -304,11 +350,13 @@ pub struct Part {
 
 impl Part {
     pub fn new(
+        metadata: PartMetadata,
         geometry: PartBufferBundle,
         bounding_box: BoundingBox3,
         rotation_center: Vector3,
     ) -> Self {
         Part {
+            metadata,
             geometry,
             bounding_box,
             rotation_center,
@@ -441,7 +489,7 @@ fn calculate_normal(v1: &Vector3, v2: &Vector3, v3: &Vector3) -> Vector3 {
 
 #[derive(Debug)]
 struct MeshBuilder {
-    pub faces: HashMap<MeshGroup, Vec<Rc<RefCell<Face>>>>,
+    pub faces: HashMap<MeshGroupKey, Vec<Rc<RefCell<Face>>>>,
     adjacencies: Vec<Rc<RefCell<Adjacency>>>,
     point_cloud: KdTree<f32, Rc<RefCell<Adjacency>>, [f32; 3]>,
 }
@@ -455,7 +503,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn add(&mut self, group_key: &MeshGroup, face: Rc<RefCell<Face>>) {
+    pub fn add(&mut self, group_key: &MeshGroupKey, face: Rc<RefCell<Face>>) {
         let list = self.faces.entry(group_key.clone()).or_insert_with(Vec::new);
         list.push(face.clone());
 
@@ -610,6 +658,7 @@ impl MeshBuilder {
 struct PartBaker<'a> {
     resolutions: &'a ResolutionResult,
 
+    metadata: PartMetadata,
     builder: PartBufferBundleBuilder,
     mesh_builder: MeshBuilder,
     color_stack: Vec<ColorReference>,
@@ -762,7 +811,7 @@ impl<'a> PartBaker<'a> {
                         }
                     };
 
-                    let category = MeshGroup {
+                    let category = MeshGroupKey {
                         color_ref: color.clone(),
                         bfc: if bfc_certified {
                             cull && local_cull
@@ -839,7 +888,7 @@ impl<'a> PartBaker<'a> {
                         }
                     };
 
-                    let category = MeshGroup {
+                    let category = MeshGroupKey {
                         color_ref: color.clone(),
                         bfc: if bfc_certified {
                             cull && local_cull
@@ -882,16 +931,18 @@ impl<'a> PartBaker<'a> {
         self.mesh_builder.bake(&mut self.builder, &mut bounding_box);
 
         Part::new(
+            self.metadata,
             self.builder.build(),
             bounding_box,
             Vector3::new(0.0, 0.0, 0.0),
         )
     }
 
-    pub fn new(resolutions: &'a ResolutionResult) -> Self {
+    pub fn new(metadata: PartMetadata, resolutions: &'a ResolutionResult) -> Self {
         let mut mb = PartBaker {
             resolutions,
 
+            metadata,
             builder: PartBufferBundleBuilder::default(),
             mesh_builder: MeshBuilder::new(),
             color_stack: Vec::new(),
@@ -908,7 +959,7 @@ pub fn bake_part_from_multipart_document<D: Deref<Target = MultipartDocument>>(
     resolutions: &ResolutionResult,
     local: bool,
 ) -> Part {
-    let mut baker = PartBaker::new(resolutions);
+    let mut baker = PartBaker::new(PartMetadata::from(&document.body), resolutions);
 
     baker.traverse(
         &document.body,
@@ -926,7 +977,7 @@ pub fn bake_part_from_document(
     resolutions: &ResolutionResult,
     local: bool,
 ) -> Part {
-    let mut baker = PartBaker::new(resolutions);
+    let mut baker = PartBaker::new(document.into(), resolutions);
 
     baker.traverse(
         document,

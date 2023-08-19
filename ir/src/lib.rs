@@ -17,12 +17,12 @@ pub mod model;
 pub mod part;
 
 #[derive(Clone, Debug)]
-pub struct MeshGroup {
+pub struct MeshGroupKey {
     pub color_ref: ColorReference,
     pub bfc: bool,
 }
 
-impl Serialize for MeshGroup {
+impl Serialize for MeshGroupKey {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if self.bfc {
             serializer.serialize_str(&self.color_ref.code().to_string())
@@ -32,12 +32,12 @@ impl Serialize for MeshGroup {
     }
 }
 
-impl<'de> Deserialize<'de> for MeshGroup {
+impl<'de> Deserialize<'de> for MeshGroupKey {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct MeshGroupVisitor;
 
         impl<'de> Visitor<'de> for MeshGroupVisitor {
-            type Value = MeshGroup;
+            type Value = MeshGroupKey;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str(
@@ -53,7 +53,7 @@ impl<'de> Deserialize<'de> for MeshGroup {
                 };
 
                 match slice.parse::<u32>() {
-                    Ok(v) => Ok(MeshGroup {
+                    Ok(v) => Ok(MeshGroupKey {
                         color_ref: ColorReference::Unknown(v),
                         bfc,
                     }),
@@ -69,27 +69,27 @@ impl<'de> Deserialize<'de> for MeshGroup {
     }
 }
 
-impl MeshGroup {
+impl MeshGroupKey {
     pub fn resolve_color(&mut self, colors: &ColorCatalog) {
         self.color_ref.resolve_self(colors);
     }
 }
 
-impl Hash for MeshGroup {
+impl Hash for MeshGroupKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.color_ref.code().hash(state);
         self.bfc.hash(state);
     }
 }
 
-impl PartialOrd for MeshGroup {
-    fn partial_cmp(&self, other: &MeshGroup) -> Option<Ordering> {
+impl PartialOrd for MeshGroupKey {
+    fn partial_cmp(&self, other: &MeshGroupKey) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for MeshGroup {
-    fn cmp(&self, other: &MeshGroup) -> Ordering {
+impl Ord for MeshGroupKey {
+    fn cmp(&self, other: &MeshGroupKey) -> Ordering {
         let lhs_translucent = match &self.color_ref {
             ColorReference::Color(c) => c.is_translucent(),
             _ => false,
@@ -112,10 +112,10 @@ impl Ord for MeshGroup {
     }
 }
 
-impl Eq for MeshGroup {}
+impl Eq for MeshGroupKey {}
 
-impl PartialEq for MeshGroup {
-    fn eq(&self, other: &MeshGroup) -> bool {
+impl PartialEq for MeshGroupKey {
+    fn eq(&self, other: &MeshGroupKey) -> bool {
         self.color_ref.code() == other.color_ref.code() && self.bfc == other.bfc
     }
 }
