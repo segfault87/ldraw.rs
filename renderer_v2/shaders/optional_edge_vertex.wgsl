@@ -7,8 +7,17 @@ struct ProjectionData {
     is_orthographic: i32,
 }
 
-@group(1) @binding(0)
+struct ColorUniforms {
+    color: vec4<f32>,
+    edge_color: vec4<f32>,
+    use_instance_colors: i32,
+}
+
+@group(0) @binding(0)
 var<uniform> projection: ProjectionData;
+
+@group(1) @binding(0)
+var<uniform> color_uniforms: ColorUniforms;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -18,18 +27,18 @@ struct VertexInput {
     @location(4) color: vec3<f32>,
 }
 struct InstanceInput {
-    @location(5) model_matrix_0: vec4<f32>,
-    @location(6) model_matrix_1: vec4<f32>,
-    @location(7) model_matrix_2: vec4<f32>,
-    @location(8) model_matrix_3: vec4<f32>,
-    @location(9) color: vec4<f32>,
-    @location(10) edge_color: vec4<f32>,
+    @location(10) model_matrix_0: vec4<f32>,
+    @location(11) model_matrix_1: vec4<f32>,
+    @location(12) model_matrix_2: vec4<f32>,
+    @location(13) model_matrix_3: vec4<f32>,
+    @location(14) instance_color: vec4<f32>,
+    @location(15) instance_edge_color: vec4<f32>,
 }
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) discard_flag: u32,
+    @location(1) discard_flag: i32,
 }
 
 @vertex
@@ -67,15 +76,27 @@ fn vs(
     let c2_dir = c2.xy - p2.xy;
     let d0 = dot(normalize(norm), normalize(c1_dir));
     let d1 = dot(normalize(norm), normalize(c2_dir));
-    out.discard_flag = select(1u, 0u, sign(d0) != sign(d1));
+
+    out.discard_flag = select(0, 1, sign(d0) != sign(d1));
 
     var mv_position = vec4<f32>(vertex.position, 1.0);
     mv_position = model_matrix * mv_position;
 
+    var color: vec4<f32>;
+    var edge_color: vec4<f32>;
+
+    if (color_uniforms.use_instance_colors == 1) {
+        color = instance.instance_color;
+        edge_color = instance.instance_edge_color;
+    } else {
+        color = color_uniforms.color;
+        edge_color = color_uniforms.edge_color;
+    }
+
     if (vertex.color.x < -1.0) {
-        out.color = instance.edge_color;
+        out.color = edge_color;
     } else if (vertex.color.x < 0.0) {
-        out.color = instance.color;
+        out.color = color;
     } else {
         out.color = vec4<f32>(vertex.color, 1.0);
     }

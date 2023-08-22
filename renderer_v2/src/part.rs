@@ -1,17 +1,17 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
 use ldraw::{color::ColorCatalog, PartAlias, Vector3};
 use ldraw_ir::{geometry::BoundingBox3, part as part_ir, MeshGroupKey};
 use wgpu::util::DeviceExt;
 
 pub struct MeshBuffer {
-    vertices: wgpu::Buffer,
-    indices: wgpu::Buffer,
+    pub vertices: wgpu::Buffer,
+    pub indices: wgpu::Buffer,
 
-    uncolored_range: Option<part_ir::BufferRange>,
-    uncolored_without_bfc_range: Option<part_ir::BufferRange>,
-    opaque_ranges: HashMap<MeshGroupKey, part_ir::BufferRange>,
-    translucent_ranges: HashMap<MeshGroupKey, part_ir::BufferRange>,
+    pub uncolored_range: Option<Range<u32>>,
+    pub uncolored_without_bfc_range: Option<Range<u32>>,
+    pub opaque_ranges: HashMap<MeshGroupKey, Range<u32>>,
+    pub translucent_ranges: HashMap<MeshGroupKey, Range<u32>>,
 }
 
 #[derive(Eq, PartialEq, Hash)]
@@ -28,7 +28,7 @@ impl MeshBuffer {
         index_table: &mut HashMap<MeshVertexIndex, u32>,
         vertex_buffer: &part_ir::VertexBuffer,
         index_buffer: &part_ir::MeshBuffer,
-    ) -> Option<part_ir::BufferRange> {
+    ) -> Option<Range<u32>> {
         if index_buffer.is_empty() {
             None
         } else if !index_buffer.is_valid() {
@@ -38,8 +38,8 @@ impl MeshBuffer {
             );
             None
         } else {
-            let start = index.len();
-            let span = index_buffer.len();
+            let start = index.len() as u32;
+            let end = start + index_buffer.len() as u32;
 
             for (vertex_idx, normal_idx) in index_buffer
                 .vertex_indices
@@ -78,7 +78,11 @@ impl MeshBuffer {
                 }
             }
 
-            Some(part_ir::BufferRange { start, span })
+            if start == end {
+                None
+            } else {
+                Some(start..end)
+            }
         }
     }
 
@@ -203,10 +207,10 @@ struct EdgeVertexIndex {
 }
 
 pub struct EdgeBuffer {
-    vertices: wgpu::Buffer,
-    indices: wgpu::Buffer,
+    pub vertices: wgpu::Buffer,
+    pub indices: wgpu::Buffer,
 
-    range: part_ir::BufferRange,
+    pub range: Range<u32>,
 }
 
 impl EdgeBuffer {
@@ -218,15 +222,15 @@ impl EdgeBuffer {
         colors: &ColorCatalog,
         vertex_buffer: &part_ir::VertexBuffer,
         index_buffer: &part_ir::EdgeBuffer,
-    ) -> Option<part_ir::BufferRange> {
+    ) -> Option<Range<u32>> {
         if index_buffer.is_empty() {
             None
         } else if !index_buffer.is_valid() {
             eprintln!("{}: Corrupted edge buffer. skipping...", metadata.name);
             None
         } else {
-            let start = index.len();
-            let span = index_buffer.len();
+            let start = index.len() as u32;
+            let end = start + index_buffer.len() as u32;
 
             for (vertex_idx, color_id) in index_buffer
                 .vertex_indices
@@ -279,7 +283,11 @@ impl EdgeBuffer {
                 }
             }
 
-            Some(part_ir::BufferRange { start, span })
+            if start == end {
+                None
+            } else {
+                Some(start..end)
+            }
         }
     }
 
@@ -315,12 +323,6 @@ impl EdgeBuffer {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-            println!(
-                "{}: {} bytes for edge buffer",
-                part.metadata.name,
-                data.len() * 4 + index.len() * 4
-            );
-
             Some(Self {
                 vertices,
                 indices,
@@ -352,8 +354,8 @@ impl EdgeBuffer {
 }
 
 pub struct OptionalEdgeBuffer {
-    vertices: wgpu::Buffer,
-    range: part_ir::BufferRange,
+    pub vertices: wgpu::Buffer,
+    pub range: Range<u32>,
 }
 
 impl OptionalEdgeBuffer {
@@ -363,7 +365,7 @@ impl OptionalEdgeBuffer {
         colors: &ColorCatalog,
         vertex_buffer: &part_ir::VertexBuffer,
         index_buffer: &part_ir::OptionalEdgeBuffer,
-    ) -> Option<part_ir::BufferRange> {
+    ) -> Option<Range<u32>> {
         if index_buffer.is_empty() {
             None
         } else if !index_buffer.is_valid() {
@@ -373,8 +375,8 @@ impl OptionalEdgeBuffer {
             );
             None
         } else {
-            let start = vertices.len() / 3 / 5;
-            let span = index_buffer.len();
+            let start = vertices.len() as u32 / 3;
+            let end = start + index_buffer.len() as u32;
 
             for i in 0..index_buffer.vertex_indices.len() {
                 let vertex_idx = index_buffer.vertex_indices[i] as usize;
@@ -430,7 +432,11 @@ impl OptionalEdgeBuffer {
                 vertices.extend(&color);
             }
 
-            Some(part_ir::BufferRange { start, span })
+            if start == end {
+                None
+            } else {
+                Some(start..end)
+            }
         }
     }
 
@@ -452,12 +458,6 @@ impl OptionalEdgeBuffer {
                 contents: bytemuck::cast_slice(&data),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-
-            println!(
-                "{}: {} bytes for optional edge buffer",
-                part.metadata.name,
-                data.len() * 4
-            );
 
             Some(Self { vertices, range })
         } else {
@@ -501,10 +501,10 @@ impl OptionalEdgeBuffer {
 }
 
 pub struct Part {
-    metadata: part_ir::PartMetadata,
-    mesh: MeshBuffer,
-    edges: Option<EdgeBuffer>,
-    optional_edges: Option<OptionalEdgeBuffer>,
+    pub metadata: part_ir::PartMetadata,
+    pub mesh: MeshBuffer,
+    pub edges: Option<EdgeBuffer>,
+    pub optional_edges: Option<OptionalEdgeBuffer>,
 }
 
 impl Part {

@@ -92,7 +92,7 @@ pub struct MeshBuffer {
 
 impl MeshBuffer {
     pub fn len(&self) -> usize {
-        self.vertex_indices.len() / 3
+        self.vertex_indices.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -156,7 +156,7 @@ impl EdgeBuffer {
     }
 
     pub fn len(&self) -> usize {
-        self.vertex_indices.len() / 3
+        self.vertex_indices.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -221,7 +221,7 @@ impl OptionalEdgeBuffer {
     }
 
     pub fn len(&self) -> usize {
-        self.vertex_indices.len() / 3
+        self.vertex_indices.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -234,12 +234,6 @@ impl OptionalEdgeBuffer {
             && self.vertex_indices.len() == self.direction_indices.len()
             && self.vertex_indices.len() == self.colors.len()
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BufferRange {
-    pub start: usize,
-    pub span: usize,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
