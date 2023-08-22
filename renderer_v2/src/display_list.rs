@@ -1,11 +1,15 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     hash::Hash,
     mem,
     ops::{Range, RangeInclusive},
 };
 
-use ldraw::{Matrix4, PartAlias, Vector4};
+use cgmath::SquareMatrix;
+use ldraw::{color::ColorReference, Matrix4, PartAlias, Vector4};
+use ldraw_ir::model::{Model, Object, ObjectGroup, ObjectInstance};
+use uuid::Uuid;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -16,15 +20,15 @@ struct InstanceData {
     edge_color: [f32; 4],
 }
 
-pub struct Instances<K> {
-    alias: PartAlias,
+pub struct Instances<K, G> {
+    group: G,
     index: HashMap<K, usize>,
     instance_data: Vec<InstanceData>,
 
     pub instance_buffer: wgpu::Buffer,
 }
 
-impl<K> Instances<K> {
+impl<K, G> Instances<K, G> {
     pub fn count(&self) -> usize {
         self.instance_data.len()
     }
@@ -39,14 +43,6 @@ impl<K> Instances<K> {
             (range.start() * mem::size_of::<InstanceData>()) as wgpu::BufferAddress,
             &bytemuck::cast_slice(&self.instance_data[range]),
         )
-    }
-
-    fn rebuild_buffer(&mut self, device: &wgpu::Device) {
-        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("Instance buffer for {}", self.alias)),
-            contents: bytemuck::cast_slice(&self.instance_data),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
     }
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
@@ -89,18 +85,28 @@ impl<K> Instances<K> {
     }
 }
 
-impl<K: Clone + Eq + PartialEq + Hash> Instances<K> {
-    pub fn new(device: &wgpu::Device, alias: PartAlias) -> Self {
+impl<K, G: Display> Instances<K, G> {
+    fn rebuild_buffer(&mut self, device: &wgpu::Device) {
+        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("Instance buffer for {}", self.group)),
+            contents: bytemuck::cast_slice(&self.instance_data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+    }
+}
+
+impl<K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display> Instances<K, G> {
+    pub fn new(device: &wgpu::Device, group: G) -> Self {
         let instance_data = Vec::new();
         let index = HashMap::new();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("Instance buffer for {}", alias)),
+            label: Some(&format!("Instance buffer for {}", group)),
             contents: bytemuck::cast_slice(&instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         Self {
-            alias,
+            group,
             index,
             instance_data,
 
@@ -108,10 +114,16 @@ impl<K: Clone + Eq + PartialEq + Hash> Instances<K> {
         }
     }
 
-    pub fn modify(&mut self) -> InstanceTransaction<K> {
-        InstanceTransaction {
-            instances: self,
-            ops: Vec::new(),
+    pub fn modify<F: FnOnce(&mut InstanceTransaction<K, G>) -> bool>(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        f: F,
+    ) {
+        let mut transaction = InstanceTransaction::new(self);
+
+        if f(&mut transaction) {
+            transaction.commit(device, queue);
         }
     }
 }
@@ -141,12 +153,21 @@ enum Ops<K> {
     Remove(K),
 }
 
-pub struct InstanceTransaction<'a, K> {
-    instances: &'a mut Instances<K>,
+pub struct InstanceTransaction<'a, K, G> {
+    instances: &'a mut Instances<K, G>,
     ops: Vec<Ops<K>>,
 }
 
-impl<'a, K: Clone + Eq + PartialEq + Hash> InstanceTransaction<'a, K> {
+impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
+    InstanceTransaction<'a, K, G>
+{
+    pub fn new(instances: &'a mut Instances<K, G>) -> Self {
+        Self {
+            instances,
+            ops: Vec::new(),
+        }
+    }
+
     pub fn insert(&mut self, key: K, matrix: Matrix4, color: Vector4, edge_color: Vector4) {
         self.ops.push(Ops::Insert {
             key,
@@ -179,6 +200,10 @@ impl<'a, K: Clone + Eq + PartialEq + Hash> InstanceTransaction<'a, K> {
 
     pub fn remove(&mut self, key: K) {
         self.ops.push(Ops::Remove(key));
+    }
+
+    fn push_ops(&mut self, ops: Ops<K>) {
+        self.ops.push(ops);
     }
 
     pub fn commit(mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -334,21 +359,233 @@ impl<'a, K: Clone + Eq + PartialEq + Hash> InstanceTransaction<'a, K> {
     }
 }
 
-pub struct DisplayList<K> {
-    map: HashMap<PartAlias, Instances<K>>,
+#[derive(Default)]
+pub struct DisplayList<K, G> {
+    map: HashMap<G, Instances<K, G>>,
+    lookup_table: HashMap<K, G>,
 }
 
-impl<K: Clone + Eq + PartialEq + Hash> DisplayList<K> {
-    pub fn get(&self, alias: &PartAlias) -> Option<&Instances<K>> {
-        self.map.get(alias)
+impl<K, G> DisplayList<K, G> {
+    pub fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            lookup_table: HashMap::new(),
+        }
     }
+}
 
-    pub fn get_mut(&mut self, alias: &PartAlias) -> Option<&mut Instances<K>> {
-        self.map.get_mut(alias)
-    }
-
-    pub fn insert(&mut self, alias: PartAlias, device: &wgpu::Device) {
+impl<K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
+    DisplayList<K, G>
+{
+    fn get_or_create(&mut self, group: G, device: &wgpu::Device) -> &mut Instances<K, G> {
         self.map
-            .insert(alias.clone(), Instances::new(device, alias));
+            .entry(group.clone())
+            .or_insert_with(|| Instances::new(device, group))
+    }
+
+    pub fn get(&self, group: &G) -> Option<&Instances<K, G>> {
+        self.map.get(group)
+    }
+
+    pub fn get_by_key(&self, k: &K) -> Option<&Instances<K, G>> {
+        if let Some(group) = self.lookup_table.get(k) {
+            self.map.get(group)
+        } else {
+            None
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&G, &Instances<K, G>)> {
+        self.map.iter()
+    }
+
+    pub fn modify<F: FnOnce(&mut DisplayListTransaction<K, G>) -> bool>(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        f: F,
+    ) {
+        let mut transaction = DisplayListTransaction::new(self);
+
+        if f(&mut transaction) {
+            transaction.commit(device, queue);
+        }
+    }
+}
+
+impl DisplayList<Uuid, PartAlias> {
+    fn expand_object_group(
+        t: &mut DisplayListTransaction<Uuid, PartAlias>,
+        groups: &HashMap<Uuid, ObjectGroup>,
+        objects: &Vec<Object>,
+        matrix: Matrix4,
+        color: ColorReference,
+    ) {
+        for object in objects.iter() {
+            match &object.data {
+                ObjectInstance::Part(p) => {
+                    let local_matrix = matrix * p.matrix;
+                    let color_ref = if p.color.is_current() {
+                        &color
+                    } else {
+                        &p.color
+                    };
+                    let color = color_ref
+                        .get_color_rgba()
+                        .unwrap_or_else(|| Vector4::new(0.0, 0.0, 0.0, 1.0));
+                    let color_edge = color_ref
+                        .get_edge_color_rgba()
+                        .unwrap_or_else(|| Vector4::new(0.0, 0.0, 0.0, 1.0));
+                    t.insert(
+                        p.part.clone(),
+                        object.id.clone(),
+                        local_matrix,
+                        color,
+                        color_edge,
+                    );
+                }
+                ObjectInstance::PartGroup(g) => {
+                    if let Some(group) = groups.get(&g.group_id) {
+                        let color = if g.color.is_current() {
+                            &color
+                        } else {
+                            &g.color
+                        }
+                        .clone();
+
+                        Self::expand_object_group(
+                            t,
+                            groups,
+                            &group.objects,
+                            matrix * g.matrix,
+                            color,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn from_model(model: &Model, device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let mut display_list = Self::new();
+
+        display_list.modify(device, queue, |t| {
+            Self::expand_object_group(
+                t,
+                &model.object_groups,
+                &model.objects,
+                Matrix4::identity(),
+                ColorReference::Unknown(0),
+            );
+            true
+        });
+        display_list
+    }
+}
+
+pub struct DisplayListTransaction<'a, K, G> {
+    display_list: &'a mut DisplayList<K, G>,
+    lookup_table: HashMap<K, G>,
+    ops: HashMap<G, Vec<Ops<K>>>,
+}
+
+impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
+    DisplayListTransaction<'a, K, G>
+{
+    fn new(display_list: &'a mut DisplayList<K, G>) -> Self {
+        let lookup_table = display_list.lookup_table.clone();
+
+        Self {
+            display_list,
+            lookup_table,
+            ops: HashMap::new(),
+        }
+    }
+
+    pub fn insert(
+        &mut self,
+        group: G,
+        key: K,
+        matrix: Matrix4,
+        color: Vector4,
+        edge_color: Vector4,
+    ) {
+        if self.lookup_table.contains_key(&key) {
+            return;
+        }
+
+        self.lookup_table.insert(key.clone(), group.clone());
+
+        self.ops
+            .entry(group)
+            .or_insert_with(Default::default)
+            .push(Ops::Insert {
+                key,
+                matrix,
+                color,
+                edge_color,
+            });
+    }
+
+    pub fn update(&mut self, key: K, matrix: Matrix4, color: Vector4, edge_color: Vector4) {
+        if let Some(group) = self.lookup_table.get(&key) {
+            self.ops
+                .entry(group.clone())
+                .or_insert_with(Default::default)
+                .push(Ops::Update {
+                    key,
+                    matrix,
+                    color,
+                    edge_color,
+                })
+        }
+    }
+
+    pub fn update_matrix(&mut self, key: K, matrix: Matrix4) {
+        if let Some(group) = self.lookup_table.get(&key) {
+            self.ops
+                .entry(group.clone())
+                .or_insert_with(Default::default)
+                .push(Ops::UpdateMatrix { key, matrix });
+        }
+    }
+
+    pub fn update_color(&mut self, key: K, color: Vector4, edge_color: Vector4) {
+        if let Some(group) = self.lookup_table.get(&key) {
+            self.ops
+                .entry(group.clone())
+                .or_insert_with(Default::default)
+                .push(Ops::UpdateColor {
+                    key,
+                    color,
+                    edge_color,
+                });
+        }
+    }
+
+    pub fn remove(&mut self, key: K) {
+        if let Some(group) = self.lookup_table.get(&key) {
+            self.ops
+                .entry(group.clone())
+                .or_insert_with(Default::default)
+                .push(Ops::Remove(key));
+        }
+    }
+
+    pub fn commit(self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        for (part, ops) in self.ops.into_iter() {
+            let instances = self.display_list.get_or_create(part, device);
+            instances.modify(device, queue, |t| {
+                for op in ops {
+                    t.push_ops(op);
+                }
+
+                true
+            });
+        }
+
+        self.display_list.map.retain(|_k, v| v.count() > 0);
+        self.display_list.lookup_table = self.lookup_table;
     }
 }

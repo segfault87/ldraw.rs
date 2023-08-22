@@ -161,7 +161,7 @@ impl DefaultMeshRenderingPipeline {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: "vs",
-                buffers: &[MeshBuffer::desc(), Instances::<i32>::desc()],
+                buffers: &[MeshBuffer::desc(), Instances::<i32, i32>::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
@@ -204,13 +204,13 @@ impl DefaultMeshRenderingPipeline {
         }
     }
 
-    pub fn render<'p, K>(
+    pub fn render<'p, K, G>(
         &'p self,
         pass: &mut wgpu::RenderPass<'p>,
         projection: &'p Projection,
         colors: &'p ColorUniforms,
         part: &'p Part,
-        instances: &'p Instances<K>,
+        instances: &'p Instances<K, G>,
     ) {
         if let Some(range) = part.mesh.uncolored_range.as_ref() {
             pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
@@ -257,7 +257,7 @@ impl NoShadingMeshRenderingPipeline {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: "vs",
-                buffers: &[MeshBuffer::desc(), Instances::<i32>::desc()],
+                buffers: &[MeshBuffer::desc(), Instances::<i32, i32>::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
@@ -300,13 +300,13 @@ impl NoShadingMeshRenderingPipeline {
         }
     }
 
-    pub fn render<'p, K>(
+    pub fn render<'p, K, G>(
         &'p self,
         pass: &mut wgpu::RenderPass<'p>,
         projection: &'p Projection,
         colors: &'p ColorUniforms,
         part: &'p Part,
-        instances: &'p Instances<K>,
+        instances: &'p Instances<K, G>,
     ) {
         if let Some(range) = part.mesh.uncolored_range.as_ref() {
             pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
@@ -351,7 +351,7 @@ impl EdgeRenderingPipeline {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: "vs",
-                buffers: &[EdgeBuffer::desc(), Instances::<i32>::desc()],
+                buffers: &[EdgeBuffer::desc(), Instances::<i32, i32>::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
@@ -394,13 +394,13 @@ impl EdgeRenderingPipeline {
         }
     }
 
-    pub fn render<'p, K>(
+    pub fn render<'p, K, G>(
         &'p self,
         pass: &mut wgpu::RenderPass<'p>,
         projection: &'p Projection,
         colors: &'p ColorUniforms,
         part: &'p Part,
-        instances: &'p Instances<K>,
+        instances: &'p Instances<K, G>,
     ) {
         if let Some(ref edges) = part.edges.as_ref() {
             pass.set_vertex_buffer(0, edges.vertices.slice(..));
@@ -449,7 +449,7 @@ impl OptionalEdgeRenderingPipeline {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: "vs",
-                buffers: &[OptionalEdgeBuffer::desc(), Instances::<i32>::desc()],
+                buffers: &[OptionalEdgeBuffer::desc(), Instances::<i32, i32>::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
@@ -492,13 +492,13 @@ impl OptionalEdgeRenderingPipeline {
         }
     }
 
-    pub fn render<'p, K>(
+    pub fn render<'p, K, G>(
         &'p self,
         pass: &mut wgpu::RenderPass<'p>,
         projection: &'p Projection,
         colors: &'p ColorUniforms,
         part: &'p Part,
-        instances: &'p Instances<K>,
+        instances: &'p Instances<K, G>,
     ) {
         if let Some(optional_edges) = part.optional_edges.as_ref() {
             pass.set_vertex_buffer(0, optional_edges.vertices.slice(..));
