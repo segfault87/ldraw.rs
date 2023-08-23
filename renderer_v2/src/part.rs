@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Range};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use ldraw::{color::ColorCatalog, PartAlias, Vector3};
 use ldraw_ir::{geometry::BoundingBox3, part as part_ir, MeshGroupKey};
@@ -516,4 +516,8 @@ impl Part {
             optional_edges: OptionalEdgeBuffer::new(device, colors, part),
         }
     }
+}
+
+pub trait PartQuerier<K> {
+    fn get(&self, key: &K) -> Option<&Part>;
 }

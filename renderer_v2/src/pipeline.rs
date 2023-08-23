@@ -1,10 +1,16 @@
+use std::{
+    cell::RefCell,
+    ops::{Deref, Range},
+    sync::Arc,
+};
+
 use ldraw::{color::ColorReference, Vector4};
 use wgpu::util::DeviceExt;
 
 use super::{
     camera::Projection,
-    display_list::Instances,
-    part::{EdgeBuffer, MeshBuffer, OptionalEdgeBuffer, Part},
+    display_list::{DisplayList, Instances},
+    part::{EdgeBuffer, MeshBuffer, OptionalEdgeBuffer, Part, PartQuerier},
 };
 
 struct ColorUniformData {
@@ -97,8 +103,10 @@ impl ColorUniforms {
     }
 
     pub fn set_use_instanced_color(&mut self, queue: &wgpu::Queue, use_instanced_color: bool) {
-        self.data.use_instanced_colors = use_instanced_color;
-        self.update(queue);
+        if self.data.use_instanced_colors != use_instanced_color {
+            self.data.use_instanced_colors = use_instanced_color;
+            self.update(queue);
+        }
     }
 
     fn update(&mut self, queue: &wgpu::Queue) {
@@ -204,23 +212,22 @@ impl DefaultMeshRenderingPipeline {
         }
     }
 
-    pub fn render<'p, K, G>(
-        &'p self,
-        pass: &mut wgpu::RenderPass<'p>,
-        projection: &'p Projection,
-        colors: &'p ColorUniforms,
-        part: &'p Part,
-        instances: &'p Instances<K, G>,
+    pub fn render<'rp, K, G>(
+        &'rp self,
+        pass: &mut wgpu::RenderPass<'rp>,
+        projection: &'rp Projection,
+        colors: &'rp ColorUniforms,
+        part: &'rp Part,
+        instances: &'rp Instances<K, G>,
+        range: Range<u32>,
     ) {
-        if let Some(range) = part.mesh.uncolored_range.as_ref() {
-            pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &projection.bind_group, &[]);
-            pass.set_bind_group(1, &colors.bind_group, &[]);
-            pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
-            pass.set_index_buffer(part.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(range.clone(), 0, instances.range());
-        }
+        pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_bind_group(1, &colors.bind_group, &[]);
+        pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
+        pass.set_index_buffer(part.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(range, 0, instances.range());
     }
 }
 
@@ -300,23 +307,22 @@ impl NoShadingMeshRenderingPipeline {
         }
     }
 
-    pub fn render<'p, K, G>(
-        &'p self,
-        pass: &mut wgpu::RenderPass<'p>,
-        projection: &'p Projection,
-        colors: &'p ColorUniforms,
-        part: &'p Part,
-        instances: &'p Instances<K, G>,
+    pub fn render<'rp, K, G>(
+        &'rp self,
+        pass: &mut wgpu::RenderPass<'rp>,
+        projection: &'rp Projection,
+        colors: &'rp ColorUniforms,
+        part: &'rp Part,
+        instances: &'rp Instances<K, G>,
+        range: Range<u32>,
     ) {
-        if let Some(range) = part.mesh.uncolored_range.as_ref() {
-            pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &projection.bind_group, &[]);
-            pass.set_bind_group(1, &colors.bind_group, &[]);
-            pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
-            pass.set_index_buffer(part.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(range.clone(), 0, instances.range());
-        }
+        pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_bind_group(1, &colors.bind_group, &[]);
+        pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
+        pass.set_index_buffer(part.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(range, 0, instances.range());
     }
 }
 
@@ -492,15 +498,15 @@ impl OptionalEdgeRenderingPipeline {
         }
     }
 
-    pub fn render<'p, K, G>(
-        &'p self,
-        pass: &mut wgpu::RenderPass<'p>,
-        projection: &'p Projection,
-        colors: &'p ColorUniforms,
-        part: &'p Part,
-        instances: &'p Instances<K, G>,
+    pub fn render<'rp, K, G>(
+        &'rp self,
+        pass: &mut wgpu::RenderPass<'rp>,
+        projection: &'rp Projection,
+        colors: &'rp ColorUniforms,
+        part: &'rp Part,
+        instances: &'rp Instances<K, G>,
     ) {
-        if let Some(optional_edges) = part.optional_edges.as_ref() {
+        if let Some(ref optional_edges) = part.optional_edges {
             pass.set_vertex_buffer(0, optional_edges.vertices.slice(..));
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &projection.bind_group, &[]);
@@ -512,7 +518,7 @@ impl OptionalEdgeRenderingPipeline {
 }
 
 pub struct RenderingPipelineManager {
-    pub color_uniforms: ColorUniforms,
+    color_uniforms: ColorUniforms,
 
     pub mesh_default: DefaultMeshRenderingPipeline,
     pub mesh_no_shading: NoShadingMeshRenderingPipeline,
@@ -529,6 +535,87 @@ impl RenderingPipelineManager {
             mesh_no_shading: NoShadingMeshRenderingPipeline::new(device, config),
             edge: EdgeRenderingPipeline::new(device, config),
             optional_edge: OptionalEdgeRenderingPipeline::new(device, config),
+        }
+    }
+
+    pub fn render<'rp, K, G>(
+        &'rp mut self,
+        pass: &mut wgpu::RenderPass<'rp>,
+        queue: &wgpu::Queue,
+        projection: &'rp Projection,
+        part_querier: &'rp impl PartQuerier<G>,
+        display_list: &'rp DisplayList<K, G>,
+    ) {
+        for (group, instances) in display_list.iter() {
+            if let Some(part) = part_querier.get(group) {
+                for (group_key, range) in part.mesh.translucent_ranges.iter() {
+                    if group_key.bfc {
+                        self.mesh_default.render(
+                            pass,
+                            projection,
+                            &self.color_uniforms,
+                            part,
+                            instances,
+                            range.clone(),
+                        );
+                    } else {
+                        self.mesh_no_shading.render(
+                            pass,
+                            projection,
+                            &self.color_uniforms,
+                            part,
+                            instances,
+                            range.clone(),
+                        );
+                    }
+                }
+                //self.color_uniforms.set_use_instanced_color(queue, true);
+                if let Some(range) = part.mesh.uncolored_range.clone() {
+                    self.mesh_default.render(
+                        pass,
+                        projection,
+                        &self.color_uniforms,
+                        part,
+                        instances,
+                        range,
+                    );
+                }
+                if let Some(range) = part.mesh.uncolored_without_bfc_range.clone() {
+                    self.mesh_no_shading.render(
+                        pass,
+                        projection,
+                        &self.color_uniforms,
+                        part,
+                        instances,
+                        range,
+                    )
+                }
+                for (group_key, range) in part.mesh.opaque_ranges.iter() {
+                    if group_key.bfc {
+                        self.mesh_default.render(
+                            pass,
+                            projection,
+                            &self.color_uniforms,
+                            part,
+                            instances,
+                            range.clone(),
+                        );
+                    } else {
+                        self.mesh_no_shading.render(
+                            pass,
+                            projection,
+                            &self.color_uniforms,
+                            part,
+                            instances,
+                            range.clone(),
+                        );
+                    }
+                }
+                self.edge
+                    .render(pass, projection, &self.color_uniforms, part, instances);
+                self.optional_edge
+                    .render(pass, projection, &self.color_uniforms, part, instances);
+            }
         }
     }
 }

@@ -359,7 +359,6 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
     }
 }
 
-#[derive(Default)]
 pub struct DisplayList<K, G> {
     map: HashMap<G, Instances<K, G>>,
     lookup_table: HashMap<K, G>,
@@ -371,6 +370,10 @@ impl<K, G> DisplayList<K, G> {
             map: HashMap::new(),
             lookup_table: HashMap::new(),
         }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&G, &Instances<K, G>)> {
+        self.map.iter()
     }
 }
 
@@ -393,10 +396,6 @@ impl<K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Displa
         } else {
             None
         }
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&G, &Instances<K, G>)> {
-        self.map.iter()
     }
 
     pub fn modify<F: FnOnce(&mut DisplayListTransaction<K, G>) -> bool>(
