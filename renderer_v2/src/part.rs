@@ -164,12 +164,6 @@ impl MeshBuffer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        println!(
-            "{}: {} bytes for mesh buffer",
-            part.metadata.name,
-            data.len() * 4
-        );
-
         MeshBuffer {
             vertices,
             indices,
