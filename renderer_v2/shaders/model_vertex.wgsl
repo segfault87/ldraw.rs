@@ -7,29 +7,22 @@ struct ProjectionData {
     is_orthographic: i32,
 }
 
-struct ColorUniforms {
-    color: vec4<f32>,
-    edge_color: vec4<f32>,
-    use_instance_colors: i32,
-}
-
 @group(0) @binding(0)
 var<uniform> projection: ProjectionData;
-
-@group(1) @binding(0)
-var<uniform> color_uniforms: ColorUniforms;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) color: vec4<f32>,
 }
+
 struct InstanceInput {
     @location(10) model_matrix_0: vec4<f32>,
     @location(11) model_matrix_1: vec4<f32>,
     @location(12) model_matrix_2: vec4<f32>,
     @location(13) model_matrix_3: vec4<f32>,
-    @location(14) color: vec4<f32>,
-    @location(15) edge_color: vec4<f32>,
+    @location(14) instance_color: vec4<f32>,
+    @location(15) instance_edge_color: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -71,7 +64,13 @@ fn vs(
 
     mv_position = projection.model_view_matrix * mv_position;
 
-    out.color = select(color_uniforms.color, instance.color, color_uniforms.use_instance_colors == 1);
+    if (vertex.color.x < -1.0) {
+        out.color = instance.instance_edge_color;
+    } else if (vertex.color.x < 0.0) {
+        out.color = instance.instance_color;
+    } else {
+        out.color = vertex.color;
+    }
     out.normal = normalize(projection.normal_matrix * transformed_normal);
     out.normal.y *= -1.0;
     out.view_position = -mv_position.xyz;

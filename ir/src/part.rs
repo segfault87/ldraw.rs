@@ -241,8 +241,7 @@ pub struct PartBufferBundle {
     pub vertex_buffer: VertexBuffer,
     pub uncolored_mesh: MeshBuffer,
     pub uncolored_without_bfc_mesh: MeshBuffer,
-    pub opaque_meshes: HashMap<MeshGroupKey, MeshBuffer>,
-    pub translucent_meshes: HashMap<MeshGroupKey, MeshBuffer>,
+    pub colored_meshes: HashMap<MeshGroupKey, MeshBuffer>,
     pub edges: EdgeBuffer,
     pub optional_edges: OptionalEdgeBuffer,
 }
@@ -252,52 +251,38 @@ pub struct PartBufferBundleBuilder {
     pub vertex_buffer_builder: VertexBufferBuilder,
     uncolored_mesh: MeshBuffer,
     uncolored_without_bfc_mesh: MeshBuffer,
-    opaque_meshes: HashMap<MeshGroupKey, MeshBuffer>,
-    translucent_meshes: HashMap<MeshGroupKey, MeshBuffer>,
+    colored_meshes: HashMap<MeshGroupKey, MeshBuffer>,
     edges: EdgeBuffer,
     optional_edges: OptionalEdgeBuffer,
 }
 
 impl PartBufferBundleBuilder {
     pub fn resolve_colors(&mut self, colors: &ColorCatalog) {
-        let keys = self.opaque_meshes.keys().cloned().collect::<Vec<_>>();
+        let keys = self.colored_meshes.keys().cloned().collect::<Vec<_>>();
         for key in keys.iter() {
-            let val = match self.opaque_meshes.remove(key) {
+            let val = match self.colored_meshes.remove(key) {
                 Some(v) => v,
                 None => continue,
             };
             let mut key = key.clone();
             key.resolve_color(colors);
-            self.opaque_meshes.insert(key, val);
-        }
-        let keys = self.translucent_meshes.keys().cloned().collect::<Vec<_>>();
-        for key in keys.iter() {
-            let val = match self.translucent_meshes.remove(key) {
-                Some(v) => v,
-                None => continue,
-            };
-            let mut key = key.clone();
-            key.resolve_color(colors);
-            self.translucent_meshes.insert(key, val);
+            self.colored_meshes.insert(key, val);
         }
     }
 
     fn query_mesh<'a>(&'a mut self, group: &MeshGroupKey) -> Option<&'a mut MeshBuffer> {
         match (&group.color_ref, group.bfc) {
-            (ColorReference::Current, true) => Some(&mut self.uncolored_mesh),
-            (ColorReference::Current, false) => Some(&mut self.uncolored_without_bfc_mesh),
-            (ColorReference::Color(c), _) => {
-                let entry = if c.is_translucent() {
-                    self.translucent_meshes
-                        .entry(group.clone())
-                        .or_insert_with(MeshBuffer::default)
-                } else {
-                    self.opaque_meshes
-                        .entry(group.clone())
-                        .or_insert_with(MeshBuffer::default)
-                };
-                Some(entry)
+            (ColorReference::Current | ColorReference::Complement, true) => {
+                Some(&mut self.uncolored_mesh)
             }
+            (ColorReference::Current | ColorReference::Complement, false) => {
+                Some(&mut self.uncolored_without_bfc_mesh)
+            }
+            (ColorReference::Color(_), _) => Some(
+                self.colored_meshes
+                    .entry(group.clone())
+                    .or_insert_with(MeshBuffer::default),
+            ),
             _ => None,
         }
     }
@@ -307,8 +292,7 @@ impl PartBufferBundleBuilder {
             vertex_buffer: self.vertex_buffer_builder.build(),
             uncolored_mesh: self.uncolored_mesh,
             uncolored_without_bfc_mesh: self.uncolored_without_bfc_mesh,
-            opaque_meshes: self.opaque_meshes,
-            translucent_meshes: self.translucent_meshes,
+            colored_meshes: self.colored_meshes,
             edges: self.edges,
             optional_edges: self.optional_edges,
         }

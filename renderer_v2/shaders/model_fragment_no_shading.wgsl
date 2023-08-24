@@ -5,7 +5,20 @@ struct VertexOutput {
     @location(2) color: vec4<f32>,
 }
 
+fn linear_to_srgb(x: f32) -> f32 {
+    if (x <= 0.00031308) {
+        return 12.92 * x;
+    } else {
+        return 1.055*pow(x, (1.0 / 2.4)) - 0.055;
+    }
+}
+
 @fragment
 fn fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    return in.color;
+    return vec4<f32>(
+        linear_to_srgb(in.color.x),
+        linear_to_srgb(in.color.y),
+        linear_to_srgb(in.color.z),
+        in.color.w
+    );
 }

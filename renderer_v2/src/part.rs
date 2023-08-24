@@ -1,23 +1,30 @@
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{collections::HashMap, ops::Range};
 
-use ldraw::{color::ColorCatalog, PartAlias, Vector3};
-use ldraw_ir::{geometry::BoundingBox3, part as part_ir, MeshGroupKey};
+use ldraw::{
+    color::{ColorCatalog, ColorReference},
+    Vector4,
+};
+use ldraw_ir::part as part_ir;
 use wgpu::util::DeviceExt;
 
 pub struct MeshBuffer {
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
+    pub index_format: wgpu::IndexFormat,
 
     pub uncolored_range: Option<Range<u32>>,
     pub uncolored_without_bfc_range: Option<Range<u32>>,
-    pub opaque_ranges: HashMap<MeshGroupKey, Range<u32>>,
-    pub translucent_ranges: HashMap<MeshGroupKey, Range<u32>>,
+    pub colored_opaque_range: Option<Range<u32>>,
+    pub colored_opaque_without_bfc_range: Option<Range<u32>>,
+    pub colored_translucent_range: Option<Range<u32>>,
+    pub colored_translucent_without_bfc_range: Option<Range<u32>>,
 }
 
 #[derive(Eq, PartialEq, Hash)]
 struct MeshVertexIndex {
     vertex: usize,
     normal: usize,
+    color: ColorReference,
 }
 
 impl MeshBuffer {
@@ -27,24 +34,42 @@ impl MeshBuffer {
         index: &mut Vec<u32>,
         index_table: &mut HashMap<MeshVertexIndex, u32>,
         vertex_buffer: &part_ir::VertexBuffer,
-        index_buffer: &part_ir::MeshBuffer,
+        index_buffers: Vec<(ColorReference, &part_ir::MeshBuffer)>,
     ) -> Option<Range<u32>> {
-        if index_buffer.is_empty() {
-            None
-        } else if !index_buffer.is_valid() {
-            eprintln!(
-                "{}: Corrupted mesh vertex buffer. skipping...",
-                metadata.name
-            );
-            None
-        } else {
-            let start = index.len() as u32;
-            let end = start + index_buffer.len() as u32;
+        if index_buffers.is_empty() {
+            return None;
+        }
 
-            for (vertex_idx, normal_idx) in index_buffer
+        let start = index.len() as u32;
+        let mut end = start;
+
+        for (color, buffer) in index_buffers {
+            if !buffer.is_valid() {
+                eprintln!(
+                    "{}: Corrupted mesh vertex buffer. skipping...",
+                    metadata.name
+                );
+                return None;
+            }
+
+            end += buffer.len() as u32;
+
+            let color_array = match &color {
+                ColorReference::Current => vec![-1.0; 4],
+                ColorReference::Complement => vec![-2.0; 4],
+                ColorReference::Color(c) => {
+                    let color: Vector4 = c.color.clone().into();
+                    vec![color.x, color.y, color.z, color.w]
+                }
+                ColorReference::Unknown(_) | ColorReference::Unresolved(_) => {
+                    vec![0.0, 0.0, 0.0, 1.0]
+                }
+            };
+
+            for (vertex_idx, normal_idx) in buffer
                 .vertex_indices
                 .iter()
-                .zip(index_buffer.normal_indices.iter())
+                .zip(buffer.normal_indices.iter())
             {
                 let vertex_idx = *vertex_idx as usize;
                 let normal_idx = *normal_idx as usize;
@@ -65,6 +90,7 @@ impl MeshBuffer {
                 let idx_key = MeshVertexIndex {
                     vertex: vertex_idx,
                     normal: normal_idx,
+                    color: color.clone(),
                 };
 
                 if let Some(idx) = index_table.get(&idx_key) {
@@ -74,15 +100,16 @@ impl MeshBuffer {
                     index_table.insert(idx_key, idx_val);
                     vertices.extend(&vertex_buffer.0[vertex_range]);
                     vertices.extend(&vertex_buffer.0[normal_range]);
+                    vertices.extend(&color_array);
                     index.push(idx_val);
                 }
             }
+        }
 
-            if start == end {
-                None
-            } else {
-                Some(start..end)
-            }
+        if start == end {
+            None
+        } else {
+            Some(start..end)
         }
     }
 
@@ -97,7 +124,7 @@ impl MeshBuffer {
             &mut index,
             &mut index_lut,
             &part.geometry.vertex_buffer,
-            &part.geometry.uncolored_mesh,
+            vec![(ColorReference::Current, &part.geometry.uncolored_mesh)],
         );
         let uncolored_without_bfc_range = Self::expand(
             &part.metadata,
@@ -105,46 +132,99 @@ impl MeshBuffer {
             &mut index,
             &mut index_lut,
             &part.geometry.vertex_buffer,
-            &part.geometry.uncolored_without_bfc_mesh,
+            vec![(
+                ColorReference::Current,
+                &part.geometry.uncolored_without_bfc_mesh,
+            )],
         );
-        let opaque_ranges = part
-            .geometry
-            .opaque_meshes
-            .iter()
-            .filter_map(|(k, v)| {
-                if let Some(v) = Self::expand(
-                    &part.metadata,
-                    &mut data,
-                    &mut index,
-                    &mut index_lut,
-                    &part.geometry.vertex_buffer,
-                    v,
-                ) {
-                    Some((k.clone(), v))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let translucent_ranges = part
-            .geometry
-            .translucent_meshes
-            .iter()
-            .filter_map(|(k, v)| {
-                if let Some(v) = Self::expand(
-                    &part.metadata,
-                    &mut data,
-                    &mut index,
-                    &mut index_lut,
-                    &part.geometry.vertex_buffer,
-                    v,
-                ) {
-                    Some((k.clone(), v))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let colored_opaque_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            part.geometry
+                .colored_meshes
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let ColorReference::Color(c) = &k.color_ref {
+                        if !c.is_translucent() && k.bfc {
+                            Some((k.color_ref.clone(), v))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
+        let colored_opaque_without_bfc_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            part.geometry
+                .colored_meshes
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let ColorReference::Color(c) = &k.color_ref {
+                        if !c.is_translucent() && !k.bfc {
+                            Some((k.color_ref.clone(), v))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
+        let colored_translucent_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            part.geometry
+                .colored_meshes
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let ColorReference::Color(c) = &k.color_ref {
+                        if c.is_translucent() && k.bfc {
+                            Some((k.color_ref.clone(), v))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
+        let colored_translucent_without_bfc_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            part.geometry
+                .colored_meshes
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let ColorReference::Color(c) = &k.color_ref {
+                        if c.is_translucent() && !k.bfc {
+                            Some((k.color_ref.clone(), v))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
 
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!(
@@ -155,28 +235,52 @@ impl MeshBuffer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!(
-                "Index buffer for mesh data at {}",
-                part.metadata.name
-            )),
-            contents: bytemuck::cast_slice(&index),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let (indices, index_format) = if data.len() / (3 * 10) < 2 << 16 {
+            let mut shrunk_data = vec![];
+            for item in index {
+                shrunk_data.push(item as u16);
+            }
+            (
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!(
+                        "Index buffer for mesh data at {}",
+                        part.metadata.name
+                    )),
+                    contents: bytemuck::cast_slice(&shrunk_data),
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+                wgpu::IndexFormat::Uint16,
+            )
+        } else {
+            (
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!(
+                        "Index buffer for mesh data at {}",
+                        part.metadata.name
+                    )),
+                    contents: bytemuck::cast_slice(&index),
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+                wgpu::IndexFormat::Uint32,
+            )
+        };
 
         MeshBuffer {
             vertices,
             indices,
             uncolored_range,
             uncolored_without_bfc_range,
-            opaque_ranges,
-            translucent_ranges,
+            colored_opaque_range,
+            colored_opaque_without_bfc_range,
+            colored_translucent_range,
+            colored_translucent_without_bfc_range,
+            index_format,
         }
     }
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<[f32; 10]>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -188,6 +292,11 @@ impl MeshBuffer {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
                 },
             ],
         }
@@ -205,6 +314,7 @@ pub struct EdgeBuffer {
     pub indices: wgpu::Buffer,
 
     pub range: Range<u32>,
+    pub index_format: wgpu::IndexFormat,
 }
 
 impl EdgeBuffer {
@@ -308,19 +418,41 @@ impl EdgeBuffer {
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
-            let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!(
-                    "Index buffer for edge data at {}",
-                    part.metadata.name
-                )),
-                contents: bytemuck::cast_slice(&index),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+            let (indices, index_format) = if data.len() / (3 * 6) < 2 << 16 {
+                let mut shrunk_data = vec![];
+                for item in index {
+                    shrunk_data.push(item as u16);
+                }
+                (
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!(
+                            "Index buffer for edge data at {}",
+                            part.metadata.name
+                        )),
+                        contents: bytemuck::cast_slice(&shrunk_data),
+                        usage: wgpu::BufferUsages::INDEX,
+                    }),
+                    wgpu::IndexFormat::Uint16,
+                )
+            } else {
+                (
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!(
+                            "Index buffer for edge data at {}",
+                            part.metadata.name
+                        )),
+                        contents: bytemuck::cast_slice(&index),
+                        usage: wgpu::BufferUsages::INDEX,
+                    }),
+                    wgpu::IndexFormat::Uint32,
+                )
+            };
 
             Some(Self {
                 vertices,
                 indices,
                 range,
+                index_format,
             })
         } else {
             None

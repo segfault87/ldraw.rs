@@ -377,12 +377,6 @@ impl GroupKind {
 #[derive(Clone, Eq, PartialEq, Hash)]
 struct Group<G>(GroupKind, G);
 
-impl<G> Group<G> {
-    pub fn identifier(&self) -> &G {
-        &self.1
-    }
-}
-
 pub struct DisplayList<K, G> {
     map: HashMap<Group<G>, Instances<K, G>>,
     lookup_table: HashMap<K, Group<G>>,
@@ -394,6 +388,12 @@ impl<K, G> DisplayList<K, G> {
             map: HashMap::new(),
             lookup_table: HashMap::new(),
         }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&G, bool, &Instances<K, G>)> {
+        self.map
+            .iter()
+            .map(|(k, v)| (&k.1, matches!(k.0, GroupKind::Translucent), v))
     }
 
     pub fn iter_opaque(&self) -> impl Iterator<Item = (&G, &Instances<K, G>)> {
@@ -448,10 +448,19 @@ impl<K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Displa
     }
 }
 
+fn uuid_xor(a: Uuid, b: Uuid) -> Uuid {
+    let ba = a.to_bytes_le();
+    let bb = b.to_bytes_le();
+
+    let bc: Vec<_> = ba.iter().zip(bb).map(|(x, y)| x ^ y).collect();
+    Uuid::from_slice(&bc).unwrap()
+}
+
 impl DisplayList<Uuid, PartAlias> {
     fn expand_object_group(
         t: &mut DisplayListTransaction<Uuid, PartAlias>,
         color_catalog: &ColorCatalog,
+        parent_uuid: Uuid,
         groups: &HashMap<Uuid, ObjectGroup>,
         objects: &Vec<Object>,
         matrix: Matrix4,
@@ -470,7 +479,12 @@ impl DisplayList<Uuid, PartAlias> {
                         ColorReference::Color(c) => c,
                         _ => color_catalog.get(&0).unwrap(),
                     };
-                    t.insert(p.part.clone(), object.id.clone(), local_matrix, color);
+                    t.insert(
+                        p.part.clone(),
+                        uuid_xor(parent_uuid.clone(), object.id.clone()),
+                        local_matrix,
+                        color,
+                    );
                 }
                 ObjectInstance::PartGroup(g) => {
                     if let Some(group) = groups.get(&g.group_id) {
@@ -484,6 +498,7 @@ impl DisplayList<Uuid, PartAlias> {
                         Self::expand_object_group(
                             t,
                             color_catalog,
+                            object.id.clone(),
                             groups,
                             &group.objects,
                             matrix * g.matrix,
@@ -508,6 +523,7 @@ impl DisplayList<Uuid, PartAlias> {
             Self::expand_object_group(
                 t,
                 color_catalog,
+                Uuid::nil(),
                 &model.object_groups,
                 &model.objects,
                 Matrix4::identity(),

@@ -13,130 +13,6 @@ use super::{
     part::{EdgeBuffer, MeshBuffer, OptionalEdgeBuffer, Part, PartQuerier},
 };
 
-struct ColorUniformData {
-    color: Vector4,
-    edge_color: Vector4,
-    use_instanced_colors: bool,
-}
-
-impl Default for ColorUniformData {
-    fn default() -> Self {
-        Self {
-            color: Vector4::new(0.0, 0.0, 0.0, 1.0),
-            edge_color: Vector4::new(0.4, 0.4, 0.4, 1.0),
-            use_instanced_colors: true,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct RawColorUniformData {
-    color: [f32; 4],
-    edge_color: [f32; 4],
-    use_instanced_color: i32,
-    _padding: [u8; 12],
-}
-
-impl From<&ColorUniformData> for RawColorUniformData {
-    fn from(d: &ColorUniformData) -> Self {
-        Self {
-            color: d.color.clone().into(),
-            edge_color: d.edge_color.clone().into(),
-            use_instanced_color: if d.use_instanced_colors { 1 } else { 0 },
-            _padding: [0; 12],
-        }
-    }
-}
-
-impl RawColorUniformData {
-    pub fn update(&mut self, data: &ColorUniformData) {
-        self.color = data.color.clone().into();
-        self.edge_color = data.color.clone().into();
-        self.use_instanced_color = if data.use_instanced_colors { 1 } else { 0 };
-    }
-}
-
-pub struct ColorUniforms {
-    uniform_buffer: wgpu::Buffer,
-
-    data: ColorUniformData,
-    raw: RawColorUniformData,
-}
-
-impl ColorUniforms {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let data = ColorUniformData::default();
-        let raw = RawColorUniformData::from(&data);
-
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Uniform buffer for colors"),
-            contents: bytemuck::cast_slice(&[raw]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        Self {
-            uniform_buffer,
-            data,
-            raw,
-        }
-    }
-
-    pub fn create_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Bind group for colors"),
-            layout: &device.create_bind_group_layout(&Self::desc()),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.uniform_buffer.as_entire_binding(),
-            }],
-        })
-    }
-
-    pub fn set_color(&mut self, queue: &wgpu::Queue, color: &ColorReference) {
-        if let Some(c) = color.get_color_rgba() {
-            self.data.color = c;
-        }
-        if let Some(c) = color.get_edge_color_rgba() {
-            self.data.edge_color = c;
-        }
-        self.update(queue);
-    }
-
-    pub fn set_use_instanced_color(&mut self, queue: &wgpu::Queue, use_instanced_color: bool) {
-        if self.data.use_instanced_colors != use_instanced_color {
-            self.data.use_instanced_colors = use_instanced_color;
-            self.update(queue);
-        }
-    }
-
-    fn update(&mut self, queue: &wgpu::Queue) {
-        self.raw.update(&self.data);
-
-        queue.write_buffer(
-            &self.uniform_buffer,
-            0 as wgpu::BufferAddress,
-            bytemuck::cast_slice(&[self.raw]),
-        );
-    }
-
-    pub fn desc() -> wgpu::BindGroupLayoutDescriptor<'static> {
-        wgpu::BindGroupLayoutDescriptor {
-            label: Some("Bind group descriptor for color uniforms"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        }
-    }
-}
-
 pub struct DefaultMeshRenderingPipeline {
     pipeline: wgpu::RenderPipeline,
 }
@@ -155,12 +31,11 @@ impl DefaultMeshRenderingPipeline {
         });
 
         let projection_bind_group_layout = device.create_bind_group_layout(&Projection::desc());
-        let color_bind_group_layout = device.create_bind_group_layout(&ColorUniforms::desc());
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render pipeline layout for default mesh"),
-                bind_group_layouts: &[&projection_bind_group_layout, &color_bind_group_layout],
+                bind_group_layouts: &[&projection_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -225,7 +100,7 @@ impl DefaultMeshRenderingPipeline {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &projection.bind_group, &[]);
         pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
-        pass.set_index_buffer(part.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.set_index_buffer(part.mesh.indices.slice(..), part.mesh.index_format);
         pass.draw_indexed(range, 0, instances.range());
     }
 }
@@ -248,12 +123,11 @@ impl NoShadingMeshRenderingPipeline {
         });
 
         let projection_bind_group_layout = device.create_bind_group_layout(&Projection::desc());
-        let color_bind_group_layout = device.create_bind_group_layout(&ColorUniforms::desc());
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render pipeline layout for default mesh without shading"),
-                bind_group_layouts: &[&projection_bind_group_layout, &color_bind_group_layout],
+                bind_group_layouts: &[&projection_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -318,7 +192,7 @@ impl NoShadingMeshRenderingPipeline {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &projection.bind_group, &[]);
         pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
-        pass.set_index_buffer(part.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.set_index_buffer(part.mesh.indices.slice(..), part.mesh.index_format);
         pass.draw_indexed(range, 0, instances.range());
     }
 }
@@ -339,12 +213,11 @@ impl EdgeRenderingPipeline {
         });
 
         let projection_bind_group_layout = device.create_bind_group_layout(&Projection::desc());
-        let color_bind_group_layout = device.create_bind_group_layout(&ColorUniforms::desc());
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render pipeline layout for optional edges"),
-                bind_group_layouts: &[&projection_bind_group_layout, &color_bind_group_layout],
+                bind_group_layouts: &[&projection_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -403,14 +276,17 @@ impl EdgeRenderingPipeline {
         projection: &'p Projection,
         part: &'p Part,
         instances: &'p Instances<K, G>,
-    ) {
+    ) -> bool {
         if let Some(ref edges) = part.edges.as_ref() {
             pass.set_vertex_buffer(0, edges.vertices.slice(..));
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &projection.bind_group, &[]);
             pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
-            pass.set_index_buffer(edges.indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.set_index_buffer(edges.indices.slice(..), edges.index_format);
             pass.draw_indexed(edges.range.clone(), 0, instances.range());
+            true
+        } else {
+            false
         }
     }
 }
@@ -435,12 +311,11 @@ impl OptionalEdgeRenderingPipeline {
         });
 
         let projection_bind_group_layout = device.create_bind_group_layout(&Projection::desc());
-        let color_bind_group_layout = device.create_bind_group_layout(&ColorUniforms::desc());
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render pipeline layout for optional edges"),
-                bind_group_layouts: &[&projection_bind_group_layout, &color_bind_group_layout],
+                bind_group_layouts: &[&projection_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -499,21 +374,21 @@ impl OptionalEdgeRenderingPipeline {
         projection: &'rp Projection,
         part: &'rp Part,
         instances: &'rp Instances<K, G>,
-    ) {
+    ) -> bool {
         if let Some(ref optional_edges) = part.optional_edges {
             pass.set_vertex_buffer(0, optional_edges.vertices.slice(..));
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &projection.bind_group, &[]);
             pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
             pass.draw(optional_edges.range.clone(), instances.range());
+            true
+        } else {
+            false
         }
     }
 }
 
 pub struct RenderingPipelineManager {
-    color_uniforms: ColorUniforms,
-    color_uniforms_bind_group: wgpu::BindGroup,
-
     pub mesh_default: DefaultMeshRenderingPipeline,
     pub mesh_no_shading: NoShadingMeshRenderingPipeline,
     pub edge: EdgeRenderingPipeline,
@@ -522,12 +397,7 @@ pub struct RenderingPipelineManager {
 
 impl RenderingPipelineManager {
     pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
-        let color_uniforms = ColorUniforms::new(device);
-        let color_uniforms_bind_group = color_uniforms.create_bind_group(device);
         Self {
-            color_uniforms,
-            color_uniforms_bind_group,
-
             mesh_default: DefaultMeshRenderingPipeline::new(device, config),
             mesh_no_shading: NoShadingMeshRenderingPipeline::new(device, config),
             edge: EdgeRenderingPipeline::new(device, config),
@@ -538,49 +408,32 @@ impl RenderingPipelineManager {
     pub fn render<'rp, K, G>(
         &'rp mut self,
         pass: &mut wgpu::RenderPass<'rp>,
-        queue: &wgpu::Queue,
         projection: &'rp Projection,
         part_querier: &'rp impl PartQuerier<G>,
         display_list: &'rp DisplayList<K, G>,
-    ) {
-        pass.set_bind_group(1, &self.color_uniforms_bind_group, &[]);
+    ) -> u32 {
+        let mut draws = 0;
 
         // Render opaque items first
-        for (group, instances) in display_list.iter_opaque() {
+        for (group, is_translucent, instances) in display_list.iter() {
             if let Some(part) = part_querier.get(group) {
-                for (group_key, range) in part.mesh.opaque_ranges.iter() {
-                    self.color_uniforms.set_use_instanced_color(queue, false);
-                    self.color_uniforms.set_color(queue, &group_key.color_ref);
-                    if group_key.bfc {
-                        self.mesh_default
-                            .render(pass, projection, part, instances, range.clone());
-                    } else {
-                        self.mesh_no_shading.render(
-                            pass,
-                            projection,
-                            part,
-                            instances,
-                            range.clone(),
-                        );
-                    }
-                }
-                if let Some(range) = part.mesh.uncolored_range.clone() {
-                    self.color_uniforms.set_use_instanced_color(queue, true);
+                if let Some(range) = &part.mesh.colored_opaque_range {
                     self.mesh_default
-                        .render(pass, projection, part, instances, range);
+                        .render(pass, projection, part, instances, range.clone());
+                    draws += 1;
                 }
-                if let Some(range) = part.mesh.uncolored_without_bfc_range.clone() {
-                    self.color_uniforms.set_use_instanced_color(queue, true);
+                if let Some(range) = &part.mesh.colored_opaque_without_bfc_range {
                     self.mesh_no_shading
-                        .render(pass, projection, part, instances, range)
+                        .render(pass, projection, part, instances, range.clone());
+                    draws += 1;
                 }
-                for (group_key, range) in part.mesh.translucent_ranges.iter() {
-                    self.color_uniforms.set_use_instanced_color(queue, true);
-                    self.color_uniforms.set_color(queue, &group_key.color_ref);
-                    if group_key.bfc {
+                if !is_translucent {
+                    if let Some(range) = &part.mesh.uncolored_range {
                         self.mesh_default
                             .render(pass, projection, part, instances, range.clone());
-                    } else {
+                        draws += 1;
+                    }
+                    if let Some(range) = &part.mesh.uncolored_without_bfc_range {
                         self.mesh_no_shading.render(
                             pass,
                             projection,
@@ -588,63 +441,56 @@ impl RenderingPipelineManager {
                             instances,
                             range.clone(),
                         );
+                        draws += 1;
+                    }
+                    if self.edge.render(pass, projection, part, instances) {
+                        draws += 1;
+                    }
+                    if self.optional_edge.render(pass, projection, part, instances) {
+                        draws += 1;
                     }
                 }
-                self.color_uniforms.set_use_instanced_color(queue, true);
-                self.edge.render(pass, projection, part, instances);
-                self.optional_edge.render(pass, projection, part, instances);
+            }
+        }
+        // Then translucent items
+        for (group, is_translucent, instances) in display_list.iter() {
+            if let Some(part) = part_querier.get(group) {
+                if let Some(range) = &part.mesh.colored_translucent_range {
+                    self.mesh_default
+                        .render(pass, projection, part, instances, range.clone());
+                    draws += 1;
+                }
+                if let Some(range) = &part.mesh.colored_translucent_without_bfc_range {
+                    self.mesh_no_shading
+                        .render(pass, projection, part, instances, range.clone());
+                    draws += 1;
+                }
+                if is_translucent {
+                    if let Some(range) = &part.mesh.uncolored_range {
+                        self.mesh_default
+                            .render(pass, projection, part, instances, range.clone());
+                        draws += 1;
+                    }
+                    if let Some(range) = &part.mesh.uncolored_without_bfc_range {
+                        self.mesh_no_shading.render(
+                            pass,
+                            projection,
+                            part,
+                            instances,
+                            range.clone(),
+                        );
+                        draws += 1;
+                    }
+                    if self.edge.render(pass, projection, part, instances) {
+                        draws += 1;
+                    }
+                    if self.optional_edge.render(pass, projection, part, instances) {
+                        draws += 1;
+                    }
+                }
             }
         }
 
-        // Then translucent onces
-        for (group, instances) in display_list.iter_translucent() {
-            if let Some(part) = part_querier.get(group) {
-                for (group_key, range) in part.mesh.opaque_ranges.iter() {
-                    self.color_uniforms.set_use_instanced_color(queue, false);
-                    self.color_uniforms.set_color(queue, &group_key.color_ref);
-                    if group_key.bfc {
-                        self.mesh_default
-                            .render(pass, projection, part, instances, range.clone());
-                    } else {
-                        self.mesh_no_shading.render(
-                            pass,
-                            projection,
-                            part,
-                            instances,
-                            range.clone(),
-                        );
-                    }
-                }
-                if let Some(range) = part.mesh.uncolored_range.clone() {
-                    self.color_uniforms.set_use_instanced_color(queue, true);
-                    self.mesh_default
-                        .render(pass, projection, part, instances, range);
-                }
-                if let Some(range) = part.mesh.uncolored_without_bfc_range.clone() {
-                    self.color_uniforms.set_use_instanced_color(queue, true);
-                    self.mesh_no_shading
-                        .render(pass, projection, part, instances, range)
-                }
-                for (group_key, range) in part.mesh.translucent_ranges.iter() {
-                    self.color_uniforms.set_use_instanced_color(queue, true);
-                    self.color_uniforms.set_color(queue, &group_key.color_ref);
-                    if group_key.bfc {
-                        self.mesh_default
-                            .render(pass, projection, part, instances, range.clone());
-                    } else {
-                        self.mesh_no_shading.render(
-                            pass,
-                            projection,
-                            part,
-                            instances,
-                            range.clone(),
-                        );
-                    }
-                }
-                self.color_uniforms.set_use_instanced_color(queue, true);
-                self.edge.render(pass, projection, part, instances);
-                self.optional_edge.render(pass, projection, part, instances);
-            }
-        }
+        draws
     }
 }
