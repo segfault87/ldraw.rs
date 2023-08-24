@@ -54,7 +54,7 @@ impl VertexBufferBuilder {
         }
 
         let index = self.current_index;
-        match self.index_table.add(vertex_ref.clone(), index) {
+        match self.index_table.add(*vertex_ref, index) {
             Ok(_) => {
                 self.vertices.push(vertex);
                 self.current_index += 1;
@@ -178,6 +178,7 @@ pub struct OptionalEdgeBuffer {
 }
 
 impl OptionalEdgeBuffer {
+    #[allow(clippy::too_many_arguments)]
     pub fn add(
         &mut self,
         vertex_buffer: &mut VertexBufferBuilder,
@@ -401,7 +402,7 @@ impl<'a> Iterator for FaceIterator<'a> {
     }
 }
 
-impl<'a> FaceVertices {
+impl FaceVertices {
     pub fn triangles(&self, reverse: bool) -> FaceIterator {
         let order = match self {
             FaceVertices::Triangle(_) => TRIANGLE_INDEX_ORDER,
@@ -446,7 +447,7 @@ struct Adjacency {
     pub faces: Vec<(Rc<RefCell<Face>>, usize)>,
 }
 
-impl<'a> Adjacency {
+impl Adjacency {
     pub fn new() -> Adjacency {
         Adjacency { faces: Vec::new() }
     }

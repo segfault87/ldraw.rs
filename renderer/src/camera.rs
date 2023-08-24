@@ -45,10 +45,10 @@ impl From<&ProjectionData> for RawProjectionData {
                 .cloned()
                 .unwrap_or_else(Matrix4::identity)
                 .into(),
-            projection_matrix: d.projection_matrix.clone().into(),
-            model_view_matrix: d.model_view_matrix.clone().into(),
-            normal_matrix: d.normal_matrix.clone().into(),
-            view_matrix: d.view_matrix.clone().into(),
+            projection_matrix: d.projection_matrix.into(),
+            model_view_matrix: d.model_view_matrix.into(),
+            normal_matrix: d.normal_matrix.into(),
+            view_matrix: d.view_matrix.into(),
             is_orthographic: if d.is_orthographic { 1 } else { 0 },
             _padding: [0; 24],
         }
@@ -58,7 +58,7 @@ impl From<&ProjectionData> for RawProjectionData {
 impl RawProjectionData {
     pub fn update(&mut self, data: &ProjectionData) {
         if let Some(model_matrix) = data.model_matrix.last() {
-            self.model_matrix = model_matrix.clone().into();
+            self.model_matrix = (*model_matrix).into();
         }
         self.projection_matrix = data.projection_matrix.into();
         self.model_view_matrix = data.model_view_matrix.into();

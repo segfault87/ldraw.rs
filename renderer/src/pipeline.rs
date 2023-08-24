@@ -1,11 +1,4 @@
-use std::{
-    cell::RefCell,
-    ops::{Deref, Range},
-    sync::Arc,
-};
-
-use ldraw::{color::ColorReference, Vector4};
-use wgpu::util::DeviceExt;
+use std::ops::Range;
 
 use super::{
     camera::Projection,
@@ -277,7 +270,7 @@ impl EdgeRenderingPipeline {
         part: &'p Part,
         instances: &'p Instances<K, G>,
     ) -> bool {
-        if let Some(ref edges) = part.edges.as_ref() {
+        if let Some(edges) = part.edges.as_ref() {
             pass.set_vertex_buffer(0, edges.vertices.slice(..));
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &projection.bind_group, &[]);
