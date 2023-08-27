@@ -56,7 +56,7 @@ impl From<&ProjectionData> for RawProjectionData {
 }
 
 impl RawProjectionData {
-    pub fn update(&mut self, data: &ProjectionData) {
+    fn update(&mut self, data: &ProjectionData) {
         if let Some(model_matrix) = data.model_matrix.last() {
             self.model_matrix = (*model_matrix).into();
         }
@@ -118,7 +118,7 @@ impl Projection {
             label: Some("Bind group descriptor for projection"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,

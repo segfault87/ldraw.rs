@@ -1,0 +1,20 @@
+[package]
+name = "viewer-v2"
+version = "0.1.0"
+authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+async-std = "1"
+async-trait = "~0.1.51"
+cgmath = "~0.18.0"
+clap = "~2.33.0"
+instant = { version = "~0.1.12", features = ["wasm-bindgen"] }
+ldraw = { path = "../../ldraw", features = ["http"] }
+ldraw-ir = { path = "../../ir" }
+ldraw-renderer = { path = "../../renderer" }
+pollster = "0.3"
+reqwest = { version = "~0.11.8", features = ["brotli"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }
+wgpu = "0.17.0"
+winit = "0.28"
