@@ -183,10 +183,32 @@ fn calculate_bounding_box_recursive(
     }
 }
 
-fn calculate_bounding_box(model: &model::Model, parts: &SimplePartsPool) -> BoundingBox3 {
+fn calculate_bounding_box(
+    model: &model::Model,
+    group_id: Option<Uuid>,
+    parts: &SimplePartsPool,
+) -> BoundingBox3 {
     let mut bb = BoundingBox3::zero();
 
-    calculate_bounding_box_recursive(&mut bb, parts, Matrix4::identity(), &model.objects, model);
+    if let Some(group_id) = group_id {
+        if let Some(subpart) = model.object_groups.get(&group_id) {
+            calculate_bounding_box_recursive(
+                &mut bb,
+                parts,
+                Matrix4::identity(),
+                &subpart.objects,
+                model,
+            );
+        }
+    } else {
+        calculate_bounding_box_recursive(
+            &mut bb,
+            parts,
+            Matrix4::identity(),
+            &model.objects,
+            model,
+        );
+    }
 
     bb
 }
@@ -284,16 +306,16 @@ impl AnimatedModel {
 
     pub fn from_model(
         model: &model::Model,
-        subpart_id: Option<Uuid>,
+        group_id: Option<Uuid>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color_catalog: &ColorCatalog,
         animated: bool,
     ) -> Self {
         if animated {
-            let objects = if let Some(subpart_id) = subpart_id {
-                if let Some(subpart) = model.object_groups.get(&subpart_id) {
-                    Some(&subpart.objects)
+            let objects = if let Some(group_id) = group_id {
+                if let Some(group) = model.object_groups.get(&group_id) {
+                    Some(&group.objects)
                 } else {
                     None
                 }
@@ -330,7 +352,7 @@ impl AnimatedModel {
             }
         } else {
             let display_list =
-                DisplayList::from_model(model, subpart_id, device, queue, color_catalog);
+                DisplayList::from_model(model, group_id, device, queue, color_catalog);
 
             Self {
                 display_list,
@@ -457,11 +479,10 @@ pub struct App {
     colors: Rc<ColorCatalog>,
 
     parts: Arc<RwLock<SimplePartsPool>>,
-    model: AnimatedModel,
+    model: Option<model::Model>,
+    animated_model: AnimatedModel,
 
     pub orbit_controller: RefCell<OrbitController>,
-
-    pub state: State,
 }
 
 const SAMPLE_COUNT: u32 = 4;
@@ -560,11 +581,10 @@ impl App {
             colors,
 
             parts: Arc::new(RwLock::new(SimplePartsPool::default())),
-            model: AnimatedModel::default(),
+            model: None,
+            animated_model: AnimatedModel::default(),
 
             orbit_controller,
-
-            state: State::Finished,
         }
     }
 
@@ -624,13 +644,12 @@ impl App {
                     }),
             );
 
-        self.state = State::Playing;
-
-        let bounding_box = calculate_bounding_box(&model, &self.parts.read().unwrap());
+        let bounding_box = calculate_bounding_box(&model, None, &self.parts.read().unwrap());
         let center = bounding_box.center();
 
-        self.model =
+        self.animated_model =
             AnimatedModel::from_model(&model, None, &self.device, &self.queue, &self.colors, true);
+        self.model = Some(model);
 
         let mut orbit_controller = self.orbit_controller.borrow_mut();
         orbit_controller.camera.look_at = Point3::new(center.x, center.y, center.z);
@@ -644,7 +663,7 @@ impl App {
     }
 
     pub fn advance(&mut self, time: f32) {
-        self.model.advance(&self.device, &self.queue, time);
+        self.animated_model.advance(&self.device, &self.queue, time);
     }
 
     pub fn animate(&mut self, time: f32) {
@@ -656,7 +675,7 @@ impl App {
             Some(time),
         );
 
-        self.model.animate(&self.device, &self.queue, time);
+        self.animated_model.animate(&self.device, &self.queue, time);
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -735,7 +754,7 @@ impl App {
                 &mut pass,
                 &self.projection,
                 &*part_querier,
-                &self.model.display_list,
+                &self.animated_model.display_list,
             );
         }
 
@@ -746,10 +765,8 @@ impl App {
     }
 
     pub fn get_subparts(&self) -> Vec<(Uuid, String)> {
-        /*
-        if let Some(v) = &self.model {
-            let mut result = v
-                .model
+        if let Some(model) = &self.model {
+            let mut result = model
                 .object_groups
                 .iter()
                 .map(|(k, v)| (*k, v.name.clone()))
@@ -759,32 +776,29 @@ impl App {
         } else {
             Vec::new()
         }
-        */
-
-        Vec::new()
     }
 
     pub fn set_render_target(&mut self, group_id: Option<Uuid>) {
-        /*if let Some(v) = &mut self.model {
-        v.set_render_target(group_id);
+        if let Some(model) = &mut self.model {
+            self.animated_model = AnimatedModel::from_model(
+                model,
+                group_id,
+                &self.device,
+                &self.queue,
+                &self.colors,
+                false,
+            );
 
-        let bounding_box = match group_id {
-            None => v.bounding_box.clone(),
-            Some(uuid) => {
-                if let Some(v) = v.subpart_bounding_boxes.get(&uuid) {
-                    v.clone()
-                } else {
-                    BoundingBox3::zero()
-                }
-            }
-        };
-        let center = bounding_box.center();
-        self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
-        self.orbit.radius = (bounding_box.len_x() * bounding_box.len_x()
-            + bounding_box.len_y() * bounding_box.len_y()
-            + bounding_box.len_z() * bounding_box.len_z())
-        .sqrt()
-            * 2.0;
-            }*/
+            let bounding_box = calculate_bounding_box(model, group_id, &self.parts.read().unwrap());
+            let center = bounding_box.center();
+
+            let mut orbit_controller = self.orbit_controller.borrow_mut();
+            orbit_controller.camera.look_at = Point3::new(center.x, center.y, center.z);
+            orbit_controller.radius = (bounding_box.len_x() * bounding_box.len_x()
+                + bounding_box.len_y() * bounding_box.len_y()
+                + bounding_box.len_z() * bounding_box.len_z())
+            .sqrt()
+                * 2.0;
+        }
     }
 }
