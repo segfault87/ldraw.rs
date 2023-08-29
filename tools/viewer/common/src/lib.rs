@@ -12,7 +12,7 @@ use std::{
 use cgmath::{Deg, SquareMatrix};
 use instant::{Duration, Instant};
 use ldraw::{
-    color::ColorCatalog,
+    color::{Color, ColorCatalog},
     document::MultipartDocument,
     error::ResolutionError,
     library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
@@ -191,6 +191,254 @@ fn calculate_bounding_box(model: &model::Model, parts: &SimplePartsPool) -> Boun
     bb
 }
 
+const FALL_INTERVAL: f32 = 0.2;
+const FALL_INTERVAL_UPPER_BOUND: f32 = 10.0;
+const FALL_DURATION: f32 = 0.5;
+
+#[derive(Clone, Debug)]
+struct RenderingItem {
+    id: uuid::Uuid,
+    alias: PartAlias,
+    matrix: Matrix4,
+    color: Color,
+}
+
+enum RenderingStep {
+    Item(RenderingItem),
+    Step,
+}
+
+#[derive(Debug)]
+struct AnimatingRenderingItem {
+    item: RenderingItem,
+    started_at: f32,
+    progress: f32,
+}
+
+struct AnimatedModel {
+    display_list: DisplayList<uuid::Uuid, PartAlias>,
+    items: Vec<RenderingStep>,
+    animating: RefCell<Vec<AnimatingRenderingItem>>,
+
+    state: State,
+    pointer: Option<usize>,
+    fall_interval: f32,
+    last_time: Option<f32>,
+}
+
+impl Default for AnimatedModel {
+    fn default() -> Self {
+        Self {
+            display_list: DisplayList::new(),
+            items: Vec::new(),
+            animating: RefCell::new(Vec::new()),
+
+            state: State::Finished,
+            pointer: None,
+            fall_interval: FALL_INTERVAL,
+            last_time: None,
+        }
+    }
+}
+
+impl AnimatedModel {
+    fn uuid_xor(a: Uuid, b: Uuid) -> Uuid {
+        let ba = a.to_bytes_le();
+        let bb = b.to_bytes_le();
+
+        let bc: Vec<_> = ba.iter().zip(bb).map(|(x, y)| x ^ y).collect();
+        Uuid::from_slice(&bc).unwrap()
+    }
+
+    fn build_item_recursive(
+        items: &mut Vec<RenderingStep>,
+        model: &model::Model,
+        objects: &[model::Object],
+        parent_uuid: uuid::Uuid,
+        matrix: Matrix4,
+    ) {
+        for object in objects {
+            match &object.data {
+                model::ObjectInstance::Step => items.push(RenderingStep::Step),
+                model::ObjectInstance::Part(p) => items.push(RenderingStep::Item(RenderingItem {
+                    id: Self::uuid_xor(parent_uuid, object.id),
+                    alias: p.part.clone(),
+                    matrix: matrix * p.matrix,
+                    color: p.color.get_color().cloned().unwrap_or_default(),
+                })),
+                model::ObjectInstance::PartGroup(pg) => {
+                    if let Some(group) = model.object_groups.get(&pg.group_id) {
+                        Self::build_item_recursive(
+                            items,
+                            model,
+                            &group.objects,
+                            object.id,
+                            matrix * pg.matrix,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn from_model(
+        model: &model::Model,
+        subpart_id: Option<Uuid>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        color_catalog: &ColorCatalog,
+        animated: bool,
+    ) -> Self {
+        if animated {
+            let objects = if let Some(subpart_id) = subpart_id {
+                if let Some(subpart) = model.object_groups.get(&subpart_id) {
+                    Some(&subpart.objects)
+                } else {
+                    None
+                }
+            } else {
+                Some(&model.objects)
+            };
+
+            let mut items = Vec::new();
+            if let Some(objects) = objects {
+                Self::build_item_recursive(
+                    &mut items,
+                    model,
+                    objects,
+                    uuid::Uuid::nil(),
+                    Matrix4::identity(),
+                );
+            }
+
+            let items_len = items.len();
+
+            Self {
+                display_list: DisplayList::new(),
+                items,
+                animating: RefCell::new(Vec::new()),
+
+                state: State::Playing,
+                pointer: None,
+                fall_interval: if items_len as f32 * FALL_INTERVAL >= FALL_INTERVAL_UPPER_BOUND {
+                    FALL_INTERVAL_UPPER_BOUND / items_len as f32
+                } else {
+                    FALL_INTERVAL
+                },
+                last_time: None,
+            }
+        } else {
+            let display_list =
+                DisplayList::from_model(model, subpart_id, device, queue, color_catalog);
+
+            Self {
+                display_list,
+                items: Vec::new(),
+                animating: RefCell::new(Vec::new()),
+
+                state: State::Finished,
+                pointer: None,
+                fall_interval: 0.0,
+                last_time: None,
+            }
+        }
+    }
+
+    pub fn advance(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, time: f32) {
+        if self.state == State::Step || self.pointer.is_none() {
+            let start = self.pointer.unwrap_or(0);
+
+            let mut count = 0;
+            for i in start..self.items.len() {
+                if let RenderingStep::Step = self.items[i] {
+                    break;
+                }
+                count += 1;
+            }
+
+            self.fall_interval = if count as f32 * FALL_INTERVAL >= FALL_INTERVAL_UPPER_BOUND {
+                FALL_INTERVAL_UPPER_BOUND / count as f32
+            } else {
+                FALL_INTERVAL
+            };
+        }
+
+        let next = if self.pointer.is_none() && self.last_time.is_none() {
+            0
+        } else if time - self.last_time.unwrap() >= self.fall_interval {
+            self.pointer.unwrap() + 1
+        } else {
+            return;
+        };
+
+        if next >= self.items.len() {
+            self.state = State::Finished;
+            return;
+        }
+
+        self.pointer = Some(next);
+        match &self.items[next] {
+            RenderingStep::Item(item) => {
+                self.animating.borrow_mut().push(AnimatingRenderingItem {
+                    item: item.clone(),
+                    started_at: time,
+                    progress: 0.0,
+                });
+                self.display_list.modify(device, queue, |tr| {
+                    tr.insert(
+                        item.alias.clone(),
+                        item.id,
+                        item.matrix,
+                        &item.color,
+                        Some(0.0),
+                    );
+                    true
+                });
+                self.state = State::Playing;
+                self.last_time = Some(time);
+            }
+            RenderingStep::Step => {
+                self.state = State::Step;
+            }
+        }
+    }
+
+    pub fn animate(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, time: f32) {
+        if self.state == State::Playing {
+            self.advance(device, queue, time);
+        }
+
+        let mut animating = self.animating.borrow_mut();
+
+        self.display_list.modify(device, queue, move |tr| {
+            let mut modified = false;
+
+            for item in animating.iter_mut() {
+                if item.progress < 1.0 {
+                    modified = true;
+
+                    let elapsed =
+                        (time - item.started_at).clamp(0.0, FALL_DURATION) / FALL_DURATION;
+                    let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
+                    let alpha = ease * (item.item.color.color.alpha() as f32 / 255.0);
+
+                    let mut matrix = item.item.matrix;
+                    matrix[3][1] = item.item.matrix[3][1] + (-(1.0 - ease) * 300.0);
+                    tr.update_matrix(item.item.id, matrix);
+                    tr.update_alpha(item.item.id, alpha);
+
+                    item.progress = elapsed;
+                }
+            }
+
+            modified
+        });
+
+        self.animating.borrow_mut().retain(|v| v.progress < 1.0);
+    }
+}
+
 pub struct App {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -209,7 +457,7 @@ pub struct App {
     colors: Rc<ColorCatalog>,
 
     parts: Arc<RwLock<SimplePartsPool>>,
-    display_list: DisplayList<uuid::Uuid, PartAlias>,
+    model: AnimatedModel,
 
     pub orbit_controller: RefCell<OrbitController>,
 
@@ -217,10 +465,6 @@ pub struct App {
 }
 
 const SAMPLE_COUNT: u32 = 4;
-
-/*const FALL_INTERVAL: f32 = 0.2;
-const FALL_INTERVAL_UPPER_BOUND: f32 = 5.0;
-const FALL_DURATION: f32 = 0.5;*/
 
 impl App {
     pub async fn new(
@@ -298,8 +542,6 @@ impl App {
 
         let pipelines = RenderingPipelineManager::new(&device, &queue, &config);
 
-        let display_list = DisplayList::new();
-
         App {
             surface,
             device,
@@ -318,7 +560,7 @@ impl App {
             colors,
 
             parts: Arc::new(RwLock::new(SimplePartsPool::default())),
-            display_list,
+            model: AnimatedModel::default(),
 
             orbit_controller,
 
@@ -387,8 +629,8 @@ impl App {
         let bounding_box = calculate_bounding_box(&model, &self.parts.read().unwrap());
         let center = bounding_box.center();
 
-        self.display_list =
-            DisplayList::from_model(&model, &self.device, &self.queue, &self.colors);
+        self.model =
+            AnimatedModel::from_model(&model, None, &self.device, &self.queue, &self.colors, true);
 
         let mut orbit_controller = self.orbit_controller.borrow_mut();
         orbit_controller.camera.look_at = Point3::new(center.x, center.y, center.z);
@@ -401,50 +643,8 @@ impl App {
         Ok(())
     }
 
-    pub fn advance(&mut self, _time: f32) {
-        /*if self.state == State::Step || self.pointer.is_none() {
-            let start = self.pointer.unwrap_or(0);
-
-            let mut count = 0;
-            for i in start..self.rendering_order.len() {
-                if let RenderingOrder::Step = self.rendering_order[i] {
-                    break;
-                }
-                count += 1;
-            }
-
-            self.fall_interval = if count as f32 * FALL_INTERVAL >= FALL_INTERVAL_UPPER_BOUND {
-                FALL_INTERVAL_UPPER_BOUND / count as f32
-            } else {
-                FALL_INTERVAL
-            };
-        }
-
-        let next = if self.pointer.is_none() && self.last_time.is_none() {
-            0
-        } else if time - self.last_time.unwrap() >= self.fall_interval {
-            self.pointer.unwrap() + 1
-        } else {
-            return;
-        };
-
-        if next >= self.rendering_order.len() {
-            self.state = State::Finished;
-            return;
-        }
-
-        self.pointer = Some(next);
-        match &self.rendering_order[next] {
-            RenderingOrder::Item(item) => {
-                self.animating
-                    .push((item.clone(), time, item.matrix, 0.0, 0.0));
-                self.state = State::Playing;
-                self.last_time = Some(time);
-            }
-            RenderingOrder::Step => {
-                self.state = State::Step;
-            }
-        };*/
+    pub fn advance(&mut self, time: f32) {
+        self.model.advance(&self.device, &self.queue, time);
     }
 
     pub fn animate(&mut self, time: f32) {
@@ -456,35 +656,7 @@ impl App {
             Some(time),
         );
 
-        if self.state == State::Playing {
-            self.advance(time);
-        }
-
-        /*
-        for (order, started_at, mat, opacity, progress) in self.animating.iter_mut() {
-            if *progress < 1.0 {
-                let elapsed = (time - *started_at).clamp(0.0, FALL_DURATION) / FALL_DURATION;
-                let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
-                mat[3][1] = -(1.0 - ease) * 300.0 + order.matrix[3][1];
-                *opacity = ease;
-                *progress = elapsed;
-
-                if *progress >= 1.0 {
-                    let mut tr = self.display_list.start_modification();
-                    tr.add(
-                        Rc::clone(&self.gl),
-                        order.name.clone(),
-                        order.matrix,
-                        order.material.clone(),
-                    );
-                    tr.end();
-                }
-            }
-        }
-
-        self.animating
-            .retain(|(_, _, _, _, progress)| *progress < 1.0);
-        */
+        self.model.animate(&self.device, &self.queue, time);
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -563,7 +735,7 @@ impl App {
                 &mut pass,
                 &self.projection,
                 &*part_querier,
-                &self.display_list,
+                &self.model.display_list,
             );
         }
 

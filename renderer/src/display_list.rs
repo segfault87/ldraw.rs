@@ -1,6 +1,6 @@
 use std::{
-    collections::HashMap,
-    fmt::Display,
+    collections::{HashMap, HashSet},
+    fmt::{Debug, Display},
     hash::Hash,
     mem,
     ops::{Range, RangeInclusive},
@@ -98,7 +98,9 @@ impl<K, G: Display> Instances<K, G> {
     }
 }
 
-impl<K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display> Instances<K, G> {
+impl<K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
+    Instances<K, G>
+{
     pub fn new(device: &wgpu::Device, group: G) -> Self {
         let instance_data = Vec::new();
         let index = HashMap::new();
@@ -131,6 +133,7 @@ impl<K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Displa
     }
 }
 
+#[derive(Debug)]
 enum Ops<K> {
     Insert {
         key: K,
@@ -165,7 +168,7 @@ pub struct InstanceTransaction<'a, K, G> {
     ops: Vec<Ops<K>>,
 }
 
-impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
+impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
     InstanceTransaction<'a, K, G>
 {
     pub fn new(instances: &'a mut Instances<K, G>) -> Self {
@@ -217,7 +220,7 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
         self.ops.push(ops);
     }
 
-    pub fn commit(mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    fn commit(mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let mut rows_to_remove = vec![];
         let mut rows_to_insert = HashMap::new();
         let mut changed_indices = vec![];
@@ -328,35 +331,35 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
             rows_to_remove.reverse();
 
             let len = instances.instance_data.len();
+            let mut removed_rows_set = HashSet::new();
 
             let mut removed = 0;
             for (key, index) in rows_to_remove.iter() {
-                instances.index.remove(key);
                 instances.instance_data.remove(index - removed);
+                removed_rows_set.insert(key);
                 removed += 1;
                 layout_changed = true;
             }
 
             // Squash the index
             removed = 0;
-            let mut next_index = 0;
             let reverse_lookup = instances
                 .index
                 .clone()
                 .into_iter()
                 .map(|(k, v)| (v, k))
                 .collect::<HashMap<_, _>>();
+
             for i in 0..len {
-                if removed > 0 {
-                    if let Some(k) = reverse_lookup.get(&i) {
-                        if let Some(v) = instances.index.get_mut(k) {
-                            *v -= removed;
-                        }
-                    }
-                }
-                if rows_to_remove.len() < next_index && rows_to_remove[next_index].1 == i {
-                    next_index += 1;
+                let v = reverse_lookup.get(&i).expect("Corrupted instance buffer");
+
+                if removed_rows_set.contains(v) {
                     removed += 1;
+                    instances.index.remove(v);
+                } else {
+                    if let Some(pos) = instances.index.get_mut(v) {
+                        *pos -= removed;
+                    }
                 }
             }
         }
@@ -381,7 +384,7 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 enum GroupKind {
     Opaque,
     Translucent,
@@ -437,7 +440,7 @@ impl<K, G> DisplayList<K, G> {
     }
 }
 
-impl<K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
+impl<K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
     DisplayList<K, G>
 {
     fn get_or_create(&mut self, group: Group<G>, device: &wgpu::Device) -> &mut Instances<K, G> {
@@ -534,24 +537,36 @@ impl DisplayList<Uuid, PartAlias> {
 
     pub fn from_model(
         model: &Model,
+        group_id: Option<Uuid>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color_catalog: &ColorCatalog,
     ) -> Self {
         let mut display_list = Self::new();
 
-        display_list.modify(device, queue, |t| {
-            Self::expand_object_group(
-                t,
-                color_catalog,
-                Uuid::nil(),
-                &model.object_groups,
-                &model.objects,
-                Matrix4::identity(),
-                ColorReference::Color(color_catalog.get(&0).cloned().unwrap()),
-            );
-            true
-        });
+        let objects = match group_id {
+            Some(group_id) => match model.object_groups.get(&group_id) {
+                Some(v) => Some(&v.objects),
+                None => None,
+            },
+            None => Some(&model.objects),
+        };
+
+        if let Some(objects) = objects {
+            display_list.modify(device, queue, |t| {
+                Self::expand_object_group(
+                    t,
+                    color_catalog,
+                    Uuid::nil(),
+                    &model.object_groups,
+                    objects,
+                    Matrix4::identity(),
+                    ColorReference::Color(color_catalog.get(&0).cloned().unwrap()),
+                );
+                true
+            });
+        }
+
         display_list
     }
 }
@@ -562,7 +577,7 @@ pub struct DisplayListTransaction<'a, K, G> {
     ops: HashMap<Group<G>, Vec<Ops<K>>>,
 }
 
-impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
+impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
     DisplayListTransaction<'a, K, G>
 {
     fn new(display_list: &'a mut DisplayList<K, G>) -> Self {
@@ -583,7 +598,6 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
             color.color.into(),
             color.edge.into(),
             alpha,
-            color.is_translucent(),
         );
     }
 
@@ -596,13 +610,14 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
         color: Vector4,
         edge_color: Vector4,
         alpha: Option<f32>,
-        is_translucent: bool,
     ) {
         if self.lookup_table.contains_key(&key) {
             return;
         }
 
-        let group = if is_translucent || alpha.unwrap_or(1.0) < 1.0 {
+        let is_translucent = color.w < 1.0 || alpha.unwrap_or(1.0) < 1.0;
+
+        let group = if is_translucent {
             Group(GroupKind::Translucent, group)
         } else {
             Group(GroupKind::Opaque, group)
@@ -774,8 +789,12 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
                     }
                 };
                 let id = group.1.clone();
+                let mut color = entry.1;
+                color.w = alpha;
+                let mut edge_color = entry.2;
+                edge_color.w = alpha;
                 self.remove(key.clone());
-                self.do_insert(id, key, entry.0, entry.1, entry.2, Some(alpha), true);
+                self.do_insert(id, key, entry.0, color, edge_color, Some(alpha));
             } else {
                 self.ops
                     .entry(group.clone())
@@ -786,7 +805,7 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
     }
 
     pub fn remove(&mut self, key: K) {
-        if let Some(group) = self.lookup_table.get(&key) {
+        if let Some(group) = self.lookup_table.remove(&key) {
             self.ops
                 .entry(group.clone())
                 .or_insert_with(Default::default)
@@ -794,7 +813,7 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
         }
     }
 
-    pub fn commit(self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    fn commit(self, device: &wgpu::Device, queue: &wgpu::Queue) {
         for (part, ops) in self.ops.into_iter() {
             let instances = self.display_list.get_or_create(part, device);
             instances.modify(device, queue, |t| {

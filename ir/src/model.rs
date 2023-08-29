@@ -9,7 +9,7 @@ use cgmath::SquareMatrix;
 use ldraw::{
     color::{ColorCatalog, ColorReference},
     document::{Document as LdrawDocument, MultipartDocument as LdrawMultipartDocument},
-    elements::Command,
+    elements::{Command, Meta},
     library::{resolve_dependencies, LibraryLoader, PartCache, ResolutionResult},
     Matrix4, PartAlias, Vector3,
 };
@@ -167,32 +167,37 @@ fn build_objects(
     subparts: Option<&HashMap<PartAlias, Uuid>>,
 ) -> Vec<Object> {
     document
-        .iter_refs()
-        .map(|v| {
-            let data = match subparts {
-                Some(subparts) => match subparts.get(&v.name) {
-                    Some(e) => ObjectInstance::PartGroup(PartGroupInstance {
-                        matrix: v.matrix,
-                        color: v.color.clone(),
-                        group_id: *e,
-                    }),
-                    None => ObjectInstance::Part(PartInstance {
-                        matrix: v.matrix,
-                        color: v.color.clone(),
-                        part: v.name.clone(),
-                    }),
+        .commands
+        .iter()
+        .filter_map(|cmd| {
+            let data = match cmd {
+                Command::PartReference(r) => match subparts {
+                    Some(subparts) => match subparts.get(&r.name) {
+                        Some(e) => Some(ObjectInstance::PartGroup(PartGroupInstance {
+                            matrix: r.matrix,
+                            color: r.color.clone(),
+                            group_id: *e,
+                        })),
+                        None => Some(ObjectInstance::Part(PartInstance {
+                            matrix: r.matrix,
+                            color: r.color.clone(),
+                            part: r.name.clone(),
+                        })),
+                    },
+                    None => Some(ObjectInstance::Part(PartInstance {
+                        matrix: r.matrix,
+                        color: r.color.clone(),
+                        part: r.name.clone(),
+                    })),
                 },
-                None => ObjectInstance::Part(PartInstance {
-                    matrix: v.matrix,
-                    color: v.color.clone(),
-                    part: v.name.clone(),
-                }),
+                Command::Meta(Meta::Step) => Some(ObjectInstance::Step),
+                _ => None,
             };
 
-            Object {
+            data.map(|v| Object {
                 id: Uuid::new_v4(),
-                data,
-            }
+                data: v,
+            })
         })
         .collect::<Vec<_>>()
 }
