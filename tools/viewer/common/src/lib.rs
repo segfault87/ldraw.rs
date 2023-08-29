@@ -1,4 +1,7 @@
+mod texture;
+
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     f32,
     rc::Rc,
@@ -6,24 +9,26 @@ use std::{
     vec::Vec,
 };
 
-use cgmath::Deg;
-use glow::HasContext;
+use cgmath::{Deg, SquareMatrix};
 use instant::{Duration, Instant};
 use ldraw::{
     color::ColorCatalog,
     document::MultipartDocument,
     error::ResolutionError,
     library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
-    PartAlias, Point2, Point3, Vector2,
+    Matrix4, PartAlias, Point2, Point3, Vector2,
 };
-use ldraw_ir::{geometry::BoundingBox3, model::Model, part::bake_part_from_multipart_document};
+use ldraw_ir::{geometry::BoundingBox3, model, part::bake_part_from_multipart_document};
 use ldraw_renderer::{
-    model::RenderableModel,
-    part::{Part, PartsPool},
-    shader::ProgramManager,
-    state::{PerspectiveCamera, RenderingContext, RenderingStats},
+    camera::{PerspectiveCamera, Projection},
+    display_list::DisplayList,
+    part::{Part, PartQuerier},
+    pipeline::RenderingPipelineManager,
 };
 use uuid::Uuid;
+use winit::window::Window;
+
+use self::texture::Texture;
 
 pub struct OrbitController {
     last_pos: Option<Point2>,
@@ -37,27 +42,30 @@ pub struct OrbitController {
     tick: Option<f32>,
     velocity: Vector2,
 
-    pub camera: PerspectiveCamera,
+    camera: PerspectiveCamera,
 }
 
 impl OrbitController {
     pub fn new() -> Self {
+        let camera = PerspectiveCamera::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 0.0, 0.0),
+            Deg(45.0),
+        );
+
         OrbitController {
             last_pos: None,
             pressing: false,
 
             latitude: 0.785,
             longitude: 0.262,
+
             radius: 300.0,
 
             velocity: Vector2::new(0.1, 0.0),
             tick: None,
 
-            camera: PerspectiveCamera::new(
-                Point3::new(0.0, 0.0, 0.0),
-                Point3::new(0.0, 0.0, 0.0),
-                Deg(45.0),
-            ),
+            camera,
         }
     }
 
@@ -82,9 +90,22 @@ impl OrbitController {
         }
     }
 
-    pub fn update(&mut self, tick: f32) {
-        if let Some(t) = self.tick {
-            let delta = tick - t;
+    pub fn zoom(&mut self, delta: f32) {
+        if self.radius - delta > 0.0 {
+            self.radius -= delta;
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        projection: &mut Projection,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        tick: Option<f32>,
+    ) {
+        if let (Some(p), Some(n)) = (self.tick, tick) {
+            let delta = n - p;
 
             self.latitude += self.velocity.x * delta;
             self.longitude = (self.longitude + self.velocity.y * delta).clamp(
@@ -92,10 +113,10 @@ impl OrbitController {
                 f32::consts::FRAC_PI_2 - 0.017,
             );
         }
-
-        self.tick = Some(tick);
+        self.tick = tick;
 
         self.camera.position = self.derive_coordinate();
+        projection.update_camera(queue, &self.camera, width, height);
     }
 
     fn derive_coordinate(&self) -> Point3 {
@@ -121,61 +142,187 @@ pub enum State {
     Finished,
 }
 
-struct SimplePartsPool<GL: HasContext>(pub HashMap<PartAlias, Arc<Part<GL>>>);
+#[derive(Default)]
+struct SimplePartsPool(pub HashMap<PartAlias, Part>);
 
-impl<GL: HasContext> PartsPool<GL> for SimplePartsPool<GL> {
-    fn query(&self, alias: &PartAlias) -> Option<Arc<Part<GL>>> {
-        self.0.get(alias).map(Arc::clone)
+impl PartQuerier<PartAlias> for SimplePartsPool {
+    fn get(&self, alias: &PartAlias) -> Option<&Part> {
+        self.0.get(alias)
     }
 }
 
-impl<GL: HasContext> SimplePartsPool<GL> {
-    pub fn new() -> Self {
-        SimplePartsPool(HashMap::new())
+fn calculate_bounding_box_recursive(
+    bb: &mut BoundingBox3,
+    parts: &SimplePartsPool,
+    matrix: Matrix4,
+    items: &[model::Object],
+    model: &model::Model,
+) {
+    for item in items.iter() {
+        match &item.data {
+            model::ObjectInstance::Part(p) => {
+                if let Some(embedded_part) = model.embedded_parts.get(&p.part) {
+                    bb.update(&embedded_part.bounding_box.transform(&(matrix * p.matrix)));
+                } else if let Some(part) = parts.get(&p.part) {
+                    bb.update(&part.bounding_box.transform(&(matrix * p.matrix)));
+                }
+            }
+            model::ObjectInstance::PartGroup(pg) => {
+                if let Some(group) = model.object_groups.get(&pg.group_id) {
+                    calculate_bounding_box_recursive(
+                        bb,
+                        parts,
+                        matrix * pg.matrix,
+                        &group.objects,
+                        model,
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 }
 
-pub struct App<GL: HasContext> {
-    gl: Rc<GL>,
+fn calculate_bounding_box(model: &model::Model, parts: &SimplePartsPool) -> BoundingBox3 {
+    let mut bb = BoundingBox3::zero();
+
+    calculate_bounding_box_recursive(&mut bb, parts, Matrix4::identity(), &model.objects, model);
+
+    bb
+}
+
+pub struct App {
+    surface: wgpu::Surface,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    pub size: winit::dpi::PhysicalSize<u32>,
+    pub window: Window,
+
+    framebuffer_texture: Texture,
+    depth_texture: Texture,
+
+    projection: Projection,
+    pipelines: RenderingPipelineManager,
 
     loader: Rc<dyn LibraryLoader>,
     colors: Rc<ColorCatalog>,
 
-    parts: Arc<RwLock<SimplePartsPool<GL>>>,
+    parts: Arc<RwLock<SimplePartsPool>>,
+    display_list: DisplayList<uuid::Uuid, PartAlias>,
 
-    context: RenderingContext<GL>,
-    model: Option<RenderableModel<GL, SimplePartsPool<GL>>>,
-
-    pub orbit: OrbitController,
+    pub orbit_controller: RefCell<OrbitController>,
 
     pub state: State,
-    frames: usize,
 }
+
+const SAMPLE_COUNT: u32 = 4;
 
 /*const FALL_INTERVAL: f32 = 0.2;
 const FALL_INTERVAL_UPPER_BOUND: f32 = 5.0;
 const FALL_DURATION: f32 = 0.5;*/
 
-impl<GL: HasContext> App<GL> {
-    pub fn new(
-        gl: Rc<GL>,
+impl App {
+    pub async fn new(
+        window: Window,
         loader: Rc<dyn LibraryLoader>,
         colors: Rc<ColorCatalog>,
-        program_manager: ProgramManager<GL>,
     ) -> Self {
-        let context = RenderingContext::new(Rc::clone(&gl), program_manager);
-        context.upload_shading_data();
+        let size = window.inner_size();
+
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            dx12_shader_compiler: Default::default(),
+        });
+
+        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    features: wgpu::Features::POLYGON_MODE_LINE,
+                    limits: wgpu::Limits::default(),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+
+        let surface_caps = surface.get_capabilities(&adapter);
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| f.is_srgb())
+            .unwrap_or(surface_caps.formats[0]);
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: surface_caps.present_modes[0],
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![wgpu::TextureFormat::Bgra8UnormSrgb],
+        };
+        surface.configure(&device, &config);
+
+        let framebuffer_texture = Texture::create_framebuffer(
+            &device,
+            &config,
+            SAMPLE_COUNT,
+            Some("Multisample framebuffer"),
+        );
+        let depth_texture =
+            Texture::create_depth_texture(&device, &config, SAMPLE_COUNT, Some("Depth texture"));
+
+        let mut projection = Projection::new(&device);
+        let orbit_controller = RefCell::new(OrbitController::default());
+        orbit_controller.borrow_mut().update(
+            &mut projection,
+            &queue,
+            size.width,
+            size.height,
+            None,
+        );
+
+        let pipelines = RenderingPipelineManager::new(&device, &queue, &config);
+
+        let display_list = DisplayList::new();
 
         App {
-            gl: Rc::clone(&gl),
+            surface,
+            device,
+            queue,
+            config,
+            size,
+            window,
+
+            framebuffer_texture,
+            depth_texture,
+
+            projection,
+            pipelines,
+
             loader,
             colors,
-            parts: Arc::new(RwLock::new(SimplePartsPool::new())),
-            context,
-            model: None,
-            orbit: OrbitController::default(),
+
+            parts: Arc::new(RwLock::new(SimplePartsPool::default())),
+            display_list,
+
+            orbit_controller,
+
             state: State::Finished,
-            frames: 0,
         }
     }
 
@@ -202,7 +349,7 @@ impl<GL: HasContext> App<GL> {
         )
         .await;
 
-        let model = Model::from_ldraw_multipart_document(
+        let model = model::Model::from_ldraw_multipart_document(
             document,
             &self.colors,
             Some((&*self.loader, cache)),
@@ -221,41 +368,37 @@ impl<GL: HasContext> App<GL> {
                         resolution_result.query(&alias, true).map(|(part, local)| {
                             (
                                 alias.clone(),
-                                Arc::new(Part::create(
+                                Part::new(
                                     &bake_part_from_multipart_document(
                                         part,
                                         &resolution_result,
                                         local,
                                     ),
-                                    Rc::clone(&self.gl),
+                                    &self.device,
                                     &self.colors,
-                                )),
+                                ),
                             )
                         })
                     }),
             );
+
         self.state = State::Playing;
-        let model = RenderableModel::new(
-            model,
-            Rc::clone(&self.gl),
-            Arc::clone(&self.parts),
-            &self.colors,
-        );
-        let bounding_box = model.bounding_box.clone();
+
+        let bounding_box = calculate_bounding_box(&model, &self.parts.read().unwrap());
         let center = bounding_box.center();
-        self.model = Some(model);
-        self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
-        self.orbit.radius = (bounding_box.len_x() * bounding_box.len_x()
+
+        self.display_list =
+            DisplayList::from_model(&model, &self.device, &self.queue, &self.colors);
+
+        let mut orbit_controller = self.orbit_controller.borrow_mut();
+        orbit_controller.camera.look_at = Point3::new(center.x, center.y, center.z);
+        orbit_controller.radius = (bounding_box.len_x() * bounding_box.len_x()
             + bounding_box.len_y() * bounding_box.len_y()
             + bounding_box.len_z() * bounding_box.len_z())
         .sqrt()
             * 2.0;
 
         Ok(())
-    }
-
-    pub fn set_up(&self) {
-        self.context.set_initial_state();
     }
 
     pub fn advance(&mut self, _time: f32) {
@@ -305,9 +448,13 @@ impl<GL: HasContext> App<GL> {
     }
 
     pub fn animate(&mut self, time: f32) {
-        self.orbit.update(time);
-
-        self.context.apply_perspective_camera(&self.orbit.camera);
+        self.orbit_controller.borrow_mut().update(
+            &mut self.projection,
+            &self.queue,
+            self.size.width,
+            self.size.height,
+            Some(time),
+        );
 
         if self.state == State::Playing {
             self.advance(time);
@@ -340,26 +487,94 @@ impl<GL: HasContext> App<GL> {
         */
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.context.resize(width, height);
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            self.size = new_size;
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
+            self.surface.configure(&self.device, &self.config);
+
+            self.orbit_controller.borrow_mut().update(
+                &mut self.projection,
+                &self.queue,
+                self.size.width,
+                self.size.height,
+                None,
+            );
+
+            self.framebuffer_texture = Texture::create_framebuffer(
+                &self.device,
+                &self.config,
+                SAMPLE_COUNT,
+                Some("Multisample framebuffer"),
+            );
+            self.depth_texture = Texture::create_depth_texture(
+                &self.device,
+                &self.config,
+                SAMPLE_COUNT,
+                Some("Depth texture"),
+            );
+        }
     }
 
-    pub fn render(&mut self) -> (RenderingStats, Duration) {
+    pub fn render(&mut self) -> Result<Duration, wgpu::SurfaceError> {
         let now = Instant::now();
 
-        self.context.begin();
+        let part_querier = self.parts.read().unwrap();
 
-        if let Some(ref model) = self.model {
-            model.render(&mut self.context, false);
-            model.render(&mut self.context, true);
+        let output = self.surface.get_current_texture()?;
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Command Encoder"),
+            });
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Main render pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.framebuffer_texture.view,
+                    resolve_target: Some(&view),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.2,
+                            g: 0.2,
+                            b: 0.4,
+                            a: 1.0,
+                        }),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+
+            self.pipelines.render::<_, _>(
+                &mut pass,
+                &self.projection,
+                &*part_querier,
+                &self.display_list,
+            );
         }
 
-        self.frames += 1;
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
 
-        (self.context.end(), now.elapsed())
+        Ok(now.elapsed())
     }
 
     pub fn get_subparts(&self) -> Vec<(Uuid, String)> {
+        /*
         if let Some(v) = &self.model {
             let mut result = v
                 .model
@@ -372,29 +587,32 @@ impl<GL: HasContext> App<GL> {
         } else {
             Vec::new()
         }
+        */
+
+        Vec::new()
     }
 
     pub fn set_render_target(&mut self, group_id: Option<Uuid>) {
-        if let Some(v) = &mut self.model {
-            v.set_render_target(group_id);
+        /*if let Some(v) = &mut self.model {
+        v.set_render_target(group_id);
 
-            let bounding_box = match group_id {
-                None => v.bounding_box.clone(),
-                Some(uuid) => {
-                    if let Some(v) = v.subpart_bounding_boxes.get(&uuid) {
-                        v.clone()
-                    } else {
-                        BoundingBox3::zero()
-                    }
+        let bounding_box = match group_id {
+            None => v.bounding_box.clone(),
+            Some(uuid) => {
+                if let Some(v) = v.subpart_bounding_boxes.get(&uuid) {
+                    v.clone()
+                } else {
+                    BoundingBox3::zero()
                 }
-            };
-            let center = bounding_box.center();
-            self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
-            self.orbit.radius = (bounding_box.len_x() * bounding_box.len_x()
-                + bounding_box.len_y() * bounding_box.len_y()
-                + bounding_box.len_z() * bounding_box.len_z())
-            .sqrt()
-                * 2.0;
-        }
+            }
+        };
+        let center = bounding_box.center();
+        self.orbit.camera.look_at = Point3::new(center.x, center.y, center.z);
+        self.orbit.radius = (bounding_box.len_x() * bounding_box.len_x()
+            + bounding_box.len_y() * bounding_box.len_y()
+            + bounding_box.len_z() * bounding_box.len_z())
+        .sqrt()
+            * 2.0;
+            }*/
     }
 }

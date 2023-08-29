@@ -9,22 +9,19 @@ use std::{
 
 use async_std::path::PathBuf;
 use clap::{App as ClapApp, Arg};
-use glow::{self, Context};
-use glutin::{
-    event::{ElementState, Event, MouseButton, StartCause, VirtualKeyCode, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
-    ContextBuilder, GlProfile, GlRequest,
-};
 use ldraw::{
     color::ColorCatalog,
     document::MultipartDocument,
     library::{DocumentLoader, LibraryLoader, PartCache},
     resolvers::{http::HttpLoader, local::LocalLoader},
 };
-use ldraw_renderer::shader::ProgramManager;
 use reqwest::Url;
 use viewer_common::App;
+use winit::{
+    event,
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+};
 
 async fn main_loop(
     document: MultipartDocument,
@@ -32,31 +29,12 @@ async fn main_loop(
     dependency_loader: Rc<dyn LibraryLoader>,
 ) {
     let evloop = EventLoop::new();
-    let window_builder = WindowBuilder::new().with_title("ldraw.rs demo");
-    let windowed_context = ContextBuilder::new()
-        .with_gl_profile(GlProfile::Core)
-        .with_gl(GlRequest::Latest)
-        .with_multisampling(4)
-        .with_vsync(true)
-        .build_windowed(window_builder, &evloop)
+    let window = WindowBuilder::new()
+        .with_title("ldraw.rs demo")
+        .build(&evloop)
         .unwrap();
-    let windowed_context = unsafe { windowed_context.make_current().unwrap() };
-    let gl = unsafe {
-        Context::from_loader_function(|s| windowed_context.get_proc_address(s) as *const _)
-    };
-    let gl = Rc::new(gl);
 
-    let program_manager = match ProgramManager::new(Rc::clone(&gl)) {
-        Ok(e) => e,
-        Err(e) => panic!("{}", e),
-    };
-
-    let mut app = App::new(
-        Rc::clone(&gl),
-        dependency_loader,
-        Rc::new(colors),
-        program_manager,
-    );
+    let mut app = App::new(window, dependency_loader, Rc::new(colors)).await;
     let cache = Arc::new(RwLock::new(PartCache::new()));
     app.set_document(cache, &document, &|alias, result| {
         match result {
@@ -71,57 +49,89 @@ async fn main_loop(
     .await
     .unwrap();
 
-    let window = windowed_context.window();
-    let size = window.inner_size();
-    app.resize(size.width, size.height);
-
     let started = Instant::now();
-    app.set_up();
 
-    let refresh_duration = Duration::from_nanos(16_666_667);
+    let mut total_duration = 0;
+    let mut frames = 0;
+    let mut now = started;
 
     evloop.run(move |event, _, control_flow| match event {
-        Event::LoopDestroyed => {}
-        Event::RedrawRequested(_) => {
-            let (stats, duration) = app.render();
-            println!("took {} msec", duration.as_millis());
-            println!("{:#?}", stats);
-
-            windowed_context.swap_buffers().unwrap();
-        }
-        Event::NewEvents(StartCause::Init) => {
-            *control_flow = ControlFlow::WaitUntil(Instant::now() + refresh_duration);
-        }
-        Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+        event::Event::LoopDestroyed => {}
+        event::Event::RedrawRequested(_) => {
             app.animate(started.elapsed().as_millis() as f32 / 1000.0);
-            let (stats, duration) = app.render();
-            println!("took {} msec", duration.as_millis());
-            println!("{:#?}", stats);
-            windowed_context.swap_buffers().unwrap();
-            *control_flow = ControlFlow::WaitUntil(Instant::now() + refresh_duration);
+            match app.render() {
+                Ok(duration) => {
+                    total_duration += duration.as_millis();
+                    frames += 1;
+
+                    if now.elapsed() > Duration::from_secs(1) {
+                        println!(
+                            "{} frames per second. {} msecs per frame.",
+                            frames,
+                            total_duration as f32 / frames as f32
+                        );
+
+                        now = Instant::now();
+                        frames = 0;
+                        total_duration = 0;
+                    }
+
+                    //println!("took {} msec", duration.as_millis());
+                }
+                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    app.resize(app.size);
+                }
+                Err(wgpu::SurfaceError::OutOfMemory) => {
+                    *control_flow = ControlFlow::Exit;
+                }
+                Err(wgpu::SurfaceError::Timeout) => {
+                    println!("Surface timeout");
+                }
+            }
         }
-        Event::WindowEvent { event, .. } => match event {
-            WindowEvent::CloseRequested => {
+        event::Event::NewEvents(
+            event::StartCause::Init | event::StartCause::ResumeTimeReached { .. },
+        ) => {
+            app.window.request_redraw();
+        }
+        event::Event::MainEventsCleared => {
+            app.window.request_redraw();
+        }
+        event::Event::WindowEvent { event, .. } => match event {
+            event::WindowEvent::CloseRequested => {
                 *control_flow = ControlFlow::Exit;
             }
-            WindowEvent::Resized(size) => {
-                windowed_context.resize(size);
-                app.resize(size.width, size.height);
+            event::WindowEvent::Resized(size) => {
+                app.resize(size);
             }
-            WindowEvent::KeyboardInput { input, .. } => {
-                if input.virtual_keycode == Some(VirtualKeyCode::Space)
-                    && input.state == ElementState::Pressed
+            event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                app.resize(*new_inner_size);
+            }
+            event::WindowEvent::KeyboardInput { input, .. } => {
+                if input.virtual_keycode == Some(event::VirtualKeyCode::Space)
+                    && input.state == event::ElementState::Pressed
                 {
                     app.advance(started.elapsed().as_millis() as f32 / 1000.0);
                 }
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    app.orbit.on_mouse_press(state == ElementState::Pressed);
+            event::WindowEvent::MouseInput { state, button, .. } => {
+                if button == event::MouseButton::Left {
+                    app.orbit_controller
+                        .borrow_mut()
+                        .on_mouse_press(state == event::ElementState::Pressed);
                 }
             }
-            WindowEvent::CursorMoved { position, .. } => {
-                app.orbit
+            event::WindowEvent::MouseWheel { delta, .. } => match delta {
+                event::MouseScrollDelta::LineDelta(_x, y) => {
+                    app.orbit_controller.borrow_mut().zoom(y);
+                }
+                event::MouseScrollDelta::PixelDelta(d) => {
+                    app.orbit_controller.borrow_mut().zoom(d.y as f32 * 0.5);
+                }
+            },
+            event::WindowEvent::CursorMoved { position, .. } => {
+                app.orbit_controller
+                    .borrow_mut()
                     .on_mouse_move(position.x as f32, position.y as f32);
             }
             _ => (),

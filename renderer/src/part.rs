@@ -4,7 +4,7 @@ use ldraw::{
     color::{ColorCatalog, ColorReference},
     Vector4,
 };
-use ldraw_ir::part as part_ir;
+use ldraw_ir::{geometry::BoundingBox3, part as part_ir};
 use wgpu::util::DeviceExt;
 
 pub struct MeshBuffer {
@@ -631,15 +631,17 @@ pub struct Part {
     pub mesh: MeshBuffer,
     pub edges: Option<EdgeBuffer>,
     pub optional_edges: Option<OptionalEdgeBuffer>,
+    pub bounding_box: BoundingBox3,
 }
 
 impl Part {
-    pub fn new(device: &wgpu::Device, colors: &ColorCatalog, part: &part_ir::Part) -> Self {
+    pub fn new(part: &part_ir::Part, device: &wgpu::Device, colors: &ColorCatalog) -> Self {
         Self {
             metadata: part.metadata.clone(),
             mesh: MeshBuffer::new(device, part),
             edges: EdgeBuffer::new(device, colors, part),
             optional_edges: OptionalEdgeBuffer::new(device, colors, part),
+            bounding_box: part.bounding_box.clone(),
         }
     }
 }

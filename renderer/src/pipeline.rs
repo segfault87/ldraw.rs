@@ -31,29 +31,31 @@ impl Default for MaterialUniformData {
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct RawMaterialUniformData {
-    diffuse: [f32; 4],
-    emissive: [f32; 4],
+    diffuse: [f32; 3],
+    _padding0: [u8; 4],
+    emissive: [f32; 3],
     roughness: f32,
     metalness: f32,
-    padding: [u8; 8],
+    _padding1: [u8; 12],
 }
 
 impl From<&MaterialUniformData> for RawMaterialUniformData {
     fn from(v: &MaterialUniformData) -> Self {
         Self {
-            diffuse: [v.diffuse.x, v.diffuse.y, v.diffuse.z, 0.0],
-            emissive: [v.emissive.x, v.emissive.y, v.emissive.z, 0.0],
+            diffuse: [v.diffuse.x, v.diffuse.y, v.diffuse.z],
+            _padding0: [0; 4],
+            emissive: [v.emissive.x, v.emissive.y, v.emissive.z],
             roughness: v.roughness,
             metalness: v.metalness,
-            padding: [0; 8],
+            _padding1: [0; 12],
         }
     }
 }
 
 impl RawMaterialUniformData {
     fn update(&mut self, data: &MaterialUniformData) {
-        self.diffuse = [data.diffuse.x, data.diffuse.y, data.diffuse.z, 0.0];
-        self.emissive = [data.emissive.x, data.emissive.y, data.emissive.z, 0.0];
+        self.diffuse = data.diffuse.into();
+        self.emissive = data.emissive.into();
         self.roughness = data.roughness;
         self.metalness = data.metalness;
     }

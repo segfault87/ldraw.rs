@@ -6,5 +6,7 @@ members = [
     "renderer",
     "tools/baker",
     "tools/ldr2img",
-    "tools/viewer_v2"
+    "tools/viewer/common",
+    "tools/viewer/native",
+    "tools/viewer/web"
 ]

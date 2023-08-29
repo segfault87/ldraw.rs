@@ -1,9 +1,8 @@
 struct ProjectionData {
     modelMatrix: mat4x4<f32>,
     projectionMatrix: mat4x4<f32>,
-    modelViewMatrix: mat4x4<f32>,
-    normalMatrix: mat3x3<f32>,
     viewMatrix: mat4x4<f32>,
+    normalMatrix: mat3x3<f32>,
     isOrthographic: i32,
 }
 
@@ -111,6 +110,22 @@ fn envMapTexelToLinear(value: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(value.rgb * exp2(value.a * 255.0 - 128.0), 1.0);
 }
 
+fn fauxColor(face: f32) -> vec3<f32> {
+    if (face == 0.0) {
+        return vec3<f32>(1.0, 0.0, 0.0);
+    } else if (face == 1.0) {
+        return vec3<f32>(0.0, 1.0, 0.0);
+    } else if (face == 2.0) {
+        return vec3<f32>(0.0, 0.0, 1.0);
+    } else if (face == 3.0) {
+        return vec3<f32>(1.0, 1.0, 0.0);
+    } else if (face == 4.0) {
+        return vec3<f32>(0.0, 1.0, 1.0);
+    } else {
+        return vec3<f32>(1.0, 0.0, 1.0);
+    }
+}
+
 fn bilinearCubeUV(envMapTexture: texture_2d<f32>, envMapSampler: sampler, direction: vec3<f32>, mipInt_: f32) -> vec3<f32> {
     var face = getFace(direction);
     let filterInt = max(cubeUV_minMipLevel - mipInt_, 0.0);
@@ -142,6 +157,7 @@ fn bilinearCubeUV(envMapTexture: texture_2d<f32>, envMapSampler: sampler, direct
     let bm = mix(bl, br, f.x);
 
     return mix(tm, bm, f.y);
+    //return fauxColor(getFace(direction));
 }
 
 const r0: f32 = 1.0;
@@ -175,15 +191,14 @@ fn roughnessToMip(roughness: f32) -> f32 {
 }
 
 fn textureCubeUV(envMapTexture: texture_2d<f32>, envMapSampler: sampler, sampleDir: vec3<f32>, roughness: f32) -> vec4<f32> {
-    var direction = sampleDir;
     let mip = clamp(roughnessToMip(roughness), m0, cubeUV_maxMipLevel);
     let mipF = fract(mip);
     let mipInt = floor(mip);
-    let color0 = bilinearCubeUV(envMapTexture, envMapSampler, direction, mipInt);
+    let color0 = bilinearCubeUV(envMapTexture, envMapSampler, sampleDir, mipInt);
     if (mipF == 0.0) {
         return vec4<f32>(color0, 1.0);
     } else {
-        let color1 = bilinearCubeUV(envMapTexture, envMapSampler, direction, mipInt + 1.0);
+        let color1 = bilinearCubeUV(envMapTexture, envMapSampler, sampleDir, mipInt + 1.0);
         return vec4<f32>(mix(color0, color1, mipF), 1.0);
     }
 }
@@ -248,19 +263,15 @@ fn RE_IndirectSpecular(radiance: vec3<f32>, irradiance: vec3<f32>, clearcoatRadi
 
 @fragment
 fn fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    var dif = vec3<f32>(1.0, 1.0, 1.0);
-    var emi = vec3<f32>(0.0, 0.0, 0.0);
-    var rou = 0.3;
-    var met = 0.0;
-
-    var diffuseColor = vec4<f32>(dif, 1.0);
+    var diffuseColor = vec4<f32>(materialUniforms.diffuse, 1.0);
     var reflectedLight = ReflectedLight(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
-    let totalEmissiveRadiance = emi;
+    let totalEmissiveRadiance = materialUniforms.emissive;
     diffuseColor *= in.color;
-    let roughnessFactor = rou;
-    let metalnessFactor = met;
+    let roughnessFactor = materialUniforms.roughness;
+    let metalnessFactor = materialUniforms.metalness;
     let faceDirection = select(-1.0, 1.0, in.frontFacing);
     let normal = normalize(in.normal);
+
     var material: PhysicalMaterial;
     material.diffuseColor = diffuseColor.rgb * (1.0 - metalnessFactor);
     let dxy = max(abs(dpdx(normal)), abs(dpdy(normal)));

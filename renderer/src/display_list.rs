@@ -153,6 +153,10 @@ enum Ops<K> {
         color: Vector4,
         edge_color: Vector4,
     },
+    UpdateAlpha {
+        key: K,
+        alpha: f32,
+    },
     Remove(K),
 }
 
@@ -199,6 +203,10 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
             color,
             edge_color,
         });
+    }
+
+    pub fn update_alpha(&mut self, key: K, alpha: f32) {
+        self.ops.push(Ops::UpdateAlpha { key, alpha });
     }
 
     pub fn remove(&mut self, key: K) {
@@ -267,6 +275,17 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
                     } else if let Some(entry) = rows_to_insert.get_mut(&key) {
                         entry.1 = color;
                         entry.2 = edge_color;
+                    }
+                }
+                Ops::UpdateAlpha { key, alpha } => {
+                    if let Some(entry_idx) = instances.index.get(&key).cloned() {
+                        let data = &mut instances.instance_data[entry_idx];
+                        data.color[3] = alpha;
+                        data.edge_color[3] = alpha;
+                        changed_indices.push(entry_idx);
+                    } else if let Some(entry) = rows_to_insert.get_mut(&key) {
+                        entry.1.w = alpha;
+                        entry.2.w = alpha;
                     }
                 }
             }
@@ -485,6 +504,7 @@ impl DisplayList<Uuid, PartAlias> {
                         uuid_xor(parent_uuid, object.id),
                         local_matrix,
                         color,
+                        None,
                     );
                 }
                 ObjectInstance::PartGroup(g) => {
@@ -514,9 +534,9 @@ impl DisplayList<Uuid, PartAlias> {
 
     pub fn from_model(
         model: &Model,
-        color_catalog: &ColorCatalog,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        color_catalog: &ColorCatalog,
     ) -> Self {
         let mut display_list = Self::new();
 
@@ -555,12 +575,34 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
         }
     }
 
-    pub fn insert(&mut self, group: G, key: K, matrix: Matrix4, color: &Color) {
+    pub fn insert(&mut self, group: G, key: K, matrix: Matrix4, color: &Color, alpha: Option<f32>) {
+        self.do_insert(
+            group,
+            key,
+            matrix,
+            color.color.into(),
+            color.edge.into(),
+            alpha,
+            color.is_translucent(),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn do_insert(
+        &mut self,
+        group: G,
+        key: K,
+        matrix: Matrix4,
+        color: Vector4,
+        edge_color: Vector4,
+        alpha: Option<f32>,
+        is_translucent: bool,
+    ) {
         if self.lookup_table.contains_key(&key) {
             return;
         }
 
-        let group = if color.is_translucent() {
+        let group = if is_translucent || alpha.unwrap_or(1.0) < 1.0 {
             Group(GroupKind::Translucent, group)
         } else {
             Group(GroupKind::Opaque, group)
@@ -568,14 +610,23 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
 
         self.lookup_table.insert(key.clone(), group.clone());
 
+        let mut color_vec: Vector4 = color;
+        let mut edge_color_vec: Vector4 = edge_color;
+
+        if alpha.unwrap_or(1.0) < 1.0 {
+            let alpha = alpha.unwrap();
+            color_vec.w = alpha;
+            edge_color_vec.w = alpha;
+        }
+
         self.ops
             .entry(group)
             .or_insert_with(Default::default)
             .push(Ops::Insert {
                 key,
                 matrix,
-                color: color.color.into(),
-                edge_color: color.edge.into(),
+                color: color_vec,
+                edge_color: edge_color_vec,
             });
     }
 
@@ -584,7 +635,7 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
             if group.0.is_translucent() != color.is_translucent() {
                 let id = group.1.clone();
                 self.remove(key.clone());
-                self.insert(id, key, matrix, color);
+                self.insert(id, key, matrix, color, None);
             } else {
                 self.ops
                     .entry(group.clone())
@@ -656,7 +707,7 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
                 };
                 let id = group.1.clone();
                 self.remove(key.clone());
-                self.insert(id, key, matrix, color);
+                self.insert(id, key, matrix, color, None);
             } else {
                 self.ops
                     .entry(group.clone())
@@ -666,6 +717,70 @@ impl<'a, K: Clone + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Di
                         color: color.color.into(),
                         edge_color: color.edge.into(),
                     });
+            }
+        }
+    }
+
+    pub fn update_alpha(&mut self, key: K, alpha: f32) {
+        let is_translucent = alpha < 1.0;
+        if let Some(group) = self.lookup_table.get(&key) {
+            if group.0.is_translucent() != is_translucent {
+                let entry = {
+                    // Take matrix from previous entries (quite cumbersome)
+                    let mut latest = None;
+                    if let Some(ops) = self.ops.get(group) {
+                        for op in ops.iter() {
+                            match op {
+                                Ops::Insert {
+                                    key: okey,
+                                    matrix,
+                                    color,
+                                    edge_color,
+                                } => {
+                                    if okey == &key {
+                                        latest = Some((*matrix, *color, *edge_color));
+                                    }
+                                }
+                                Ops::Update {
+                                    key: okey,
+                                    matrix,
+                                    color,
+                                    edge_color,
+                                } => {
+                                    if okey == &key {
+                                        latest = Some((*matrix, *color, *edge_color));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    if latest.is_none() {
+                        if let Some(instances) = self.display_list.get_by_key(&key) {
+                            if let Some(index) = instances.index.get(&key) {
+                                latest = Some((
+                                    instances.instance_data[*index].model_matrix.into(),
+                                    instances.instance_data[*index].color.into(),
+                                    instances.instance_data[*index].edge_color.into(),
+                                ));
+                            }
+                        }
+                    }
+                    match latest {
+                        Some(v) => v,
+                        None => {
+                            panic!("Corrupted transaction.")
+                        }
+                    }
+                };
+                let id = group.1.clone();
+                self.remove(key.clone());
+                self.do_insert(id, key, entry.0, entry.1, entry.2, Some(alpha), true);
+            } else {
+                self.ops
+                    .entry(group.clone())
+                    .or_insert_with(Default::default)
+                    .push(Ops::UpdateAlpha { key, alpha });
             }
         }
     }

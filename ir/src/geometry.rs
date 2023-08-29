@@ -104,7 +104,7 @@ impl BoundingBox3 {
         }
     }
 
-    pub fn translate(&self, matrix: &Matrix4) -> Self {
+    pub fn transform(&self, matrix: &Matrix4) -> Self {
         let mut bb = BoundingBox3::zero();
 
         for vertex in self.points() {
