@@ -635,12 +635,26 @@ pub struct Part {
 }
 
 impl Part {
-    pub fn new(part: &part_ir::Part, device: &wgpu::Device, colors: &ColorCatalog) -> Self {
+    pub fn new(
+        part: &part_ir::Part,
+        device: &wgpu::Device,
+        colors: &ColorCatalog,
+        supports_line_rendering: bool,
+    ) -> Self {
+        let (edges, optional_edges) = if supports_line_rendering {
+            (
+                EdgeBuffer::new(device, colors, part),
+                OptionalEdgeBuffer::new(device, colors, part),
+            )
+        } else {
+            (None, None)
+        };
+
         Self {
             metadata: part.metadata.clone(),
             mesh: MeshBuffer::new(device, part),
-            edges: EdgeBuffer::new(device, colors, part),
-            optional_edges: OptionalEdgeBuffer::new(device, colors, part),
+            edges,
+            optional_edges,
             bounding_box: part.bounding_box.clone(),
         }
     }

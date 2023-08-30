@@ -26,7 +26,7 @@ use ldraw_renderer::{
     pipeline::RenderingPipelineManager,
 };
 use uuid::Uuid;
-use winit::window::Window;
+use winit::{event, window::Window};
 
 use self::texture::Texture;
 
@@ -314,11 +314,10 @@ impl AnimatedModel {
     ) -> Self {
         if animated {
             let objects = if let Some(group_id) = group_id {
-                if let Some(group) = model.object_groups.get(&group_id) {
-                    Some(&group.objects)
-                } else {
-                    None
-                }
+                model
+                    .object_groups
+                    .get(&group_id)
+                    .map(|group| &group.objects)
             } else {
                 Some(&model.objects)
             };
@@ -433,31 +432,29 @@ impl AnimatedModel {
 
         let mut animating = self.animating.borrow_mut();
 
+        animating.retain(|v| time - v.started_at < FALL_DURATION * 2.0);
+
         self.display_list.modify(device, queue, move |tr| {
             let mut modified = false;
 
             for item in animating.iter_mut() {
-                if item.progress < 1.0 {
-                    modified = true;
+                modified = true;
 
-                    let elapsed =
-                        (time - item.started_at).clamp(0.0, FALL_DURATION) / FALL_DURATION;
-                    let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
-                    let alpha = ease * (item.item.color.color.alpha() as f32 / 255.0);
+                let elapsed = (time - item.started_at).clamp(0.0, FALL_DURATION) / FALL_DURATION;
 
-                    let mut matrix = item.item.matrix;
-                    matrix[3][1] = item.item.matrix[3][1] + (-(1.0 - ease) * 300.0);
-                    tr.update_matrix(item.item.id, matrix);
-                    tr.update_alpha(item.item.id, alpha);
+                let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
+                let alpha = ease * (item.item.color.color.alpha() as f32 / 255.0);
 
-                    item.progress = elapsed;
-                }
+                let mut matrix = item.item.matrix;
+                matrix[3][1] = item.item.matrix[3][1] + (-(1.0 - ease) * 300.0);
+                tr.update_matrix(item.item.id, matrix);
+                tr.update_alpha(item.item.id, alpha);
+
+                item.progress = elapsed;
             }
 
             modified
         });
-
-        self.animating.borrow_mut().retain(|v| v.progress < 1.0);
     }
 }
 
@@ -467,10 +464,11 @@ pub struct App {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
-    pub window: Window,
+    window: Window,
 
-    framebuffer_texture: Texture,
+    framebuffer_texture: Option<Texture>,
     depth_texture: Texture,
+    sample_count: u32,
 
     projection: Projection,
     pipelines: RenderingPipelineManager,
@@ -482,46 +480,61 @@ pub struct App {
     model: Option<model::Model>,
     animated_model: AnimatedModel,
 
-    pub orbit_controller: RefCell<OrbitController>,
+    orbit_controller: RefCell<OrbitController>,
 }
-
-const SAMPLE_COUNT: u32 = 4;
 
 impl App {
     pub async fn new(
         window: Window,
         loader: Rc<dyn LibraryLoader>,
         colors: Rc<ColorCatalog>,
+        supports_line_rendering: bool,
+        supports_antialiasing: bool,
     ) -> Self {
         let size = window.inner_size();
 
+        let backends = wgpu::util::backend_bits_from_env().unwrap_or_else(wgpu::Backends::all);
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends,
             dx12_shader_compiler: Default::default(),
         });
 
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+        let sample_count = if supports_antialiasing { 4 } else { 1 };
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
+        let surface = match unsafe { instance.create_surface(&window) } {
+            Ok(surface) => surface,
+            Err(e) => panic!("cannot create surface: {}", e),
+        };
+
+        let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
             .await
             .unwrap();
 
-        let (device, queue) = adapter
+        let line_features = if supports_line_rendering {
+            wgpu::Features::POLYGON_MODE_LINE
+        } else {
+            wgpu::Features::empty()
+        };
+
+        let limits = wgpu::Limits {
+            max_texture_dimension_2d: 8192,
+            ..wgpu::Limits::downlevel_webgl2_defaults()
+        };
+
+        let (device, queue) = match adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::POLYGON_MODE_LINE,
-                    limits: wgpu::Limits::default(),
+                    features: wgpu::Features::default() | line_features,
+                    limits,
                 },
                 None,
             )
             .await
-            .unwrap();
+        {
+            Ok(v) => v,
+            Err(e) => panic!("Could not create device: {}", e),
+        };
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -538,18 +551,22 @@ impl App {
             height: size.height,
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![wgpu::TextureFormat::Bgra8UnormSrgb],
+            view_formats: vec![surface_format],
         };
         surface.configure(&device, &config);
 
-        let framebuffer_texture = Texture::create_framebuffer(
-            &device,
-            &config,
-            SAMPLE_COUNT,
-            Some("Multisample framebuffer"),
-        );
+        let framebuffer_texture = if sample_count > 1 {
+            Some(Texture::create_framebuffer(
+                &device,
+                &config,
+                sample_count,
+                Some("Multisample framebuffer"),
+            ))
+        } else {
+            None
+        };
         let depth_texture =
-            Texture::create_depth_texture(&device, &config, SAMPLE_COUNT, Some("Depth texture"));
+            Texture::create_depth_texture(&device, &config, sample_count, Some("Depth texture"));
 
         let mut projection = Projection::new(&device);
         let orbit_controller = RefCell::new(OrbitController::default());
@@ -561,7 +578,13 @@ impl App {
             None,
         );
 
-        let pipelines = RenderingPipelineManager::new(&device, &queue, &config);
+        let pipelines = RenderingPipelineManager::new(
+            &device,
+            &queue,
+            &config,
+            supports_line_rendering,
+            sample_count,
+        );
 
         App {
             surface,
@@ -573,6 +596,7 @@ impl App {
 
             framebuffer_texture,
             depth_texture,
+            sample_count,
 
             projection,
             pipelines,
@@ -638,6 +662,7 @@ impl App {
                                     ),
                                     &self.device,
                                     &self.colors,
+                                    self.pipelines.supports_line_rendering(),
                                 ),
                             )
                         })
@@ -693,16 +718,20 @@ impl App {
                 None,
             );
 
-            self.framebuffer_texture = Texture::create_framebuffer(
-                &self.device,
-                &self.config,
-                SAMPLE_COUNT,
-                Some("Multisample framebuffer"),
-            );
+            self.framebuffer_texture = if self.sample_count > 1 {
+                Some(Texture::create_framebuffer(
+                    &self.device,
+                    &self.config,
+                    self.sample_count,
+                    Some("Multisample framebuffer"),
+                ))
+            } else {
+                None
+            };
             self.depth_texture = Texture::create_depth_texture(
                 &self.device,
                 &self.config,
-                SAMPLE_COUNT,
+                self.sample_count,
                 Some("Depth texture"),
             );
         }
@@ -718,6 +747,13 @@ impl App {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+        let (target_view, resolve_target) = if let Some(texture) = self.framebuffer_texture.as_ref()
+        {
+            (&texture.view, Some(&view))
+        } else {
+            (&view, None)
+        };
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -728,14 +764,14 @@ impl App {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Main render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.framebuffer_texture.view,
-                    resolve_target: Some(&view),
+                    view: target_view,
+                    resolve_target,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.2,
-                            g: 0.2,
-                            b: 0.4,
-                            a: 1.0,
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: 0.0,
                         }),
                         store: true,
                     },
@@ -800,5 +836,69 @@ impl App {
             .sqrt()
                 * 2.0;
         }
+    }
+
+    pub fn state(&self) -> State {
+        self.animated_model.state
+    }
+
+    pub fn handle_window_event(&mut self, event: event::WindowEvent, current_time: f32) -> bool {
+        match event {
+            event::WindowEvent::Resized(size) => {
+                self.resize(size);
+            }
+            event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                self.resize(*new_inner_size);
+            }
+            event::WindowEvent::KeyboardInput { input, .. } => {
+                if input.virtual_keycode == Some(event::VirtualKeyCode::Space)
+                    && input.state == event::ElementState::Pressed
+                {
+                    self.advance(current_time);
+                }
+            }
+            event::WindowEvent::MouseInput { state, button, .. } => {
+                if button == event::MouseButton::Left {
+                    self.orbit_controller
+                        .borrow_mut()
+                        .on_mouse_press(state == event::ElementState::Pressed);
+                }
+            }
+            event::WindowEvent::MouseWheel { delta, .. } => match delta {
+                event::MouseScrollDelta::LineDelta(_x, y) => {
+                    self.orbit_controller.borrow_mut().zoom(y);
+                }
+                event::MouseScrollDelta::PixelDelta(d) => {
+                    self.orbit_controller.borrow_mut().zoom(d.y as f32 * 0.5);
+                }
+            },
+            event::WindowEvent::Touch(touch) => match touch.phase {
+                event::TouchPhase::Started => {
+                    self.orbit_controller.borrow_mut().on_mouse_press(true)
+                }
+                event::TouchPhase::Ended | event::TouchPhase::Cancelled => {
+                    self.orbit_controller.borrow_mut().on_mouse_press(false)
+                }
+                event::TouchPhase::Moved => self
+                    .orbit_controller
+                    .borrow_mut()
+                    .on_mouse_move(touch.location.x as f32, touch.location.y as f32),
+            },
+            event::WindowEvent::TouchpadMagnify { delta, .. } => {
+                self.orbit_controller.borrow_mut().zoom(delta as f32);
+            }
+            event::WindowEvent::CursorMoved { position, .. } => {
+                self.orbit_controller
+                    .borrow_mut()
+                    .on_mouse_move(position.x as f32, position.y as f32);
+            }
+            _ => return false,
+        }
+
+        true
+    }
+
+    pub fn request_redraw(&self) {
+        self.window.request_redraw();
     }
 }

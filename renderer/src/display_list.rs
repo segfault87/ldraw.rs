@@ -356,10 +356,8 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
                 if removed_rows_set.contains(v) {
                     removed += 1;
                     instances.index.remove(v);
-                } else {
-                    if let Some(pos) = instances.index.get_mut(v) {
-                        *pos -= removed;
-                    }
+                } else if let Some(pos) = instances.index.get_mut(v) {
+                    *pos -= removed;
                 }
             }
         }
@@ -545,10 +543,7 @@ impl DisplayList<Uuid, PartAlias> {
         let mut display_list = Self::new();
 
         let objects = match group_id {
-            Some(group_id) => match model.object_groups.get(&group_id) {
-                Some(v) => Some(&v.objects),
-                None => None,
-            },
+            Some(group_id) => model.object_groups.get(&group_id).map(|v| &v.objects),
             None => Some(&model.objects),
         };
 

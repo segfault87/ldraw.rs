@@ -34,7 +34,7 @@ async fn main_loop(
         .build(&evloop)
         .unwrap();
 
-    let mut app = App::new(window, dependency_loader, Rc::new(colors)).await;
+    let mut app = App::new(window, dependency_loader, Rc::new(colors), true, true).await;
     let cache = Arc::new(RwLock::new(PartCache::new()));
     app.set_document(cache, &document, &|alias, result| {
         match result {
@@ -75,8 +75,6 @@ async fn main_loop(
                         frames = 0;
                         total_duration = 0;
                     }
-
-                    //println!("took {} msec", duration.as_millis());
                 }
                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                     app.resize(app.size);
@@ -92,50 +90,14 @@ async fn main_loop(
         event::Event::NewEvents(
             event::StartCause::Init | event::StartCause::ResumeTimeReached { .. },
         ) => {
-            app.window.request_redraw();
+            app.request_redraw();
         }
         event::Event::MainEventsCleared => {
-            app.window.request_redraw();
+            app.request_redraw();
         }
-        event::Event::WindowEvent { event, .. } => match event {
-            event::WindowEvent::CloseRequested => {
-                *control_flow = ControlFlow::Exit;
-            }
-            event::WindowEvent::Resized(size) => {
-                app.resize(size);
-            }
-            event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                app.resize(*new_inner_size);
-            }
-            event::WindowEvent::KeyboardInput { input, .. } => {
-                if input.virtual_keycode == Some(event::VirtualKeyCode::Space)
-                    && input.state == event::ElementState::Pressed
-                {
-                    app.advance(started.elapsed().as_millis() as f32 / 1000.0);
-                }
-            }
-            event::WindowEvent::MouseInput { state, button, .. } => {
-                if button == event::MouseButton::Left {
-                    app.orbit_controller
-                        .borrow_mut()
-                        .on_mouse_press(state == event::ElementState::Pressed);
-                }
-            }
-            event::WindowEvent::MouseWheel { delta, .. } => match delta {
-                event::MouseScrollDelta::LineDelta(_x, y) => {
-                    app.orbit_controller.borrow_mut().zoom(y);
-                }
-                event::MouseScrollDelta::PixelDelta(d) => {
-                    app.orbit_controller.borrow_mut().zoom(d.y as f32 * 0.5);
-                }
-            },
-            event::WindowEvent::CursorMoved { position, .. } => {
-                app.orbit_controller
-                    .borrow_mut()
-                    .on_mouse_move(position.x as f32, position.y as f32);
-            }
-            _ => (),
-        },
+        event::Event::WindowEvent { event, .. } => {
+            app.handle_window_event(event, started.elapsed().as_millis() as f32 / 1000.0);
+        }
         _ => (),
     });
 }

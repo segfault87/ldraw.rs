@@ -188,7 +188,7 @@ impl DefaultMeshRenderingPipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -225,6 +225,7 @@ impl DefaultMeshRenderingPipeline {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         config: &wgpu::SurfaceConfiguration,
+        sample_count: u32,
     ) -> Self {
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Vertex shader for default mesh"),
@@ -290,7 +291,7 @@ impl DefaultMeshRenderingPipeline {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -326,7 +327,11 @@ pub struct NoShadingMeshRenderingPipeline {
 }
 
 impl NoShadingMeshRenderingPipeline {
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        sample_count: u32,
+    ) -> Self {
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Vertex shader for default mesh without shading"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/model_vertex.wgsl").into()),
@@ -384,7 +389,7 @@ impl NoShadingMeshRenderingPipeline {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -418,7 +423,11 @@ pub struct EdgeRenderingPipeline {
 }
 
 impl EdgeRenderingPipeline {
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        sample_count: u32,
+    ) -> Self {
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Vertex shader for edges"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/edge_vertex.wgsl").into()),
@@ -432,13 +441,13 @@ impl EdgeRenderingPipeline {
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render pipeline layout for optional edges"),
+                label: Some("Render pipeline layout for edges"),
                 bind_group_layouts: &[&projection_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render pipeline for optional edges"),
+            label: Some("Render pipeline for edges"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
@@ -474,7 +483,7 @@ impl EdgeRenderingPipeline {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -512,7 +521,11 @@ pub struct OptionalEdgeRenderingPipeline {
 }
 
 impl OptionalEdgeRenderingPipeline {
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        sample_count: u32,
+    ) -> Self {
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Vertex shader for optional edges"),
             source: wgpu::ShaderSource::Wgsl(
@@ -572,7 +585,7 @@ impl OptionalEdgeRenderingPipeline {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -605,10 +618,12 @@ impl OptionalEdgeRenderingPipeline {
 }
 
 pub struct RenderingPipelineManager {
-    pub mesh_default: DefaultMeshRenderingPipeline,
-    pub mesh_no_shading: NoShadingMeshRenderingPipeline,
-    pub edge: EdgeRenderingPipeline,
-    pub optional_edge: OptionalEdgeRenderingPipeline,
+    mesh_default: DefaultMeshRenderingPipeline,
+    mesh_no_shading: NoShadingMeshRenderingPipeline,
+    edge: Option<EdgeRenderingPipeline>,
+    optional_edge: Option<OptionalEdgeRenderingPipeline>,
+
+    supports_line_rendering: bool,
 }
 
 impl RenderingPipelineManager {
@@ -616,13 +631,32 @@ impl RenderingPipelineManager {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         config: &wgpu::SurfaceConfiguration,
+        supports_line_rendering: bool,
+        sample_count: u32,
     ) -> Self {
         Self {
-            mesh_default: DefaultMeshRenderingPipeline::new(device, queue, config),
-            mesh_no_shading: NoShadingMeshRenderingPipeline::new(device, config),
-            edge: EdgeRenderingPipeline::new(device, config),
-            optional_edge: OptionalEdgeRenderingPipeline::new(device, config),
+            mesh_default: DefaultMeshRenderingPipeline::new(device, queue, config, sample_count),
+            mesh_no_shading: NoShadingMeshRenderingPipeline::new(device, config, sample_count),
+            edge: if supports_line_rendering {
+                Some(EdgeRenderingPipeline::new(device, config, sample_count))
+            } else {
+                None
+            },
+            optional_edge: if supports_line_rendering {
+                Some(OptionalEdgeRenderingPipeline::new(
+                    device,
+                    config,
+                    sample_count,
+                ))
+            } else {
+                None
+            },
+            supports_line_rendering,
         }
+    }
+
+    pub fn supports_line_rendering(&self) -> bool {
+        self.supports_line_rendering
     }
 
     pub fn render<'rp, K, G>(
@@ -663,11 +697,15 @@ impl RenderingPipelineManager {
                         );
                         draws += 1;
                     }
-                    if self.edge.render(pass, projection, part, instances) {
-                        draws += 1;
+                    if let Some(edge) = &self.edge {
+                        if edge.render(pass, projection, part, instances) {
+                            draws += 1;
+                        }
                     }
-                    if self.optional_edge.render(pass, projection, part, instances) {
-                        draws += 1;
+                    if let Some(optional_edge) = &self.optional_edge {
+                        if optional_edge.render(pass, projection, part, instances) {
+                            draws += 1;
+                        }
                     }
                 }
             }
@@ -701,11 +739,15 @@ impl RenderingPipelineManager {
                         );
                         draws += 1;
                     }
-                    if self.edge.render(pass, projection, part, instances) {
-                        draws += 1;
+                    if let Some(edge) = &self.edge {
+                        if edge.render(pass, projection, part, instances) {
+                            draws += 1;
+                        }
                     }
-                    if self.optional_edge.render(pass, projection, part, instances) {
-                        draws += 1;
+                    if let Some(optional_edge) = &self.optional_edge {
+                        if optional_edge.render(pass, projection, part, instances) {
+                            draws += 1;
+                        }
                     }
                 }
             }

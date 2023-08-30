@@ -29,7 +29,7 @@ struct InstanceInput {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) discardFlag: i32,
+    @location(1) discardFlag: f32,
 }
 
 @vertex
@@ -68,7 +68,7 @@ fn vs(
     let d0 = dot(normalize(norm), normalize(c1Dir));
     let d1 = dot(normalize(norm), normalize(c2Dir));
 
-    out.discardFlag = select(0, 1, sign(d0) != sign(d1));
+    out.discardFlag = select(0.0, 1.0, sign(d0) != sign(d1));
 
     var color = instance.instanceColor;
     var edgeColor = instance.instanceEdgeColor;
