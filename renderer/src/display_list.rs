@@ -16,13 +16,14 @@ use uuid::Uuid;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct InstanceData {
     model_matrix: [[f32; 4]; 4],
     color: [f32; 4],
     edge_color: [f32; 4],
 }
 
+#[derive(Debug)]
 pub struct Instances<K, G> {
     group: G,
     index: HashMap<K, usize>,
@@ -394,10 +395,10 @@ impl GroupKind {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 struct Group<G>(GroupKind, G);
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct DisplayList<K, G> {
     map: HashMap<Group<G>, Instances<K, G>>,
     lookup_table: HashMap<K, Group<G>>,

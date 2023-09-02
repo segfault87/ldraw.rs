@@ -339,6 +339,7 @@ impl ProjectionModifier for PerspectiveCamera {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct OrthographicCamera {
     pub position: Point3<f32>,
     pub look_at: Point3<f32>,
@@ -357,8 +358,8 @@ impl OrthographicCamera {
     }
 
     pub fn new_isometric(center: Point3<f32>, view_bounds: ViewBounds) -> Self {
-        let sin = Deg(45.0).sin() * 10000.0;
-        let siny = Deg(35.264).sin() * 10000.0;
+        let sin = Deg(45.0).sin() * 1000.0;
+        let siny = Deg(35.264).sin() * 1000.0;
         let position = Point3::new(center.x + sin, center.y - siny, center.z - sin);
 
         Self {
@@ -384,8 +385,8 @@ impl ProjectionModifier for OrthographicCamera {
             right: view_bounds.max.x,
             top: view_bounds.max.y,
             bottom: view_bounds.min.y,
-            near: 0.1,
-            far: 100000.0,
+            near: -10000.0,
+            far: 10000.0,
         });
 
         projection.projection_matrix = projection_matrix;

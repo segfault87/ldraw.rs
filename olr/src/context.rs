@@ -18,6 +18,9 @@ pub struct Context {
     pub(super) framebuffer_texture: wgpu::Texture,
     pub(super) framebuffer_texture_view: wgpu::TextureView,
 
+    pub(super) _multisampled_framebuffer_texture: Option<wgpu::Texture>,
+    pub(super) multisampled_framebuffer_texture_view: Option<wgpu::TextureView>,
+
     pub(super) _depth_texture: wgpu::Texture,
     pub(super) depth_texture_view: wgpu::TextureView,
 
@@ -48,7 +51,7 @@ impl Context {
                 &wgpu::DeviceDescriptor {
                     label: Some("Device Descriptor"),
                     features: wgpu::Features::POLYGON_MODE_LINE,
-                    limits: wgpu::Limits::downlevel_defaults(),
+                    limits: wgpu::Limits::default(),
                 },
                 None,
             )
@@ -62,7 +65,7 @@ impl Context {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count,
+            sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: framebuffer_format,
             usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -70,6 +73,28 @@ impl Context {
             view_formats: &[],
         });
         let framebuffer_texture_view = framebuffer_texture.create_view(&Default::default());
+
+        let (multisampled_framebuffer_texture, multisampled_framebuffer_texture_view) =
+            if sample_count > 1 {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: framebuffer_format,
+                    usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    label: Some("Render framebuffer (w/o multisample)"),
+                    view_formats: &[],
+                });
+                let view = texture.create_view(&Default::default());
+                (Some(texture), Some(view))
+            } else {
+                (None, None)
+            };
 
         let pipelines =
             RenderingPipelineManager::new(&device, &queue, framebuffer_format, true, sample_count);
@@ -112,6 +137,9 @@ impl Context {
 
             framebuffer_texture,
             framebuffer_texture_view,
+
+            _multisampled_framebuffer_texture: multisampled_framebuffer_texture,
+            multisampled_framebuffer_texture_view,
 
             _depth_texture: depth_texture,
             depth_texture_view,
@@ -165,8 +193,6 @@ impl Context {
         let bounds = bounds
             .unwrap_or_else(|| BoundingBox2::new(&Vector2::new(0.0, 0.0), &Vector2::new(1.0, 1.0)));
 
-        println!("bound: {:?}", bounds);
-
         let x1 = (bounds.min.x * self.width as f32) as usize;
         let y1 = (bounds.min.y * self.height as f32) as usize;
         let x2 = (bounds.max.x * self.width as f32) as usize;
@@ -175,12 +201,14 @@ impl Context {
         let ch = y2 - y1;
 
         let mut pixels_rearranged: Vec<u8> = Vec::new();
-        for v in (y1..y2).rev() {
+        for v in y1..y2 {
             let s = 4 * v * self.width as usize + x1 * 4;
             pixels_rearranged.extend_from_slice(&pixels[s..(s + (cw * 4))]);
         }
 
-        // self.output_buffer.unmap();
+        drop(pixels);
+
+        self.output_buffer.unmap();
 
         RgbaImage::from_raw(cw as _, ch as _, pixels_rearranged).unwrap()
     }

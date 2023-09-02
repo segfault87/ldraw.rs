@@ -52,10 +52,8 @@ async fn main() {
                 .help("Maximum width/height pixel size"),
         )
         .arg(
-            Arg::with_name("samples")
-                .short("S")
-                .default_value("4")
-                .takes_value(true)
+            Arg::with_name("without-multisample")
+                .short("m")
                 .help("Number of samples"),
         )
         .get_matches();
@@ -72,7 +70,11 @@ async fn main() {
     let ldraw_path = PathBuf::from(&ldrawdir);
 
     let size = matches.value_of("size").unwrap().parse::<u32>().unwrap();
-    let sample_count = matches.value_of("samples").unwrap().parse::<u32>().unwrap();
+    let sample_count = if matches.is_present("without-multisample") {
+        1
+    } else {
+        4
+    };
 
     let mut context = Context::new(size, size, sample_count).await.unwrap();
 
