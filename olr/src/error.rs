@@ -3,23 +3,20 @@ use std::{
     fmt::{Display, Formatter, Result as FmtResult},
 };
 
-use glutin::CreationError;
-use ldraw_renderer::error::ShaderError;
-
 #[derive(Debug)]
 pub enum ContextCreationError {
-    GlContextError(CreationError),
-    ShaderInitializationError(ShaderError),
+    NoAdapterFound,
+    RequestDeviceError(wgpu::RequestDeviceError),
 }
 
 impl Display for ContextCreationError {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match self {
-            ContextCreationError::GlContextError(e) => {
-                write!(f, "Error creating OpenGL context: {}", e)
+            ContextCreationError::NoAdapterFound => {
+                write!(f, "No adapter found.")
             }
-            ContextCreationError::ShaderInitializationError(e) => {
-                write!(f, "Error initializing shaders: {}", e)
+            ContextCreationError::RequestDeviceError(e) => {
+                write!(f, "Error requesting device: {}", e)
             }
         }
     }
@@ -28,20 +25,14 @@ impl Display for ContextCreationError {
 impl Error for ContextCreationError {
     fn cause(&self) -> Option<&(dyn Error)> {
         match *self {
-            ContextCreationError::GlContextError(ref err) => Some(&*err),
-            ContextCreationError::ShaderInitializationError(ref err) => Some(&*err),
+            ContextCreationError::NoAdapterFound => None,
+            ContextCreationError::RequestDeviceError(ref e) => Some(e),
         }
     }
 }
 
-impl From<CreationError> for ContextCreationError {
-    fn from(e: CreationError) -> Self {
-        ContextCreationError::GlContextError(e)
-    }
-}
-
-impl From<ShaderError> for ContextCreationError {
-    fn from(e: ShaderError) -> Self {
-        ContextCreationError::ShaderInitializationError(e)
+impl From<wgpu::RequestDeviceError> for ContextCreationError {
+    fn from(e: wgpu::RequestDeviceError) -> Self {
+        Self::RequestDeviceError(e)
     }
 }

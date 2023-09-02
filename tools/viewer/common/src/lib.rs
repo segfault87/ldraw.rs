@@ -18,12 +18,13 @@ use ldraw::{
     library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
     Matrix4, PartAlias, Point2, Point3, Vector2,
 };
-use ldraw_ir::{geometry::BoundingBox3, model, part::bake_part_from_multipart_document};
+use ldraw_ir::{model, part::bake_part_from_multipart_document};
 use ldraw_renderer::{
     camera::{PerspectiveCamera, Projection},
     display_list::DisplayList,
     part::{Part, PartQuerier},
     pipeline::RenderingPipelineManager,
+    util::calculate_model_bounding_box,
 };
 use uuid::Uuid;
 use winit::{event, window::Window};
@@ -116,7 +117,7 @@ impl OrbitController {
         self.tick = tick;
 
         self.camera.position = self.derive_coordinate();
-        projection.update_camera(queue, &self.camera, width, height);
+        projection.update_camera(queue, &self.camera, (width, height).into());
     }
 
     fn derive_coordinate(&self) -> Point3 {
@@ -149,68 +150,6 @@ impl PartQuerier<PartAlias> for SimplePartsPool {
     fn get(&self, alias: &PartAlias) -> Option<&Part> {
         self.0.get(alias)
     }
-}
-
-fn calculate_bounding_box_recursive(
-    bb: &mut BoundingBox3,
-    parts: &SimplePartsPool,
-    matrix: Matrix4,
-    items: &[model::Object],
-    model: &model::Model,
-) {
-    for item in items.iter() {
-        match &item.data {
-            model::ObjectInstance::Part(p) => {
-                if let Some(embedded_part) = model.embedded_parts.get(&p.part) {
-                    bb.update(&embedded_part.bounding_box.transform(&(matrix * p.matrix)));
-                } else if let Some(part) = parts.get(&p.part) {
-                    bb.update(&part.bounding_box.transform(&(matrix * p.matrix)));
-                }
-            }
-            model::ObjectInstance::PartGroup(pg) => {
-                if let Some(group) = model.object_groups.get(&pg.group_id) {
-                    calculate_bounding_box_recursive(
-                        bb,
-                        parts,
-                        matrix * pg.matrix,
-                        &group.objects,
-                        model,
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn calculate_bounding_box(
-    model: &model::Model,
-    group_id: Option<Uuid>,
-    parts: &SimplePartsPool,
-) -> BoundingBox3 {
-    let mut bb = BoundingBox3::zero();
-
-    if let Some(group_id) = group_id {
-        if let Some(subpart) = model.object_groups.get(&group_id) {
-            calculate_bounding_box_recursive(
-                &mut bb,
-                parts,
-                Matrix4::identity(),
-                &subpart.objects,
-                model,
-            );
-        }
-    } else {
-        calculate_bounding_box_recursive(
-            &mut bb,
-            parts,
-            Matrix4::identity(),
-            &model.objects,
-            model,
-        );
-    }
-
-    bb
 }
 
 const FALL_INTERVAL: f32 = 0.2;
@@ -581,7 +520,7 @@ impl App {
         let pipelines = RenderingPipelineManager::new(
             &device,
             &queue,
-            &config,
+            config.format,
             supports_line_rendering,
             sample_count,
         );
@@ -669,7 +608,7 @@ impl App {
                     }),
             );
 
-        let bounding_box = calculate_bounding_box(&model, None, &self.parts.read().unwrap());
+        let bounding_box = calculate_model_bounding_box(&model, None, &*self.parts.read().unwrap());
         let center = bounding_box.center();
 
         self.animated_model =
@@ -825,7 +764,8 @@ impl App {
                 false,
             );
 
-            let bounding_box = calculate_bounding_box(model, group_id, &self.parts.read().unwrap());
+            let bounding_box =
+                calculate_model_bounding_box(model, group_id, &*self.parts.read().unwrap());
             let center = bounding_box.center();
 
             let mut orbit_controller = self.orbit_controller.borrow_mut();

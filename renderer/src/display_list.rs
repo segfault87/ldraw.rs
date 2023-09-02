@@ -802,7 +802,7 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
     pub fn remove(&mut self, key: K) {
         if let Some(group) = self.lookup_table.remove(&key) {
             self.ops
-                .entry(group.clone())
+                .entry(group)
                 .or_insert_with(Default::default)
                 .push(Ops::Remove(key));
         }

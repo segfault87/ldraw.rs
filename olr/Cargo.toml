@@ -6,10 +6,11 @@ edition = "2021"
 
 [dependencies]
 cgmath = "~0.18.0"
-glow = "~0.11.0"
-glutin = "~0.27.0"
+futures-intrusive = "0.4"
 image = "~0.23.14"
 ldraw = { path = "../ldraw" }
 ldraw-ir = { path = "../ir" }
 ldraw-renderer = { path = "../renderer" }
 serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }
+wgpu = "0.17.0"

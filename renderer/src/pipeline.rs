@@ -1,7 +1,8 @@
 use std::ops::Range;
 
+use cgmath::SquareMatrix;
 use image::GenericImageView;
-use ldraw::Vector3;
+use ldraw::{color::Color, Matrix4, Vector3, Vector4};
 use wgpu::util::DeviceExt;
 
 use super::{
@@ -224,7 +225,7 @@ impl DefaultMeshRenderingPipeline {
     fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        config: &wgpu::SurfaceConfiguration,
+        texture_format: wgpu::TextureFormat,
         sample_count: u32,
     ) -> Self {
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -266,7 +267,7 @@ impl DefaultMeshRenderingPipeline {
                 module: &fragment_shader,
                 entry_point: "fs",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: texture_format,
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent::OVER,
                         alpha: wgpu::BlendComponent::OVER,
@@ -329,7 +330,7 @@ pub struct NoShadingMeshRenderingPipeline {
 impl NoShadingMeshRenderingPipeline {
     pub fn new(
         device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
+        texture_format: wgpu::TextureFormat,
         sample_count: u32,
     ) -> Self {
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -364,7 +365,7 @@ impl NoShadingMeshRenderingPipeline {
                 module: &fragment_shader,
                 entry_point: "fs",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: texture_format,
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent::OVER,
                         alpha: wgpu::BlendComponent::OVER,
@@ -425,7 +426,7 @@ pub struct EdgeRenderingPipeline {
 impl EdgeRenderingPipeline {
     pub fn new(
         device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
+        texture_format: wgpu::TextureFormat,
         sample_count: u32,
     ) -> Self {
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -458,7 +459,7 @@ impl EdgeRenderingPipeline {
                 module: &fragment_shader,
                 entry_point: "fs",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: texture_format,
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent::REPLACE,
                         alpha: wgpu::BlendComponent::REPLACE,
@@ -523,7 +524,7 @@ pub struct OptionalEdgeRenderingPipeline {
 impl OptionalEdgeRenderingPipeline {
     pub fn new(
         device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
+        texture_format: wgpu::TextureFormat,
         sample_count: u32,
     ) -> Self {
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -560,7 +561,7 @@ impl OptionalEdgeRenderingPipeline {
                 module: &fragment_shader,
                 entry_point: "fs",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: texture_format,
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent::REPLACE,
                         alpha: wgpu::BlendComponent::REPLACE,
@@ -624,39 +625,151 @@ pub struct RenderingPipelineManager {
     optional_edge: Option<OptionalEdgeRenderingPipeline>,
 
     supports_line_rendering: bool,
+    single_part_instance_buffer: Instances<i32, i32>,
 }
 
 impl RenderingPipelineManager {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        config: &wgpu::SurfaceConfiguration,
+        render_texture_format: wgpu::TextureFormat,
         supports_line_rendering: bool,
         sample_count: u32,
     ) -> Self {
+        let mut single_part_instance_buffer = Instances::new(device, 0);
+        single_part_instance_buffer.modify(device, queue, |tr| {
+            tr.insert(
+                0,
+                Matrix4::identity(),
+                Vector4::new(0.0, 0.0, 0.0, 0.0),
+                Vector4::new(0.0, 0.0, 0.0, 0.0),
+            );
+            true
+        });
+
         Self {
-            mesh_default: DefaultMeshRenderingPipeline::new(device, queue, config, sample_count),
-            mesh_no_shading: NoShadingMeshRenderingPipeline::new(device, config, sample_count),
+            mesh_default: DefaultMeshRenderingPipeline::new(
+                device,
+                queue,
+                render_texture_format,
+                sample_count,
+            ),
+            mesh_no_shading: NoShadingMeshRenderingPipeline::new(
+                device,
+                render_texture_format,
+                sample_count,
+            ),
             edge: if supports_line_rendering {
-                Some(EdgeRenderingPipeline::new(device, config, sample_count))
+                Some(EdgeRenderingPipeline::new(
+                    device,
+                    render_texture_format,
+                    sample_count,
+                ))
             } else {
                 None
             },
             optional_edge: if supports_line_rendering {
                 Some(OptionalEdgeRenderingPipeline::new(
                     device,
-                    config,
+                    render_texture_format,
                     sample_count,
                 ))
             } else {
                 None
             },
             supports_line_rendering,
+            single_part_instance_buffer,
         }
     }
 
     pub fn supports_line_rendering(&self) -> bool {
         self.supports_line_rendering
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_single_part<'rp>(
+        &'rp mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        pass: &mut wgpu::RenderPass<'rp>,
+        projection: &'rp Projection,
+        part: &'rp Part,
+        matrix: Matrix4,
+        color: &'rp Color,
+    ) {
+        self.single_part_instance_buffer
+            .modify(device, queue, |tr| {
+                tr.update(0, matrix, color.color.into(), color.edge.into());
+                true
+            });
+
+        if !color.is_translucent() {
+            if let Some(range) = &part.mesh.uncolored_range {
+                self.mesh_default.render(
+                    pass,
+                    projection,
+                    part,
+                    &self.single_part_instance_buffer,
+                    range.clone(),
+                );
+            }
+            if let Some(range) = &part.mesh.uncolored_without_bfc_range {
+                self.mesh_no_shading.render(
+                    pass,
+                    projection,
+                    part,
+                    &self.single_part_instance_buffer,
+                    range.clone(),
+                );
+            }
+        }
+
+        if let Some(range) = &part.mesh.colored_opaque_range {
+            self.mesh_default.render(
+                pass,
+                projection,
+                part,
+                &self.single_part_instance_buffer,
+                range.clone(),
+            );
+        }
+        if let Some(range) = &part.mesh.colored_opaque_without_bfc_range {
+            self.mesh_no_shading.render(
+                pass,
+                projection,
+                part,
+                &self.single_part_instance_buffer,
+                range.clone(),
+            );
+        }
+
+        if color.is_translucent() {
+            if let Some(range) = &part.mesh.uncolored_range {
+                self.mesh_default.render(
+                    pass,
+                    projection,
+                    part,
+                    &self.single_part_instance_buffer,
+                    range.clone(),
+                );
+            }
+            if let Some(range) = &part.mesh.uncolored_without_bfc_range {
+                self.mesh_no_shading.render(
+                    pass,
+                    projection,
+                    part,
+                    &self.single_part_instance_buffer,
+                    range.clone(),
+                );
+            }
+        }
+
+        if let Some(edge) = &self.edge {
+            edge.render(pass, projection, part, &self.single_part_instance_buffer);
+        }
+        if let Some(optional_edge) = &self.optional_edge {
+            optional_edge.render(pass, projection, part, &self.single_part_instance_buffer);
+        }
     }
 
     pub fn render<'rp, K, G>(
