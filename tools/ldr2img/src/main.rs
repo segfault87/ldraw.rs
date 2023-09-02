@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     env,
-    rc::Rc,
     sync::{Arc, RwLock},
 };
 
@@ -11,7 +10,6 @@ use async_std::{
     path::{Path, PathBuf},
 };
 use clap::{App, Arg};
-use glow::Context as GlContext;
 use ldraw::{
     library::{resolve_dependencies_multipart, PartCache},
     parser::{parse_color_definitions, parse_multipart_document},
@@ -19,8 +17,8 @@ use ldraw::{
     PartAlias,
 };
 use ldraw_ir::{model::Model, part::bake_part_from_multipart_document};
-use ldraw_olr::{context::create_offscreen_context, ops::render_model};
-use ldraw_renderer::part::{Part, PartsPool};
+use ldraw_olr::{context::Context, ops::Ops};
+use ldraw_renderer::part::{Part, PartQuerier};
 
 #[tokio::main]
 async fn main() {
@@ -32,11 +30,6 @@ async fn main() {
                 .value_name("PATH")
                 .takes_value(true)
                 .help("Path to LDraw directory"),
-        )
-        .arg(
-            Arg::with_name("use_software_renderer")
-                .short("w")
-                .help("Use software GL context"),
         )
         .arg(
             Arg::with_name("output")
@@ -54,8 +47,16 @@ async fn main() {
         .arg(
             Arg::with_name("size")
                 .short("s")
+                .default_value("1024")
                 .takes_value(true)
                 .help("Maximum width/height pixel size"),
+        )
+        .arg(
+            Arg::with_name("samples")
+                .short("S")
+                .default_value("4")
+                .takes_value(true)
+                .help("Number of samples"),
         )
         .get_matches();
 
@@ -70,16 +71,10 @@ async fn main() {
     };
     let ldraw_path = PathBuf::from(&ldrawdir);
 
-    let use_software_renderer = matches.is_present("use_software_renderer");
-    let size = matches
-        .value_of("size")
-        .unwrap_or("1024")
-        .parse::<usize>()
-        .unwrap();
+    let size = matches.value_of("size").unwrap().parse::<u32>().unwrap();
+    let sample_count = matches.value_of("samples").unwrap().parse::<u32>().unwrap();
 
-    let context = create_offscreen_context(size, size, use_software_renderer).unwrap();
-
-    let gl = Rc::clone(&context.gl);
+    let mut context = Context::new(size, size, sample_count).await.unwrap();
 
     let colors = parse_color_definitions(&mut BufReader::new(
         File::open(ldraw_path.join("LDConfig.ldr")).await.unwrap(),
@@ -109,10 +104,10 @@ async fn main() {
         resolve_dependencies_multipart(&document, Arc::clone(&cache), &colors, &loader, &|_, _| {})
             .await;
 
-    struct PartsPoolImpl(HashMap<PartAlias, Arc<Part<GlContext>>>);
-    impl PartsPool<GlContext> for PartsPoolImpl {
-        fn query(&self, alias: &PartAlias) -> Option<Arc<Part<GlContext>>> {
-            self.0.get(alias).map(Arc::clone)
+    struct PartsPoolImpl(HashMap<PartAlias, Part>);
+    impl PartQuerier<PartAlias> for PartsPoolImpl {
+        fn get(&self, key: &PartAlias) -> Option<&Part> {
+            self.0.get(key)
         }
     }
 
@@ -123,28 +118,25 @@ async fn main() {
             resolution_result.query(&alias, true).map(|(part, local)| {
                 (
                     alias.clone(),
-                    Arc::new(Part::create(
+                    Part::new(
                         &bake_part_from_multipart_document(part, &resolution_result, local),
-                        Rc::clone(&gl),
+                        &context.device,
                         &colors,
-                    )),
+                        true,
+                    ),
                 )
             })
         })
         .collect::<HashMap<_, _>>();
-    let parts = Arc::new(RwLock::new(PartsPoolImpl(parts)));
 
-    {
-        let mut rc = context.rendering_context.borrow_mut();
-
-        rc.set_initial_state();
-        rc.resize(size as _, size as _);
-        rc.upload_shading_data();
-    }
+    let parts = PartsPoolImpl(parts);
 
     let model =
         Model::from_ldraw_multipart_document(&document, &colors, Some((&loader, cache))).await;
 
-    let image = render_model(&model, &context, parts, &colors);
+    let image = {
+        let ops = Ops::new(&mut context);
+        ops.render_model(&model, None, &parts, &colors).await
+    };
     image.save(&Path::new(output)).unwrap();
 }

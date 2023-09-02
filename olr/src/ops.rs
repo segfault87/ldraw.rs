@@ -13,16 +13,16 @@ use ldraw_renderer::{
 };
 use uuid::Uuid;
 
-use crate::context::OlrContext;
+use crate::context::Context;
 
 pub struct Ops<'a> {
-    context: &'a mut OlrContext,
+    context: &'a mut Context,
 
     encoder: wgpu::CommandEncoder,
 }
 
 impl<'a> Ops<'a> {
-    pub fn new(context: &'a mut OlrContext) -> Self {
+    pub fn new(context: &'a mut Context) -> Self {
         let encoder = context
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -80,10 +80,9 @@ impl<'a> Ops<'a> {
 
         drop(render_pass);
 
-        let bounds = camera.view_bounds.project(
-            &self.context.projection.data.get_model_view_matrix(),
-            (self.context.width, self.context.height).into(),
-        );
+        let bounds = camera
+            .view_bounds
+            .fraction(&self.context.projection.data.get_model_view_matrix());
 
         self.finish(bounds).await
     }
@@ -151,15 +150,14 @@ impl<'a> Ops<'a> {
             );
         }
 
-        let bounds = camera.view_bounds.project(
-            &self.context.projection.data.get_model_view_matrix(),
-            (self.context.width, self.context.height).into(),
-        );
+        let bounds = camera
+            .view_bounds
+            .fraction(&self.context.projection.data.get_model_view_matrix());
 
         self.finish(bounds).await
     }
 
-    async fn finish(self, bounds: BoundingBox2) -> RgbaImage {
-        self.context.finish(self.encoder, Some(bounds)).await
+    async fn finish(self, bounds: Option<BoundingBox2>) -> RgbaImage {
+        self.context.finish(self.encoder, bounds).await
     }
 }

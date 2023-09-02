@@ -5,12 +5,12 @@ use ldraw_renderer::{camera::Projection, pipeline::RenderingPipelineManager};
 
 use crate::error::ContextCreationError;
 
-pub struct OlrContext {
+pub struct Context {
     pub width: u32,
     pub height: u32,
 
-    pub(super) device: wgpu::Device,
-    pub(super) queue: wgpu::Queue,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
 
     pub(super) pipelines: RenderingPipelineManager,
     pub(super) projection: Projection,
@@ -24,7 +24,7 @@ pub struct OlrContext {
     output_buffer: wgpu::Buffer,
 }
 
-impl OlrContext {
+impl Context {
     pub async fn new(
         width: u32,
         height: u32,
@@ -43,7 +43,16 @@ impl OlrContext {
             .await
             .ok_or(ContextCreationError::NoAdapterFound)?;
 
-        let (device, queue) = adapter.request_device(&Default::default(), None).await?;
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("Device Descriptor"),
+                    features: wgpu::Features::POLYGON_MODE_LINE,
+                    limits: wgpu::Limits::downlevel_defaults(),
+                },
+                None,
+            )
+            .await?;
 
         let framebuffer_format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let framebuffer_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -62,7 +71,8 @@ impl OlrContext {
         });
         let framebuffer_texture_view = framebuffer_texture.create_view(&Default::default());
 
-        let pipelines = RenderingPipelineManager::new(&device, &queue, framebuffer_format, true, 4);
+        let pipelines =
+            RenderingPipelineManager::new(&device, &queue, framebuffer_format, true, sample_count);
         let projection = Projection::new(&device);
 
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -155,6 +165,8 @@ impl OlrContext {
         let bounds = bounds
             .unwrap_or_else(|| BoundingBox2::new(&Vector2::new(0.0, 0.0), &Vector2::new(1.0, 1.0)));
 
+        println!("bound: {:?}", bounds);
+
         let x1 = (bounds.min.x * self.width as f32) as usize;
         let y1 = (bounds.min.y * self.height as f32) as usize;
         let x2 = (bounds.max.x * self.width as f32) as usize;
@@ -168,7 +180,7 @@ impl OlrContext {
             pixels_rearranged.extend_from_slice(&pixels[s..(s + (cw * 4))]);
         }
 
-        self.output_buffer.unmap();
+        // self.output_buffer.unmap();
 
         RgbaImage::from_raw(cw as _, ch as _, pixels_rearranged).unwrap()
     }
