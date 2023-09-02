@@ -1,524 +1,665 @@
-use std::{collections::HashMap, rc::Rc, sync::Arc};
+use std::{collections::HashMap, ops::Range};
 
-use glow::HasContext;
-use ldraw::{color::ColorCatalog, PartAlias, Vector3};
-use ldraw_ir::{
-    geometry::BoundingBox3,
-    part::{
-        EdgeBufferBuilder, MeshBufferBuilder, OptionalEdgeBufferBuilder, PartBufferBuilder,
-        PartBuilder, SubpartIndex,
-    },
-    MeshGroup,
+use ldraw::{
+    color::{ColorCatalog, ColorReference},
+    Vector4,
 };
+use ldraw_ir::{geometry::BoundingBox3, part as part_ir};
+use wgpu::util::DeviceExt;
 
-use crate::utils::cast_as_bytes;
+pub struct MeshBuffer {
+    pub vertices: wgpu::Buffer,
+    pub indices: wgpu::Buffer,
+    pub index_format: wgpu::IndexFormat,
 
-#[derive(Debug)]
-pub struct MeshBuffer<GL: HasContext> {
-    gl: Rc<GL>,
-
-    pub array: Option<GL::VertexArray>,
-    pub buffer_vertices: Option<GL::Buffer>,
-    pub buffer_normals: Option<GL::Buffer>,
-    pub length: usize,
+    pub uncolored_range: Option<Range<u32>>,
+    pub uncolored_without_bfc_range: Option<Range<u32>>,
+    pub colored_opaque_range: Option<Range<u32>>,
+    pub colored_opaque_without_bfc_range: Option<Range<u32>>,
+    pub colored_translucent_range: Option<Range<u32>>,
+    pub colored_translucent_without_bfc_range: Option<Range<u32>>,
 }
 
-impl<GL: HasContext> MeshBuffer<GL> {
-    pub fn create(builder: &MeshBufferBuilder, gl: Rc<GL>) -> Self {
-        let array: Option<GL::VertexArray>;
-        let buffer_vertices: Option<GL::Buffer>;
-        let buffer_normals: Option<GL::Buffer>;
-        unsafe {
-            array = gl.create_vertex_array().ok();
-            buffer_vertices = gl.create_buffer().ok();
-            buffer_normals = gl.create_buffer().ok();
-            gl.bind_vertex_array(array);
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.vertices.as_ref()),
-                glow::STATIC_DRAW,
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_normals);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.normals.as_ref()),
-                glow::STATIC_DRAW,
-            );
+#[derive(Eq, PartialEq, Hash)]
+struct MeshVertexIndex {
+    vertex: usize,
+    normal: usize,
+    color: ColorReference,
+}
+
+impl MeshBuffer {
+    fn expand(
+        metadata: &part_ir::PartMetadata,
+        vertices: &mut Vec<f32>,
+        index: &mut Vec<u32>,
+        index_table: &mut HashMap<MeshVertexIndex, u32>,
+        vertex_buffer: &part_ir::VertexBuffer,
+        index_buffers: Vec<(ColorReference, &part_ir::MeshBuffer)>,
+    ) -> Option<Range<u32>> {
+        if index_buffers.is_empty() {
+            return None;
         }
+
+        let start = index.len() as u32;
+        let mut end = start;
+
+        for (color, buffer) in index_buffers {
+            if !buffer.is_valid() {
+                eprintln!(
+                    "{}: Corrupted mesh vertex buffer. skipping...",
+                    metadata.name
+                );
+                return None;
+            }
+
+            end += buffer.len() as u32;
+
+            let color_array = match &color {
+                ColorReference::Current => vec![-1.0; 4],
+                ColorReference::Complement => vec![-2.0; 4],
+                ColorReference::Color(c) => {
+                    let color: Vector4 = c.color.into();
+                    vec![color.x, color.y, color.z, color.w]
+                }
+                ColorReference::Unknown(_) | ColorReference::Unresolved(_) => {
+                    vec![0.0, 0.0, 0.0, 1.0]
+                }
+            };
+
+            for (vertex_idx, normal_idx) in buffer
+                .vertex_indices
+                .iter()
+                .zip(buffer.normal_indices.iter())
+            {
+                let vertex_idx = *vertex_idx as usize;
+                let normal_idx = *normal_idx as usize;
+
+                let vertex_range = vertex_idx * 3..vertex_idx * 3 + 3;
+                let normal_range = normal_idx * 3..normal_idx * 3 + 3;
+
+                if !vertex_buffer.check_range(&vertex_range)
+                    || !vertex_buffer.check_range(&normal_range)
+                {
+                    eprintln!(
+                        "{}: Corrupted mesh vertex buffer. skipping...",
+                        metadata.name
+                    );
+                    return None;
+                }
+
+                let idx_key = MeshVertexIndex {
+                    vertex: vertex_idx,
+                    normal: normal_idx,
+                    color: color.clone(),
+                };
+
+                if let Some(idx) = index_table.get(&idx_key) {
+                    index.push(*idx);
+                } else {
+                    let idx_val = index_table.len() as u32;
+                    index_table.insert(idx_key, idx_val);
+                    vertices.extend(&vertex_buffer.0[vertex_range]);
+                    vertices.extend(&vertex_buffer.0[normal_range]);
+                    vertices.extend(&color_array);
+                    index.push(idx_val);
+                }
+            }
+        }
+
+        if start == end {
+            None
+        } else {
+            Some(start..end)
+        }
+    }
+
+    pub fn new(device: &wgpu::Device, part: &part_ir::Part) -> Self {
+        let mut data = Vec::new();
+        let mut index = Vec::new();
+        let mut index_lut = HashMap::new();
+
+        let uncolored_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            vec![(ColorReference::Current, &part.geometry.uncolored_mesh)],
+        );
+        let uncolored_without_bfc_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            vec![(
+                ColorReference::Current,
+                &part.geometry.uncolored_without_bfc_mesh,
+            )],
+        );
+        let colored_opaque_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            part.geometry
+                .colored_meshes
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let ColorReference::Color(c) = &k.color_ref {
+                        if !c.is_translucent() && k.bfc {
+                            Some((k.color_ref.clone(), v))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
+        let colored_opaque_without_bfc_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            part.geometry
+                .colored_meshes
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let ColorReference::Color(c) = &k.color_ref {
+                        if !c.is_translucent() && !k.bfc {
+                            Some((k.color_ref.clone(), v))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
+        let colored_translucent_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            part.geometry
+                .colored_meshes
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let ColorReference::Color(c) = &k.color_ref {
+                        if c.is_translucent() && k.bfc {
+                            Some((k.color_ref.clone(), v))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
+        let colored_translucent_without_bfc_range = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            &part.geometry.vertex_buffer,
+            part.geometry
+                .colored_meshes
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let ColorReference::Color(c) = &k.color_ref {
+                        if c.is_translucent() && !k.bfc {
+                            Some((k.color_ref.clone(), v))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
+
+        let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!(
+                "Vertex buffer for mesh data at {}",
+                part.metadata.name
+            )),
+            contents: bytemuck::cast_slice(&data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let (indices, index_format) = if data.len() / (3 * 10) < 2 << 16 {
+            let mut shrunk_data = vec![];
+            for item in index {
+                shrunk_data.push(item as u16);
+            }
+            (
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!(
+                        "Index buffer for mesh data at {}",
+                        part.metadata.name
+                    )),
+                    contents: bytemuck::cast_slice(&shrunk_data),
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+                wgpu::IndexFormat::Uint16,
+            )
+        } else {
+            (
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!(
+                        "Index buffer for mesh data at {}",
+                        part.metadata.name
+                    )),
+                    contents: bytemuck::cast_slice(&index),
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+                wgpu::IndexFormat::Uint32,
+            )
+        };
 
         MeshBuffer {
-            gl: Rc::clone(&gl),
-            array,
-            buffer_vertices,
-            buffer_normals,
-            length: builder.len(),
+            vertices,
+            indices,
+            uncolored_range,
+            uncolored_without_bfc_range,
+            colored_opaque_range,
+            colored_opaque_without_bfc_range,
+            colored_translucent_range,
+            colored_translucent_without_bfc_range,
+            index_format,
         }
     }
 
-    pub fn bind(&self, location_position: &Option<u32>, location_normals: &Option<u32>) {
-        let gl = &self.gl;
-
-        unsafe {
-            gl.bind_vertex_array(self.array);
-        }
-
-        if let Some(e) = location_position {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_vertices);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
-            }
-        }
-        if let Some(e) = location_normals {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_normals);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
-            }
-        }
-    }
-}
-
-impl<GL: HasContext> Drop for MeshBuffer<GL> {
-    fn drop(&mut self) {
-        let gl = &self.gl;
-        unsafe {
-            if let Some(e) = self.array {
-                gl.delete_vertex_array(e);
-            }
-            if let Some(e) = self.buffer_vertices {
-                gl.delete_buffer(e);
-            }
-            if let Some(e) = self.buffer_normals {
-                gl.delete_buffer(e);
-            }
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<[f32; 10]>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
         }
     }
 }
 
-#[derive(Debug)]
-pub struct EdgeBuffer<GL: HasContext> {
-    gl: Rc<GL>,
-
-    pub array: Option<GL::VertexArray>,
-    pub buffer_vertices: Option<GL::Buffer>,
-    pub buffer_colors: Option<GL::Buffer>,
-    pub length: usize,
+#[derive(Eq, PartialEq, Hash)]
+struct EdgeVertexIndex {
+    vertex: usize,
+    color: u32,
 }
 
-fn build_edge_color_buffer(code_buffer: &Vec<u32>, colors: &ColorCatalog) -> Vec<f32> {
-    let mut buffer = Vec::with_capacity(code_buffer.len() * 3);
+pub struct EdgeBuffer {
+    pub vertices: wgpu::Buffer,
+    pub indices: wgpu::Buffer,
 
-    for code in code_buffer.iter() {
-        if *code == 2u32 << 30 {
-            buffer.extend(&[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]);
-        } else if *code == 2u32 << 29 {
-            buffer.extend(&[-2.0, -2.0, -2.0, -2.0, -2.0, -2.0]);
+    pub range: Range<u32>,
+    pub index_format: wgpu::IndexFormat,
+}
+
+impl EdgeBuffer {
+    fn expand(
+        metadata: &part_ir::PartMetadata,
+        vertices: &mut Vec<f32>,
+        index: &mut Vec<u32>,
+        index_table: &mut HashMap<EdgeVertexIndex, u32>,
+        colors: &ColorCatalog,
+        vertex_buffer: &part_ir::VertexBuffer,
+        index_buffer: &part_ir::EdgeBuffer,
+    ) -> Option<Range<u32>> {
+        if index_buffer.is_empty() {
+            None
+        } else if !index_buffer.is_valid() {
+            eprintln!("{}: Corrupted edge buffer. skipping...", metadata.name);
+            None
         } else {
-            match colors.get(&(code & 0x7fffffffu32)) {
-                Some(color) => {
-                    let buf = if *code & 0x8000_0000 != 0 {
-                        &color.edge
+            let start = index.len() as u32;
+            let end = start + index_buffer.len() as u32;
+
+            for (vertex_idx, color_id) in index_buffer
+                .vertex_indices
+                .iter()
+                .zip(index_buffer.colors.iter())
+            {
+                let vertex_idx = *vertex_idx as usize;
+                let vertex_range = vertex_idx * 3..vertex_idx * 3 + 3;
+                if !vertex_buffer.check_range(&vertex_range) {
+                    eprintln!("{}: Corrupted edge buffer. skipping...", metadata.name);
+                    return None;
+                }
+
+                let idx_key = EdgeVertexIndex {
+                    vertex: vertex_idx,
+                    color: *color_id,
+                };
+
+                if let Some(idx) = index_table.get(&idx_key) {
+                    index.push(*idx);
+                } else {
+                    let color = if *color_id == 2u32 << 30 {
+                        [-1.0, -1.0, -1.0]
+                    } else if *color_id == 2u32 << 29 {
+                        [-2.0, -2.0, -2.0]
                     } else {
-                        &color.color
+                        match colors.get(&(color_id & 0x7fffffffu32)) {
+                            Some(color) => {
+                                let buf = if *color_id & 0x8000_0000 != 0 {
+                                    &color.edge
+                                } else {
+                                    &color.color
+                                };
+
+                                let r = buf.red() as f32 / 255.0;
+                                let g = buf.green() as f32 / 255.0;
+                                let b = buf.blue() as f32 / 255.0;
+
+                                [r, g, b]
+                            }
+                            None => [0.0, 0.0, 0.0],
+                        }
                     };
 
-                    let r = buf.red() as f32 / 255.0;
-                    let g = buf.green() as f32 / 255.0;
-                    let b = buf.blue() as f32 / 255.0;
-
-                    buffer.extend(&[r, g, b, r, g, b]);
-                }
-                None => {
-                    buffer.extend(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+                    let idx_val = index_table.len() as u32;
+                    index_table.insert(idx_key, idx_val);
+                    vertices.extend(&vertex_buffer.0[vertex_range]);
+                    vertices.extend(&color);
+                    index.push(idx_val);
                 }
             }
-        }
-    }
 
-    buffer
-}
-
-impl<GL: HasContext> EdgeBuffer<GL> {
-    pub fn create(builder: &EdgeBufferBuilder, gl: Rc<GL>, colors: &ColorCatalog) -> Self {
-        let array: Option<GL::VertexArray>;
-        let buffer_vertices: Option<GL::Buffer>;
-        let buffer_colors: Option<GL::Buffer>;
-        unsafe {
-            array = gl.create_vertex_array().ok();
-            buffer_vertices = gl.create_buffer().ok();
-            buffer_colors = gl.create_buffer().ok();
-            gl.bind_vertex_array(array);
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.vertices.as_ref()),
-                glow::STATIC_DRAW,
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(build_edge_color_buffer(&builder.colors, colors).as_ref()),
-                glow::STATIC_DRAW,
-            );
-        }
-
-        EdgeBuffer {
-            gl: Rc::clone(&gl),
-            array,
-            buffer_vertices,
-            buffer_colors,
-            length: builder.len(),
-        }
-    }
-
-    pub fn bind(&self, location_position: &Option<u32>, location_colors: &Option<u32>) {
-        let gl = &self.gl;
-
-        unsafe {
-            gl.bind_vertex_array(self.array);
-        }
-
-        if let Some(e) = location_position {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_vertices);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
-            }
-        }
-        if let Some(e) = location_colors {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_colors);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
+            if start == end {
+                None
+            } else {
+                Some(start..end)
             }
         }
     }
-}
 
-impl<GL: HasContext> Drop for EdgeBuffer<GL> {
-    fn drop(&mut self) {
-        let gl = &self.gl;
-        unsafe {
-            if let Some(e) = self.array {
-                gl.delete_vertex_array(e);
-            }
-            if let Some(e) = self.buffer_vertices {
-                gl.delete_buffer(e);
-            }
-            if let Some(e) = self.buffer_colors {
-                gl.delete_buffer(e);
-            }
-        }
-    }
-}
+    pub fn new(device: &wgpu::Device, colors: &ColorCatalog, part: &part_ir::Part) -> Option<Self> {
+        let mut data = Vec::new();
+        let mut index = Vec::new();
+        let mut index_lut = HashMap::new();
 
-#[derive(Debug)]
-pub struct OptionalEdgeBuffer<GL: HasContext> {
-    gl: Rc<GL>,
+        if let Some(range) = Self::expand(
+            &part.metadata,
+            &mut data,
+            &mut index,
+            &mut index_lut,
+            colors,
+            &part.geometry.vertex_buffer,
+            &part.geometry.edges,
+        ) {
+            let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!(
+                    "Vertex buffer for edge data at {}",
+                    part.metadata.name
+                )),
+                contents: bytemuck::cast_slice(&data),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
 
-    pub array: Option<GL::VertexArray>,
-    pub buffer_vertices: Option<GL::Buffer>,
-    pub buffer_controls_1: Option<GL::Buffer>,
-    pub buffer_controls_2: Option<GL::Buffer>,
-    pub buffer_directions: Option<GL::Buffer>,
-    pub buffer_colors: Option<GL::Buffer>,
-    pub length: usize,
-}
+            let (indices, index_format) = if data.len() / (3 * 6) < 2 << 16 {
+                let mut shrunk_data = vec![];
+                for item in index {
+                    shrunk_data.push(item as u16);
+                }
+                (
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!(
+                            "Index buffer for edge data at {}",
+                            part.metadata.name
+                        )),
+                        contents: bytemuck::cast_slice(&shrunk_data),
+                        usage: wgpu::BufferUsages::INDEX,
+                    }),
+                    wgpu::IndexFormat::Uint16,
+                )
+            } else {
+                (
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!(
+                            "Index buffer for edge data at {}",
+                            part.metadata.name
+                        )),
+                        contents: bytemuck::cast_slice(&index),
+                        usage: wgpu::BufferUsages::INDEX,
+                    }),
+                    wgpu::IndexFormat::Uint32,
+                )
+            };
 
-impl<GL: HasContext> OptionalEdgeBuffer<GL> {
-    pub fn create(builder: &OptionalEdgeBufferBuilder, gl: Rc<GL>, colors: &ColorCatalog) -> Self {
-        let array: Option<GL::VertexArray>;
-        let buffer_vertices: Option<GL::Buffer>;
-        let buffer_controls_1: Option<GL::Buffer>;
-        let buffer_controls_2: Option<GL::Buffer>;
-        let buffer_directions: Option<GL::Buffer>;
-        let buffer_colors: Option<GL::Buffer>;
-
-        unsafe {
-            array = gl.create_vertex_array().ok();
-            buffer_vertices = gl.create_buffer().ok();
-            buffer_controls_1 = gl.create_buffer().ok();
-            buffer_controls_2 = gl.create_buffer().ok();
-            buffer_directions = gl.create_buffer().ok();
-            buffer_colors = gl.create_buffer().ok();
-            gl.bind_vertex_array(array);
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_vertices);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.vertices.as_ref()),
-                glow::STATIC_DRAW,
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls_1);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.controls_1.as_ref()),
-                glow::STATIC_DRAW,
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_controls_2);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.controls_2.as_ref()),
-                glow::STATIC_DRAW,
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_directions);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(builder.direction.as_ref()),
-                glow::STATIC_DRAW,
-            );
-            gl.bind_buffer(glow::ARRAY_BUFFER, buffer_colors);
-            gl.buffer_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                cast_as_bytes(build_edge_color_buffer(&builder.colors, colors).as_ref()),
-                glow::STATIC_DRAW,
-            );
-        }
-
-        OptionalEdgeBuffer {
-            gl: Rc::clone(&gl),
-            array,
-            buffer_vertices,
-            buffer_controls_1,
-            buffer_controls_2,
-            buffer_directions,
-            buffer_colors,
-            length: builder.len(),
-        }
-    }
-
-    pub fn bind(
-        &self,
-        location_position: &Option<u32>,
-        location_colors: &Option<u32>,
-        location_controls_1: &Option<u32>,
-        location_controls_2: &Option<u32>,
-        location_direction: &Option<u32>,
-    ) {
-        let gl = &self.gl;
-
-        unsafe {
-            gl.bind_vertex_array(self.array);
-        }
-
-        if let Some(e) = location_position {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_vertices);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
-            }
-        }
-        if let Some(e) = location_colors {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_colors);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
-            }
-        }
-        if let Some(e) = location_controls_1 {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_controls_1);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
-            }
-        }
-        if let Some(e) = location_controls_2 {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_controls_2);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
-            }
-        }
-        if let Some(e) = location_direction {
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.buffer_directions);
-                gl.vertex_attrib_pointer_f32(*e, 3, glow::FLOAT, false, 0, 0);
-            }
-        }
-    }
-}
-
-impl<GL: HasContext> Drop for OptionalEdgeBuffer<GL> {
-    fn drop(&mut self) {
-        let gl = &self.gl;
-        unsafe {
-            if let Some(e) = self.array {
-                gl.delete_vertex_array(e);
-            }
-            if let Some(e) = self.buffer_vertices {
-                gl.delete_buffer(e);
-            }
-            if let Some(e) = self.buffer_controls_1 {
-                gl.delete_buffer(e);
-            }
-            if let Some(e) = self.buffer_controls_2 {
-                gl.delete_buffer(e);
-            }
-            if let Some(e) = self.buffer_directions {
-                gl.delete_buffer(e);
-            }
-            if let Some(e) = self.buffer_colors {
-                gl.delete_buffer(e);
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct PartBuffer<GL>
-where
-    GL: HasContext,
-{
-    pub uncolored_index: Option<SubpartIndex>,
-    pub uncolored_without_bfc_index: Option<SubpartIndex>,
-    pub opaque_indices: HashMap<MeshGroup, SubpartIndex>,
-    pub translucent_indices: HashMap<MeshGroup, SubpartIndex>,
-
-    pub mesh: Option<MeshBuffer<GL>>,
-    pub edges: Option<EdgeBuffer<GL>>,
-    pub optional_edges: Option<OptionalEdgeBuffer<GL>>,
-
-    pub uncolored_triangles_count: usize,
-    pub uncolored_without_bfc_triangles_count: usize,
-    pub opaque_triangles_count: usize,
-    pub translucent_triangles_count: usize,
-    pub edges_count: usize,
-    pub optional_edges_count: usize,
-}
-
-impl<GL: HasContext> PartBuffer<GL> {
-    pub fn create(builder: &PartBufferBuilder, gl: Rc<GL>, colors: &ColorCatalog) -> Self {
-        let mut merged = MeshBufferBuilder::default();
-        let mut opaque = HashMap::new();
-        let mut translucent = HashMap::new();
-        let mut ptr: usize = 0;
-
-        let uncolored_index = if builder.uncolored_mesh.is_empty() {
-            None
-        } else {
-            merged.vertices.extend(&builder.uncolored_mesh.vertices);
-            merged.normals.extend(&builder.uncolored_mesh.normals);
-            let cur = ptr;
-            ptr += builder.uncolored_mesh.len();
-
-            Some(SubpartIndex {
-                start: cur,
-                span: builder.uncolored_mesh.len(),
+            Some(Self {
+                vertices,
+                indices,
+                range,
+                index_format,
             })
-        };
-
-        let uncolored_without_bfc_index = if builder.uncolored_without_bfc_mesh.is_empty() {
-            None
         } else {
-            merged
-                .vertices
-                .extend(&builder.uncolored_without_bfc_mesh.vertices);
-            merged
-                .normals
-                .extend(&builder.uncolored_without_bfc_mesh.normals);
-            let cur = ptr;
-            ptr += builder.uncolored_without_bfc_mesh.len();
-
-            Some(SubpartIndex {
-                start: cur,
-                span: builder.uncolored_without_bfc_mesh.len(),
-            })
-        };
-
-        for (group, mesh) in builder.opaque_meshes.iter() {
-            merged.vertices.extend(&mesh.vertices);
-            merged.normals.extend(&mesh.normals);
-            let cur = ptr;
-            ptr += mesh.len();
-
-            opaque.insert(
-                group.clone(),
-                SubpartIndex {
-                    start: cur,
-                    span: mesh.len(),
-                },
-            );
+            None
         }
+    }
 
-        for (group, mesh) in builder.translucent_meshes.iter() {
-            merged.vertices.extend(&mesh.vertices);
-            merged.normals.extend(&mesh.normals);
-            let cur = ptr;
-            ptr += mesh.len();
-
-            translucent.insert(
-                group.clone(),
-                SubpartIndex {
-                    start: cur,
-                    span: mesh.len(),
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
                 },
-            );
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
         }
+    }
+}
 
-        let mesh = if !merged.is_empty() {
-            Some(MeshBuffer::create(&merged, Rc::clone(&gl)))
+pub struct OptionalEdgeBuffer {
+    pub vertices: wgpu::Buffer,
+    pub range: Range<u32>,
+}
+
+impl OptionalEdgeBuffer {
+    fn expand(
+        metadata: &part_ir::PartMetadata,
+        vertices: &mut Vec<f32>,
+        colors: &ColorCatalog,
+        vertex_buffer: &part_ir::VertexBuffer,
+        index_buffer: &part_ir::OptionalEdgeBuffer,
+    ) -> Option<Range<u32>> {
+        if index_buffer.is_empty() {
+            None
+        } else if !index_buffer.is_valid() {
+            eprintln!(
+                "{}: Corrupted optional edge buffer. skipping...",
+                metadata.name
+            );
+            None
+        } else {
+            let start = vertices.len() as u32 / 3;
+            let end = start + index_buffer.len() as u32;
+
+            for i in 0..index_buffer.vertex_indices.len() {
+                let vertex_idx = index_buffer.vertex_indices[i] as usize;
+                let control_1_idx = index_buffer.control_1_indices[i] as usize;
+                let control_2_idx = index_buffer.control_2_indices[i] as usize;
+                let direction_idx = index_buffer.direction_indices[i] as usize;
+                let color_id = index_buffer.colors[i];
+
+                let vertex_range = vertex_idx * 3..vertex_idx * 3 + 3;
+                let control_1_range = control_1_idx * 3..control_1_idx * 3 + 3;
+                let control_2_range = control_2_idx * 3..control_2_idx * 3 + 3;
+                let direction_range = direction_idx * 3..direction_idx * 3 + 3;
+
+                if !vertex_buffer.check_range(&vertex_range)
+                    || !vertex_buffer.check_range(&control_1_range)
+                    || !vertex_buffer.check_range(&control_2_range)
+                    || !vertex_buffer.check_range(&direction_range)
+                {
+                    eprintln!(
+                        "{}: Corrupted optional edge buffer. skipping...",
+                        metadata.name
+                    );
+                    return None;
+                }
+
+                let color = if color_id == 2u32 << 30 {
+                    [-1.0, -1.0, -1.0]
+                } else if color_id == 2u32 << 29 {
+                    [-2.0, -2.0, -2.0]
+                } else {
+                    match colors.get(&(color_id & 0x7fffffffu32)) {
+                        Some(color) => {
+                            let buf = if color_id & 0x8000_0000 != 0 {
+                                &color.edge
+                            } else {
+                                &color.color
+                            };
+
+                            let r = buf.red() as f32 / 255.0;
+                            let g = buf.green() as f32 / 255.0;
+                            let b = buf.blue() as f32 / 255.0;
+
+                            [r, g, b]
+                        }
+                        None => [0.0, 0.0, 0.0],
+                    }
+                };
+
+                vertices.extend(&vertex_buffer.0[vertex_range]);
+                vertices.extend(&vertex_buffer.0[control_1_range]);
+                vertices.extend(&vertex_buffer.0[control_2_range]);
+                vertices.extend(&vertex_buffer.0[direction_range]);
+                vertices.extend(&color);
+            }
+
+            if start == end {
+                None
+            } else {
+                Some(start..end)
+            }
+        }
+    }
+
+    pub fn new(device: &wgpu::Device, colors: &ColorCatalog, part: &part_ir::Part) -> Option<Self> {
+        let mut data = Vec::new();
+
+        if let Some(range) = Self::expand(
+            &part.metadata,
+            &mut data,
+            colors,
+            &part.geometry.vertex_buffer,
+            &part.geometry.optional_edges,
+        ) {
+            let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!(
+                    "Vertex buffer for optional edge data at {}",
+                    part.metadata.name
+                )),
+                contents: bytemuck::cast_slice(&data),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+            Some(Self { vertices, range })
         } else {
             None
-        };
-        let edges = if !builder.edges.is_empty() {
-            Some(EdgeBuffer::create(&builder.edges, Rc::clone(&gl), colors))
+        }
+    }
+
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<[f32; 15]>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
+    }
+}
+
+pub struct Part {
+    pub metadata: part_ir::PartMetadata,
+    pub mesh: MeshBuffer,
+    pub edges: Option<EdgeBuffer>,
+    pub optional_edges: Option<OptionalEdgeBuffer>,
+    pub bounding_box: BoundingBox3,
+}
+
+impl Part {
+    pub fn new(
+        part: &part_ir::Part,
+        device: &wgpu::Device,
+        colors: &ColorCatalog,
+        supports_line_rendering: bool,
+    ) -> Self {
+        let (edges, optional_edges) = if supports_line_rendering {
+            (
+                EdgeBuffer::new(device, colors, part),
+                OptionalEdgeBuffer::new(device, colors, part),
+            )
         } else {
-            None
-        };
-        let optional_edges = if !builder.optional_edges.is_empty() {
-            Some(OptionalEdgeBuffer::create(
-                &builder.optional_edges,
-                Rc::clone(&gl),
-                colors,
-            ))
-        } else {
-            None
+            (None, None)
         };
 
-        PartBuffer {
-            uncolored_index,
-            uncolored_without_bfc_index,
-            opaque_indices: opaque,
-            translucent_indices: translucent,
-            mesh,
+        Self {
+            metadata: part.metadata.clone(),
+            mesh: MeshBuffer::new(device, part),
             edges,
             optional_edges,
-            uncolored_triangles_count: builder.uncolored_mesh.len() / 3,
-            uncolored_without_bfc_triangles_count: builder.uncolored_without_bfc_mesh.len() / 3,
-            opaque_triangles_count: builder.opaque_meshes.values().map(|v| v.len() / 3).sum(),
-            translucent_triangles_count: builder
-                .translucent_meshes
-                .values()
-                .map(|v| v.len() / 3)
-                .sum(),
-            edges_count: builder.edges.len() / 2,
-            optional_edges_count: builder.optional_edges.len() / 2,
-        }
-    }
-
-    pub fn has_opaque_parts(&self) -> bool {
-        !self.opaque_indices.is_empty()
-    }
-
-    pub fn has_translucent_parts(&self) -> bool {
-        !self.translucent_indices.is_empty()
-    }
-
-    pub fn has_uncolored_parts(&self) -> bool {
-        self.uncolored_index.is_some() || self.uncolored_without_bfc_index.is_some()
-    }
-}
-
-#[derive(Debug)]
-pub struct Part<GL: HasContext> {
-    pub part: PartBuffer<GL>,
-    pub bounding_box: BoundingBox3,
-    pub rotation_center: Vector3,
-}
-
-impl<GL: HasContext> Part<GL> {
-    pub fn create(builder: &PartBuilder, gl: Rc<GL>, colors: &ColorCatalog) -> Self {
-        Part {
-            part: PartBuffer::create(&builder.part_builder, Rc::clone(&gl), colors),
-            bounding_box: builder.bounding_box.clone(),
-            rotation_center: builder.rotation_center,
+            bounding_box: part.bounding_box.clone(),
         }
     }
 }
 
-pub trait PartsPool<GL: HasContext> {
-    fn query(&self, name: &PartAlias) -> Option<Arc<Part<GL>>>;
+pub trait PartQuerier<K> {
+    fn get(&self, key: &K) -> Option<&Part>;
 }

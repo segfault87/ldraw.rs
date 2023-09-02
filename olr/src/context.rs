@@ -1,96 +1,194 @@
-use std::{cell::RefCell, rc::Rc};
-
-use glow::{Context as GlContext, HasContext, PixelPackData};
-#[cfg(any(
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-))]
-use glutin::platform::unix::HeadlessContextExt;
-use glutin::{
-    dpi::PhysicalSize, event_loop::EventLoop, Context, ContextBuilder, CreationError, GlProfile,
-    GlRequest, NotCurrent, PossiblyCurrent,
-};
 use image::RgbaImage;
 use ldraw::Vector2;
 use ldraw_ir::geometry::BoundingBox2;
-use ldraw_renderer::{shader::ProgramManager, state::RenderingContext};
+use ldraw_renderer::{camera::Projection, pipeline::RenderingPipelineManager};
 
 use crate::error::ContextCreationError;
 
-pub struct OlrContext {
-    pub width: usize,
-    pub height: usize,
+pub struct Context {
+    pub width: u32,
+    pub height: u32,
 
-    pub gl: Rc<GlContext>,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
 
-    /// declaring it RefCell for in use within thread locals
-    pub rendering_context: RefCell<RenderingContext<GlContext>>,
+    pub(super) pipelines: RenderingPipelineManager,
+    pub(super) projection: Projection,
 
-    _gl_context: Context<PossiblyCurrent>,
+    pub(super) framebuffer_texture: wgpu::Texture,
+    pub(super) framebuffer_texture_view: wgpu::TextureView,
 
-    framebuffer: Option<glow::NativeFramebuffer>,
-    renderbuffer_color: Option<glow::NativeRenderbuffer>,
-    renderbuffer_depth: Option<glow::NativeRenderbuffer>,
+    pub(super) _multisampled_framebuffer_texture: Option<wgpu::Texture>,
+    pub(super) multisampled_framebuffer_texture_view: Option<wgpu::TextureView>,
+
+    pub(super) _depth_texture: wgpu::Texture,
+    pub(super) depth_texture_view: wgpu::TextureView,
+
+    output_buffer: wgpu::Buffer,
 }
 
-impl OlrContext {
-    pub fn get_framebuffer_contents(&self, bounds: Option<BoundingBox2>) -> RgbaImage {
-        let mut pixels: Vec<u8> = Vec::new();
-        pixels.resize(4 * self.width * self.height, 0);
+impl Context {
+    pub async fn new(
+        width: u32,
+        height: u32,
+        sample_count: u32,
+    ) -> Result<Self, ContextCreationError> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
+        });
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptionsBase {
+                power_preference: wgpu::PowerPreference::default(),
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .await
+            .ok_or(ContextCreationError::NoAdapterFound)?;
 
-        let gl = &self.gl;
-        unsafe {
-            // Transfer from multisampled fbo to normal fbo
-            let framebuffer_wo_multisample = gl.create_framebuffer().ok();
-            gl.bind_framebuffer(glow::FRAMEBUFFER, framebuffer_wo_multisample);
-            let renderbuffer_color = gl.create_renderbuffer().ok();
-            gl.bind_renderbuffer(glow::RENDERBUFFER, renderbuffer_color);
-            gl.renderbuffer_storage(
-                glow::RENDERBUFFER,
-                glow::RGBA8,
-                self.width as _,
-                self.height as _,
-            );
-            gl.framebuffer_renderbuffer(
-                glow::FRAMEBUFFER,
-                glow::COLOR_ATTACHMENT0,
-                glow::RENDERBUFFER,
-                renderbuffer_color,
-            );
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("Device Descriptor"),
+                    features: wgpu::Features::POLYGON_MODE_LINE,
+                    limits: wgpu::Limits::default(),
+                },
+                None,
+            )
+            .await?;
 
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, self.framebuffer);
-            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, framebuffer_wo_multisample);
-            gl.blit_framebuffer(
-                0,
-                0,
-                self.width as _,
-                self.height as _,
-                0,
-                0,
-                self.width as _,
-                self.height as _,
-                glow::COLOR_BUFFER_BIT,
-                glow::NEAREST,
-            );
+        let framebuffer_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let framebuffer_texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: framebuffer_format,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            label: Some("Render framebuffer"),
+            view_formats: &[],
+        });
+        let framebuffer_texture_view = framebuffer_texture.create_view(&Default::default());
 
-            gl.bind_framebuffer(glow::FRAMEBUFFER, framebuffer_wo_multisample);
-            gl.read_buffer(glow::COLOR_ATTACHMENT0);
-            gl.read_pixels(
-                0,
-                0,
-                self.width as _,
-                self.height as _,
-                glow::RGBA,
-                glow::UNSIGNED_BYTE,
-                PixelPackData::Slice(pixels.as_mut()),
-            );
+        let (multisampled_framebuffer_texture, multisampled_framebuffer_texture_view) =
+            if sample_count > 1 {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: framebuffer_format,
+                    usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    label: Some("Render framebuffer (w/o multisample)"),
+                    view_formats: &[],
+                });
+                let view = texture.create_view(&Default::default());
+                (Some(texture), Some(view))
+            } else {
+                (None, None)
+            };
 
-            gl.delete_renderbuffer(renderbuffer_color.unwrap());
-            gl.delete_framebuffer(framebuffer_wo_multisample.unwrap());
-        }
+        let pipelines =
+            RenderingPipelineManager::new(&device, &queue, framebuffer_format, true, sample_count);
+        let projection = Projection::new(&device);
+
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            label: Some("Depth buffer"),
+            view_formats: &[],
+        });
+        let depth_texture_view = depth_texture.create_view(&Default::default());
+
+        let output_buffer_size =
+            (std::mem::size_of::<u32>() as u32 * width * height) as wgpu::BufferAddress;
+        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            size: output_buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            label: Some("Output buffer"),
+            mapped_at_creation: false,
+        });
+
+        Ok(Self {
+            width,
+            height,
+
+            device,
+            queue,
+
+            pipelines,
+            projection,
+
+            framebuffer_texture,
+            framebuffer_texture_view,
+
+            _multisampled_framebuffer_texture: multisampled_framebuffer_texture,
+            multisampled_framebuffer_texture_view,
+
+            _depth_texture: depth_texture,
+            depth_texture_view,
+
+            output_buffer,
+        })
+    }
+
+    pub async fn finish(
+        &self,
+        mut encoder: wgpu::CommandEncoder,
+        bounds: Option<BoundingBox2>,
+    ) -> RgbaImage {
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &self.framebuffer_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &self.output_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(std::mem::size_of::<u32>() as u32 * self.width),
+                    rows_per_image: Some(self.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(Some(encoder.finish()));
+
+        let pixels = {
+            let buffer_slice = self.output_buffer.slice(..);
+
+            let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                tx.send(result).unwrap();
+            });
+            self.device.poll(wgpu::Maintain::Wait);
+            rx.receive().await.unwrap().unwrap();
+
+            buffer_slice.get_mapped_range()
+        };
 
         let bounds = bounds
             .unwrap_or_else(|| BoundingBox2::new(&Vector2::new(0.0, 0.0), &Vector2::new(1.0, 1.0)));
@@ -103,218 +201,15 @@ impl OlrContext {
         let ch = y2 - y1;
 
         let mut pixels_rearranged: Vec<u8> = Vec::new();
-        for v in (y1..y2).rev() {
-            let s = 4 * v as usize * self.width as usize + x1 * 4;
+        for v in y1..y2 {
+            let s = 4 * v * self.width as usize + x1 * 4;
             pixels_rearranged.extend_from_slice(&pixels[s..(s + (cw * 4))]);
         }
 
-        unsafe {
-            // Revert back to previous state
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
-            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
-            gl.bind_framebuffer(glow::FRAMEBUFFER, self.framebuffer);
-        }
+        drop(pixels);
+
+        self.output_buffer.unmap();
 
         RgbaImage::from_raw(cw as _, ch as _, pixels_rearranged).unwrap()
-    }
-}
-
-impl Drop for OlrContext {
-    fn drop(&mut self) {
-        let gl = &self.gl;
-
-        unsafe {
-            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-            gl.bind_renderbuffer(glow::RENDERBUFFER, None);
-            if let Some(e) = self.renderbuffer_color {
-                gl.delete_renderbuffer(e);
-            }
-            if let Some(e) = self.renderbuffer_depth {
-                gl.delete_renderbuffer(e);
-            }
-            if let Some(e) = self.framebuffer {
-                gl.delete_framebuffer(e);
-            }
-        }
-    }
-}
-
-fn create_context(
-    context: Context<NotCurrent>,
-    width: usize,
-    height: usize,
-) -> Result<OlrContext, ContextCreationError> {
-    let context = unsafe { context.make_current().unwrap() };
-
-    let gl =
-        unsafe { GlContext::from_loader_function(|s| context.get_proc_address(s) as *const _) };
-    let gl = Rc::new(gl);
-
-    let framebuffer;
-    let renderbuffer_depth;
-    let renderbuffer_color;
-    unsafe {
-        gl.enable(glow::MULTISAMPLE);
-
-        framebuffer = gl.create_framebuffer().ok();
-        gl.bind_framebuffer(glow::FRAMEBUFFER, framebuffer);
-
-        renderbuffer_depth = gl.create_renderbuffer().ok();
-        gl.bind_renderbuffer(glow::RENDERBUFFER, renderbuffer_depth);
-        gl.renderbuffer_storage_multisample(
-            glow::RENDERBUFFER,
-            4,
-            glow::DEPTH_COMPONENT32F,
-            width as _,
-            height as _,
-        );
-        gl.framebuffer_renderbuffer(
-            glow::FRAMEBUFFER,
-            glow::DEPTH_ATTACHMENT,
-            glow::RENDERBUFFER,
-            renderbuffer_depth,
-        );
-
-        renderbuffer_color = gl.create_renderbuffer().ok();
-        gl.bind_renderbuffer(glow::RENDERBUFFER, renderbuffer_color);
-        gl.renderbuffer_storage_multisample(
-            glow::RENDERBUFFER,
-            4,
-            glow::RGBA8,
-            width as _,
-            height as _,
-        );
-        gl.framebuffer_renderbuffer(
-            glow::FRAMEBUFFER,
-            glow::COLOR_ATTACHMENT0,
-            glow::RENDERBUFFER,
-            renderbuffer_color,
-        );
-    }
-
-    let program_manager = ProgramManager::new(Rc::clone(&gl))?;
-    let rendering_context = RefCell::new(RenderingContext::new(Rc::clone(&gl), program_manager));
-
-    Ok(OlrContext {
-        width,
-        height,
-
-        gl,
-        rendering_context,
-
-        _gl_context: context,
-
-        framebuffer,
-        renderbuffer_color,
-        renderbuffer_depth,
-    })
-}
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-))]
-pub fn create_offscreen_context(
-    width: usize,
-    height: usize,
-    force_software: bool,
-) -> Result<OlrContext, ContextCreationError> {
-    let size = PhysicalSize::new(1, 1);
-    let cb = ContextBuilder::new()
-        .with_gl_profile(GlProfile::Core)
-        .with_gl(GlRequest::Latest)
-        .with_pixel_format(24, 8);
-
-    let evloop = EventLoop::new();
-
-    let context = if force_software {
-        cb.build_osmesa(size)?
-    } else {
-        match cb.clone().build_surfaceless(&evloop) {
-            Ok(e) => e,
-            Err(_) => match cb.clone().build_headless(&evloop, size) {
-                Ok(e) => e,
-                Err(_) => cb.build_osmesa(size)?,
-            },
-        }
-    };
-
-    create_context(context, width, height)
-}
-
-#[cfg(not(any(
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-)))]
-pub fn create_offscreen_context(
-    width: usize,
-    height: usize,
-    force_software: bool,
-) -> Result<OlrContext, ContextCreationError> {
-    if force_software {
-        return Err(ContextCreationError::GlContextError(
-            CreationError::OsError(String::from(
-                "Software GL context (osmesa) is only available for *nix systems.",
-            )),
-        ));
-    }
-
-    let evloop = EventLoop::new();
-
-    let size = PhysicalSize::new(1, 1);
-    let cb = ContextBuilder::new()
-        .with_gl_profile(GlProfile::Core)
-        .with_gl(GlRequest::Latest)
-        .with_pixel_format(24, 8);
-
-    let context = match cb.clone().build_headless(&evloop, size) {
-        Ok(e) => e,
-        Err(e) => {
-            return Err(ContextCreationError::GlContextError(e));
-        }
-    };
-
-    create_context(context, width, height)
-}
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-))]
-pub fn create_osmesa_context(
-    width: usize,
-    height: usize,
-) -> Result<OlrContext, ContextCreationError> {
-    if cfg!(any(
-        target_os = "linux",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    )) {
-        let size = PhysicalSize::new(1, 1);
-        let cb = ContextBuilder::new()
-            .with_gl_profile(GlProfile::Core)
-            .with_gl(GlRequest::Latest)
-            .with_pixel_format(24, 8);
-
-        let context = cb.build_osmesa(size)?;
-
-        create_context(context, width, height)
-    } else {
-        Err(ContextCreationError::GlContextError(
-            CreationError::OsError(String::from(
-                "Software GL context (osmesa) is only available for *nix systems.",
-            )),
-        ))
     }
 }

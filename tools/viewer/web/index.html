@@ -1,183 +1,210 @@
 <!doctype html>
 <html lang="en">
-  <head>
+
+<head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>ldraw.rs demo</title>
     <!-- Global site tag (gtag.js) - Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-HKFX597XPG"></script>
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
+        window.dataLayer = window.dataLayer || [];
+        function gtag() {dataLayer.push(arguments);}
+        gtag('js', new Date());
 
-      gtag('config', 'G-HKFX597XPG');
+        gtag('config', 'G-HKFX597XPG');
     </script>
     <style type="text/css">
-      body {
-          font-family: sans-serif;
-          background-color: #fff;
-      }
-      html, body, canvas {
-          margin: 0;
-          padding: 0;
-          width: 100%;
-          height: 100%;
-          overflow: hidden;
-      }
-      #console p {
-          line-height: 0.8;
-          font-size: 12px;
-          font-family: monospace;
-      }
-      #stats {
-          position: fixed;
-          top: 0;
-          right: 0;
-          font-size: 10px;
-      }
-      #footer-right {
-        position: fixed;
-        bottom: 0;
-        right: 0;
-        font-size: 12px;
-      }
-      #controls {
-        position: absolute;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        height: 50%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        pointer-events: none;
-        flex-direction: column;
-      }
-      #controls > #next-button {
-        width: 200px;
-        font-size: 120px;
-        background-color: rgba(255, 255, 255, 0.5);
-        border-radius: 16px;
-        cursor: pointer;
-        text-align: center;
-        height: 0;
-        opacity: 0;
-        transition: opacity 0.3s ease-out;
-        overflow: hidden;
-        pointer-events: all;
-      }
-      #controls > #next-button.active {
-        opacity: 1;
-        display: block;
-        height: auto;
-        transition: opacity 0.3s ease-out;
-      }
-      #sidebar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 32px;
-        height: 100%;
-        background: black;
-      }
-      #sidebar > ul {
-        text-align: right;
-        transform: rotate(-90deg) translate(-100%, 0);
-        transform-origin: left top;
-        height: 32px;
-        width: 400px;
-        color: white;
-        margin: 0;
-        padding: 0;
-        font-size: 16px;
-        list-style: none;
-      }
-      #sidebar > ul > li {
-        height: 32px;
-        display: inline-block;
-        text-transform: uppercase;
-        font-weight: 700;
-        padding-top: 8px;
-        padding-bottom: 8px;
-        padding-left: 16px;
-        padding-right: 16px;
-        text-align: center;
-        cursor: pointer;
-      }
-      #sidebar > ul > li.selected {
-        background: #ddd;
-        color: black;
-      }
-      #console-pane, #model-pane, #subparts-pane {
-        position: fixed;
-        padding: 8px;
-        top: 0;
-        left: 32px;
-        width: 320px;
-        height: 100%;
-        font-family: monospace;
-        overflow-y: auto;
-        background: #ddd;
-        display: none;
-      }
-      #model-pane > textarea, #subparts-pane > select {
-        width: 316px;
-        height: calc(100% - 20px);
-        background: none;
-        border: 1px solid #777;
-      }
-      #model-pane > button {
-        width: 100%;
-      }
+        body {
+            font-family: sans-serif;
+            background-color: #fff;
+        }
+
+        html,
+        body,
+        canvas {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #console p {
+            line-height: 0.8;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        #stats {
+            position: fixed;
+            top: 0;
+            right: 0;
+            font-size: 10px;
+        }
+
+        #footer-right {
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            font-size: 12px;
+        }
+
+        #controls {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            height: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+            flex-direction: column;
+        }
+
+        #controls>#next-button {
+            width: 120px;
+            padding-top: 16px;
+            padding-bottom: 16px;
+            font-size: 40px;
+            background-color: rgba(255, 255, 255, 0.5);
+            filter: drop-shadow(0px 10px 8px #ccc);
+            border-radius: 16px;
+            cursor: pointer;
+            text-align: center;
+            height: 0;
+            opacity: 0;
+            transition: opacity 0.3s ease-out;
+            overflow: hidden;
+            pointer-events: all;
+        }
+
+        #controls>#next-button.active {
+            opacity: 1;
+            display: block;
+            height: auto;
+            transition: opacity 0.3s ease-out;
+        }
+
+        #sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 32px;
+            height: 100%;
+            background: black;
+        }
+
+        #sidebar>ul {
+            text-align: right;
+            transform: rotate(-90deg) translate(-100%, 0);
+            transform-origin: left top;
+            height: 32px;
+            width: 400px;
+            color: white;
+            margin: 0;
+            padding: 0;
+            font-size: 16px;
+            list-style: none;
+        }
+
+        #sidebar>ul>li {
+            height: 32px;
+            display: inline-block;
+            text-transform: uppercase;
+            font-weight: 700;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            padding-left: 16px;
+            padding-right: 16px;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        #sidebar>ul>li.selected {
+            background: #ddd;
+            color: black;
+        }
+
+        #console-pane,
+        #model-pane,
+        #subparts-pane {
+            position: fixed;
+            padding: 8px;
+            top: 0;
+            left: 32px;
+            width: 320px;
+            height: 100%;
+            font-family: monospace;
+            overflow-y: auto;
+            background: #ddd;
+            display: none;
+        }
+
+        #model-pane>textarea,
+        #subparts-pane>select {
+            width: 316px;
+            height: calc(100% - 40px);
+            background: none;
+            border: 1px solid #777;
+        }
+
+        #model-pane>button {
+            width: 100%;
+        }
     </style>
-  </head>
-  <body id="body">
+</head>
+
+<body id="body">
     <canvas id="main_canvas"></canvas>
     <div id="controls">
-      <div id="next-button">➜</div>
+        <div id="next-button">➜</div>
     </div>
     <div id="sidebar">
-      <ul>
-        <li id="menu-model" onClick="toggleMenu(0)">Model</li>
-        <li id="menu-console" onClick="toggleMenu(1)">Messages</li>
-        <li id="menu-subparts" onClick="toggleMenu(2)">Subparts</li>
-      </ul>
-      <div id="console-pane"></div>
-      <div id="model-pane">
-        <textarea id="document">
-        </textarea>
-        <button id="submit">Load</button>
-      </div>
-      <div id="subparts-pane">
-        <select id="subparts" size="10">
-        </select>
-      </div>
+        <ul>
+            <li id="menu-model" onClick="toggleMenu(0)">Model</li>
+            <li id="menu-console" onClick="toggleMenu(1)">Messages</li>
+            <li id="menu-subparts" onClick="toggleMenu(2)">Subparts</li>
+        </ul>
+        <div id="console-pane"></div>
+        <div id="model-pane">
+            <textarea id="document">
+            </textarea>
+            <button id="submit">Load</button>
+        </div>
+        <div id="subparts-pane">
+            <select id="subparts" size="10">
+            </select>
+        </div>
     </div>
     <div id="stats"></div>
-    <div id="footer-right">This is a proof-of-concept technical demo. Built with <a href="https://www.rust-lang.org">Rust</a> + <a href="https://webassembly.org">WebAssembly</a>. <a href="https://github.com/segfault87/ldraw.rs">GitHub</a></div>
+    <div id="footer-right">This is a proof-of-concept technical demo. Built with <a
+            href="https://www.rust-lang.org">Rust</a> + <a href="https://webassembly.org">WebAssembly</a>. <a
+            href="https://github.com/segfault87/ldraw.rs">GitHub</a></div>
     <script type="text/javascript">
-      const menus = [
-        ['menu-model', 'model-pane'],
-        ['menu-console', 'console-pane'],
-        ['menu-subparts', 'subparts-pane'],
-      ];
-      let selected = null;
-      function toggleMenu(idx) {
-        if (idx === selected) {
-          document.getElementById(menus[idx][0]).className = '';
-          document.getElementById(menus[idx][1]).style.display = 'none';
-          selected = null;
-        } else {
-          if (selected !== null) {
-            document.getElementById(menus[selected][0]).className = '';
-            document.getElementById(menus[selected][1]).style.display = 'none';
-          }
-          document.getElementById(menus[idx][0]).className = 'selected';
-          document.getElementById(menus[idx][1]).style.display = 'block';
-          selected = idx;
+        const menus = [
+            ['menu-model', 'model-pane'],
+            ['menu-console', 'console-pane'],
+            ['menu-subparts', 'subparts-pane'],
+        ];
+        let selected = null;
+        function toggleMenu(idx) {
+            if (idx === selected) {
+                document.getElementById(menus[idx][0]).className = '';
+                document.getElementById(menus[idx][1]).style.display = 'none';
+                selected = null;
+            } else {
+                if (selected !== null) {
+                    document.getElementById(menus[selected][0]).className = '';
+                    document.getElementById(menus[selected][1]).style.display = 'none';
+                }
+                document.getElementById(menus[idx][0]).className = 'selected';
+                document.getElementById(menus[idx][1]).style.display = 'block';
+                selected = idx;
+            }
         }
-      }
     </script>
-  </body>
+</body>
+
 </html>

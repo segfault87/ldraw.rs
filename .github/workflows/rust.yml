@@ -25,6 +25,8 @@ jobs:
     - name: Build (native binaries)
       run: cargo build -p viewer_native -p ldr2img -p baker --verbose
     - name: Build (webassembly)
+      env:
+        RUSTFLAGS: --cfg=web_sys_unstable_apis
       run: cargo build -p viewer_web --target=wasm32-unknown-unknown --verbose
     - name: Lint
       run: cargo clippy
