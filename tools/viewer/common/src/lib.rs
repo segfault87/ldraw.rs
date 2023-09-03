@@ -1,7 +1,9 @@
+mod error;
 mod texture;
 
 use std::{
     cell::RefCell,
+    cmp::min,
     collections::{HashMap, HashSet},
     f32,
     rc::Rc,
@@ -405,6 +407,7 @@ pub struct App {
     pub size: winit::dpi::PhysicalSize<u32>,
     window: Window,
 
+    max_texture_size: u32,
     framebuffer_texture: Option<Texture>,
     depth_texture: Texture,
     sample_count: u32,
@@ -429,9 +432,7 @@ impl App {
         colors: Rc<ColorCatalog>,
         supports_line_rendering: bool,
         supports_antialiasing: bool,
-    ) -> Self {
-        let size = window.inner_size();
-
+    ) -> Result<Self, error::AppCreationError> {
         let backends = wgpu::util::backend_bits_from_env().unwrap_or_else(wgpu::Backends::all);
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
@@ -440,39 +441,18 @@ impl App {
 
         let sample_count = if supports_antialiasing { 4 } else { 1 };
 
-        let surface = match unsafe { instance.create_surface(&window) } {
-            Ok(surface) => surface,
-            Err(e) => panic!("cannot create surface: {}", e),
-        };
+        let surface = unsafe { instance.create_surface(&window) }?;
 
         let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
             .await
-            .unwrap();
+            .ok_or(error::AppCreationError::NoAdapterFound)?;
 
-        let line_features = if supports_line_rendering {
-            wgpu::Features::POLYGON_MODE_LINE
-        } else {
-            wgpu::Features::empty()
-        };
+        let (device, queue, max_texture_size) =
+            ldraw_renderer::util::request_device(&adapter, supports_line_rendering, None).await?;
 
-        let limits = wgpu::Limits {
-            max_texture_dimension_2d: 8192,
-            ..wgpu::Limits::downlevel_webgl2_defaults()
-        };
-
-        let (device, queue) = match adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    features: wgpu::Features::default() | line_features,
-                    limits,
-                },
-                None,
-            )
-            .await
-        {
-            Ok(v) => v,
-            Err(e) => panic!("Could not create device: {}", e),
+        let size = winit::dpi::PhysicalSize {
+            width: min(window.inner_size().width, max_texture_size),
+            height: min(window.inner_size().height, max_texture_size),
         };
 
         let surface_caps = surface.get_capabilities(&adapter);
@@ -525,7 +505,7 @@ impl App {
             sample_count,
         );
 
-        App {
+        Ok(App {
             surface,
             device,
             queue,
@@ -533,6 +513,7 @@ impl App {
             size,
             window,
 
+            max_texture_size,
             framebuffer_texture,
             depth_texture,
             sample_count,
@@ -548,7 +529,7 @@ impl App {
             animated_model: AnimatedModel::default(),
 
             orbit_controller,
-        }
+        })
     }
 
     pub fn loaded_parts(&self) -> HashSet<PartAlias> {
@@ -644,10 +625,15 @@ impl App {
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            self.size = new_size;
+            let new_size = winit::dpi::PhysicalSize {
+                width: min(new_size.width, self.max_texture_size),
+                height: min(new_size.height, self.max_texture_size),
+            };
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+
+            self.size = new_size;
 
             self.orbit_controller.borrow_mut().update(
                 &mut self.projection,

@@ -5,6 +5,43 @@ use uuid::Uuid;
 
 use crate::part::PartQuerier;
 
+pub async fn request_device(
+    adapter: &wgpu::Adapter,
+    supports_line_rendering: bool,
+    label: Option<&str>,
+) -> Result<(wgpu::Device, wgpu::Queue, u32), wgpu::RequestDeviceError> {
+    let texture_sizes = vec![8192, 4096, 2048];
+
+    let line_features = if supports_line_rendering {
+        wgpu::Features::POLYGON_MODE_LINE
+    } else {
+        wgpu::Features::empty()
+    };
+
+    for texture_size in texture_sizes {
+        let limits = wgpu::Limits {
+            max_texture_dimension_2d: texture_size,
+            ..wgpu::Limits::downlevel_webgl2_defaults()
+        };
+
+        if let Ok((device, queue)) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label,
+                    features: wgpu::Features::default() | line_features,
+                    limits,
+                },
+                None,
+            )
+            .await
+        {
+            return Ok((device, queue, texture_size));
+        }
+    }
+
+    Err(wgpu::RequestDeviceError)
+}
+
 fn calculate_bounding_box_recursive(
     bb: &mut BoundingBox3,
     parts: &impl PartQuerier<PartAlias>,

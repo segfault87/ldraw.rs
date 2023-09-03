@@ -632,7 +632,7 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
 
         self.ops
             .entry(group)
-            .or_insert_with(Default::default)
+            .or_default()
             .push(Ops::Insert {
                 key,
                 matrix,
@@ -650,7 +650,7 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
             } else {
                 self.ops
                     .entry(group.clone())
-                    .or_insert_with(Default::default)
+                    .or_default()
                     .push(Ops::Update {
                         key,
                         matrix,
@@ -665,7 +665,7 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
         if let Some(group) = self.lookup_table.get(&key) {
             self.ops
                 .entry(group.clone())
-                .or_insert_with(Default::default)
+                .or_default()
                 .push(Ops::UpdateMatrix { key, matrix });
         }
     }
@@ -722,7 +722,7 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
             } else {
                 self.ops
                     .entry(group.clone())
-                    .or_insert_with(Default::default)
+                    .or_default()
                     .push(Ops::UpdateColor {
                         key,
                         color: color.color.into(),
@@ -794,7 +794,7 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
             } else {
                 self.ops
                     .entry(group.clone())
-                    .or_insert_with(Default::default)
+                    .or_default()
                     .push(Ops::UpdateAlpha { key, alpha });
             }
         }
@@ -804,7 +804,7 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
         if let Some(group) = self.lookup_table.remove(&key) {
             self.ops
                 .entry(group)
-                .or_insert_with(Default::default)
+                .or_default()
                 .push(Ops::Remove(key));
         }
     }

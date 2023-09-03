@@ -282,7 +282,7 @@ impl PartBufferBundleBuilder {
             (ColorReference::Color(_), _) => Some(
                 self.colored_meshes
                     .entry(group.clone())
-                    .or_insert_with(MeshBuffer::default),
+                    .or_default(),
             ),
             _ => None,
         }
@@ -483,7 +483,7 @@ impl MeshBuilder {
     }
 
     pub fn add(&mut self, group_key: &MeshGroupKey, face: Rc<RefCell<Face>>) {
-        let list = self.faces.entry(group_key.clone()).or_insert_with(Vec::new);
+        let list = self.faces.entry(group_key.clone()).or_default();
         list.push(face.clone());
 
         for (index, vertex) in face.borrow().vertices.triangles(false).enumerate() {

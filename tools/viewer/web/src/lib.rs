@@ -167,16 +167,23 @@ pub async fn run(path: JsValue) -> JsValue {
         }
     };
 
-    let app = Rc::new(RefCell::new(
-        App::new(
-            window,
-            Rc::clone(&loader),
-            Rc::clone(&colors),
-            LINE_RENDERING,
-            ANTIALIAS,
-        )
-        .await,
-    ));
+    let app = match App::new(
+        window,
+        Rc::clone(&loader),
+        Rc::clone(&colors),
+        LINE_RENDERING,
+        ANTIALIAS,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            console_error!("Could not initialize the app: {e}");
+            return JsValue::undefined();
+        }
+    };
+
+    let app = Rc::new(RefCell::new(app));
     console_log!("Rendering context initialization done.");
 
     let cache = Arc::new(RwLock::new(PartCache::default()));

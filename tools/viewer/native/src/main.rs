@@ -34,7 +34,12 @@ async fn main_loop(
         .build(&evloop)
         .unwrap();
 
-    let mut app = App::new(window, dependency_loader, Rc::new(colors), true, true).await;
+    let mut app = match App::new(window, dependency_loader, Rc::new(colors), true, true).await {
+        Ok(v) => v,
+        Err(e) => {
+            panic!("Could not initialize app: {e}");
+        }
+    };
     let cache = Arc::new(RwLock::new(PartCache::new()));
     app.set_document(cache, &document, &|alias, result| {
         match result {
