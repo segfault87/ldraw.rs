@@ -124,7 +124,6 @@ async fn main() {
                         &bake_part_from_multipart_document(part, &resolution_result, local),
                         &context.device,
                         &colors,
-                        true,
                     ),
                 )
             })

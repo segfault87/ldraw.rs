@@ -430,12 +430,10 @@ impl App {
         window: Window,
         loader: Rc<dyn LibraryLoader>,
         colors: Rc<ColorCatalog>,
-        supports_line_rendering: bool,
         supports_antialiasing: bool,
     ) -> Result<Self, error::AppCreationError> {
-        let backends = wgpu::util::backend_bits_from_env().unwrap_or_else(wgpu::Backends::all);
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends,
+            backends: wgpu::Backends::all(),
             dx12_shader_compiler: Default::default(),
         });
 
@@ -448,7 +446,7 @@ impl App {
             .ok_or(error::AppCreationError::NoAdapterFound)?;
 
         let (device, queue, max_texture_size) =
-            ldraw_renderer::util::request_device(&adapter, supports_line_rendering, None).await?;
+            ldraw_renderer::util::request_device(&adapter, None).await?;
 
         let size = winit::dpi::PhysicalSize {
             width: min(window.inner_size().width, max_texture_size),
@@ -497,13 +495,7 @@ impl App {
             None,
         );
 
-        let pipelines = RenderingPipelineManager::new(
-            &device,
-            &queue,
-            config.format,
-            supports_line_rendering,
-            sample_count,
-        );
+        let pipelines = RenderingPipelineManager::new(&device, &queue, config.format, sample_count);
 
         Ok(App {
             surface,
@@ -582,7 +574,6 @@ impl App {
                                     ),
                                     &self.device,
                                     &self.colors,
-                                    self.pipelines.supports_line_rendering(),
                                 ),
                             )
                         })
@@ -698,7 +689,7 @@ impl App {
                             b: 1.0,
                             a: 0.0,
                         }),
-                        store: true,
+                        store: false,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

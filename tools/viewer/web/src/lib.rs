@@ -37,7 +37,6 @@ use winit::{
 // A huge mess. Needs refactoring.
 
 const ANTIALIAS: bool = if cfg!(feature = "webgl") { false } else { true };
-const LINE_RENDERING: bool = if cfg!(feature = "webgl") { false } else { true };
 
 fn log(s: &str, error: bool) {
     let window = web_sys::window().unwrap();
@@ -167,15 +166,7 @@ pub async fn run(path: JsValue) -> JsValue {
         }
     };
 
-    let app = match App::new(
-        window,
-        Rc::clone(&loader),
-        Rc::clone(&colors),
-        LINE_RENDERING,
-        ANTIALIAS,
-    )
-    .await
-    {
+    let app = match App::new(window, Rc::clone(&loader), Rc::clone(&colors), ANTIALIAS).await {
         Ok(v) => v,
         Err(e) => {
             console_error!("Could not initialize the app: {e}");

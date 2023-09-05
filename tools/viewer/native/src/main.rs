@@ -34,7 +34,7 @@ async fn main_loop(
         .build(&evloop)
         .unwrap();
 
-    let mut app = match App::new(window, dependency_loader, Rc::new(colors), true, true).await {
+    let mut app = match App::new(window, dependency_loader, Rc::new(colors), true).await {
         Ok(v) => v,
         Err(e) => {
             panic!("Could not initialize app: {e}");

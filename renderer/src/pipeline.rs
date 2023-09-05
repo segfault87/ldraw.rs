@@ -189,7 +189,7 @@ impl DefaultMeshRenderingPipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -472,7 +472,7 @@ impl EdgeRenderingPipeline {
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Line,
+                polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
@@ -574,7 +574,7 @@ impl OptionalEdgeRenderingPipeline {
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Line,
+                polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
@@ -621,10 +621,9 @@ impl OptionalEdgeRenderingPipeline {
 pub struct RenderingPipelineManager {
     mesh_default: DefaultMeshRenderingPipeline,
     mesh_no_shading: NoShadingMeshRenderingPipeline,
-    edge: Option<EdgeRenderingPipeline>,
-    optional_edge: Option<OptionalEdgeRenderingPipeline>,
+    edge: EdgeRenderingPipeline,
+    optional_edge: OptionalEdgeRenderingPipeline,
 
-    supports_line_rendering: bool,
     single_part_instance_buffer: Instances<i32, i32>,
 }
 
@@ -633,7 +632,6 @@ impl RenderingPipelineManager {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         render_texture_format: wgpu::TextureFormat,
-        supports_line_rendering: bool,
         sample_count: u32,
     ) -> Self {
         let mut single_part_instance_buffer = Instances::new(device, 0);
@@ -659,31 +657,14 @@ impl RenderingPipelineManager {
                 render_texture_format,
                 sample_count,
             ),
-            edge: if supports_line_rendering {
-                Some(EdgeRenderingPipeline::new(
-                    device,
-                    render_texture_format,
-                    sample_count,
-                ))
-            } else {
-                None
-            },
-            optional_edge: if supports_line_rendering {
-                Some(OptionalEdgeRenderingPipeline::new(
-                    device,
-                    render_texture_format,
-                    sample_count,
-                ))
-            } else {
-                None
-            },
-            supports_line_rendering,
+            edge: EdgeRenderingPipeline::new(device, render_texture_format, sample_count),
+            optional_edge: OptionalEdgeRenderingPipeline::new(
+                device,
+                render_texture_format,
+                sample_count,
+            ),
             single_part_instance_buffer,
         }
-    }
-
-    pub fn supports_line_rendering(&self) -> bool {
-        self.supports_line_rendering
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -764,12 +745,10 @@ impl RenderingPipelineManager {
             }
         }
 
-        if let Some(edge) = &self.edge {
-            edge.render(pass, projection, part, &self.single_part_instance_buffer);
-        }
-        if let Some(optional_edge) = &self.optional_edge {
-            optional_edge.render(pass, projection, part, &self.single_part_instance_buffer);
-        }
+        self.edge
+            .render(pass, projection, part, &self.single_part_instance_buffer);
+        self.optional_edge
+            .render(pass, projection, part, &self.single_part_instance_buffer);
     }
 
     pub fn render<'rp, K, G>(
@@ -810,15 +789,12 @@ impl RenderingPipelineManager {
                         );
                         draws += 1;
                     }
-                    if let Some(edge) = &self.edge {
-                        if edge.render(pass, projection, part, instances) {
-                            draws += 1;
-                        }
+                    if self.edge.render(pass, projection, part, instances) {
+                        draws += 1;
                     }
-                    if let Some(optional_edge) = &self.optional_edge {
-                        if optional_edge.render(pass, projection, part, instances) {
-                            draws += 1;
-                        }
+
+                    if self.optional_edge.render(pass, projection, part, instances) {
+                        draws += 1;
                     }
                 }
             }
@@ -852,15 +828,11 @@ impl RenderingPipelineManager {
                         );
                         draws += 1;
                     }
-                    if let Some(edge) = &self.edge {
-                        if edge.render(pass, projection, part, instances) {
-                            draws += 1;
-                        }
+                    if self.edge.render(pass, projection, part, instances) {
+                        draws += 1;
                     }
-                    if let Some(optional_edge) = &self.optional_edge {
-                        if optional_edge.render(pass, projection, part, instances) {
-                            draws += 1;
-                        }
+                    if self.optional_edge.render(pass, projection, part, instances) {
+                        draws += 1;
                     }
                 }
             }

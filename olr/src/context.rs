@@ -97,7 +97,7 @@ impl Context {
             };
 
         let pipelines =
-            RenderingPipelineManager::new(&device, &queue, framebuffer_format, true, sample_count);
+            RenderingPipelineManager::new(&device, &queue, framebuffer_format, sample_count);
         let projection = Projection::new(&device);
 
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
