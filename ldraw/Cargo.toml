@@ -5,11 +5,11 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-async-std = "1"
+async-std.workspace = true
 async-trait = "~0.1.52"
-cgmath = { version = "~0.18.0", features = ["serde"] }
+cgmath.workspace = true
 futures = "~0.3.19"
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 
 [dev-dependencies]
 async-std = { version = "1", features = ["attributes"] }

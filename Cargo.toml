@@ -10,3 +10,12 @@ members = [
     "tools/viewer/native",
     "tools/viewer/web"
 ]
+
+[workspace.dependencies]
+async-std = "1"
+bincode = "~1.3.3"
+cgmath = { version = "~0.18.0", features = ["serde"] }
+image = "~0.24.7"
+serde = { version = "1.0.80", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }
+wgpu = "0.17"

@@ -6,11 +6,11 @@ edition = "2018"
 
 [dependencies]
 async-trait = "~0.1.51"
-cgmath = "~0.18.0"
+cgmath.workspace = true
 instant = { version = "~0.1.12", features = ["wasm-bindgen"] }
 ldraw = { path = "../../../ldraw", features = ["http"] }
 ldraw-ir = { path = "../../../ir" }
 ldraw-renderer = { path = "../../../renderer" }
-uuid = { version = "1", features = ["v4", "serde", "js"] }
-wgpu = "0.17"
+uuid.workspace = true
+wgpu.workspace = true
 winit = "0.28"

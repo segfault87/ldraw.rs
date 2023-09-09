@@ -5,8 +5,8 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-cgmath = { version = "~0.18.0", features = ["serde"] }
-serde = { version = "1.0", features = ["derive"] }
+cgmath.workspace = true
+serde.workspace = true
 kdtree = "~0.6"
 ldraw = { path = "../ldraw" }
-uuid = { version = "1", features = ["v4", "serde", "js"] }
+uuid.workspace = true

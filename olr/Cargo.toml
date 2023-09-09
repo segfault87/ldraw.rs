@@ -5,12 +5,12 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-cgmath = "~0.18.0"
+cgmath.workspace = true
 futures-intrusive = "0.4"
-image = "~0.24.7"
+image.workspace = true
 ldraw = { path = "../ldraw" }
 ldraw-ir = { path = "../ir" }
 ldraw-renderer = { path = "../renderer" }
-serde = { version = "1.0", features = ["derive"] }
-uuid = { version = "1", features = ["v4", "serde", "js"] }
-wgpu = "0.17.0"
+serde.workspace = true
+uuid.workspace = true
+wgpu.workspace = true

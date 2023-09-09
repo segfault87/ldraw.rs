@@ -8,8 +8,8 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-async-std = "1"
-cgmath = "~0.18.0"
+async-std.workspace = true
+cgmath.workspace = true
 console_error_panic_hook = "~0.1.7"
 futures = { version = "~0.3.17", features = ["async-await"] }
 gloo = "~0.4.0"
@@ -20,11 +20,11 @@ ldraw-renderer = { path = "../../../renderer" }
 reqwest = { version = "~0.11.8" }
 wasm-bindgen = { version = "~0.2.87", features = ["serde-serialize"] }
 wasm-bindgen-futures = "~0.4.37"
-serde = { version = "1.0.80", features = ["derive"] }
+serde.workspace = true
 serde_derive = "^1.0.59"
 uuid = { version = "1", features = ["v4", "serde", "js"] }
 viewer-common = { path = "../common" }
-wgpu = { version = "0.17" }
+wgpu.workspace = true
 winit = "0.28"
 
 [dependencies.web-sys]
