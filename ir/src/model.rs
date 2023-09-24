@@ -176,6 +176,45 @@ fn extract_document_primitives<P: From<PartAlias>>(
 }
 
 impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
+    pub fn from_ldraw_multipart_document_sync(document: &LdrawMultipartDocument) -> Self {
+        let subparts = document
+            .subparts
+            .keys()
+            .map(|alias| (alias.clone().into(), Uuid::new_v4()))
+            .collect::<HashMap<_, _>>();
+
+        let mut embedded_parts: HashMap<P, Part> = HashMap::new();
+
+        let mut object_groups = HashMap::new();
+        for (alias, subpart) in document.subparts.iter() {
+            let converted_alias = alias.clone().into();
+            if !embedded_parts.contains_key(&converted_alias) {
+                let id = *subparts.get(&converted_alias).unwrap();
+                object_groups.insert(
+                    id,
+                    ObjectGroup {
+                        id,
+                        name: subpart.name.clone(),
+                        objects: build_objects::<P>(subpart, Some(&subparts)),
+                        pivot: Vector3::new(0.0, 0.0, 0.0),
+                    },
+                );
+            }
+        }
+        let mut objects = build_objects::<P>(&document.body, Some(&subparts));
+
+        if let Some((alias, part, object)) = extract_document_primitives::<P>(&document.body) {
+            embedded_parts.insert(alias.clone(), part);
+            objects.push(object);
+        }
+
+        Model {
+            object_groups,
+            objects,
+            embedded_parts: HashMap::new(),
+        }
+    }
+
     pub async fn from_ldraw_multipart_document<L: LibraryLoader>(
         document: &LdrawMultipartDocument,
         colors: &ColorCatalog,

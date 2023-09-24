@@ -95,7 +95,7 @@ impl<'a> Ops<'a> {
 
     pub async fn render_model(
         mut self,
-        model: &Model,
+        model: &Model<PartAlias>,
         group_id: Option<Uuid>,
         parts: &impl PartQuerier<PartAlias>,
         colors: &ColorCatalog,
