@@ -13,9 +13,8 @@ use ldraw::{
     color::ColorCatalog,
     document::MultipartDocument,
     library::{DocumentLoader, LibraryLoader, PartCache},
-    resolvers::{http::HttpLoader, local::LocalLoader},
+    resolvers::local::LocalLoader,
 };
-use reqwest::Url;
 use viewer_common::App;
 use winit::{
     event,
@@ -23,10 +22,10 @@ use winit::{
     window::WindowBuilder,
 };
 
-async fn main_loop(
+async fn main_loop<L: LibraryLoader + 'static>(
     document: MultipartDocument,
     colors: ColorCatalog,
-    dependency_loader: Rc<dyn LibraryLoader>,
+    dependency_loader: Rc<L>,
 ) {
     let evloop = EventLoop::new();
     let window = WindowBuilder::new()
@@ -141,46 +140,14 @@ async fn main() {
 
     // FIXME: There should be better ways than this
 
-    let is_library_remote = ldrawdir.starts_with("http://") || ldrawdir.starts_with("https://");
-    let is_document_remote = path.starts_with("http://") || path.starts_with("https://");
+    let ldraw_path = PathBuf::from(&ldrawdir);
+    let document_base_path = PathBuf::from(&path).parent().map(PathBuf::from);
+    let loader = LocalLoader::new(Some(ldraw_path), document_base_path);
 
-    let (ldraw_url, ldraw_path) = if is_library_remote {
-        (Url::parse(&ldrawdir).ok(), None)
-    } else {
-        (None, Some(PathBuf::from(&ldrawdir)))
-    };
-
-    let (document_base_url, document_base_path) = if is_document_remote {
-        let mut url = Url::parse(&path).unwrap();
-        url.path_segments_mut().unwrap().pop();
-        (Some(url), None)
-    } else {
-        (None, PathBuf::from(&path).parent().map(PathBuf::from))
-    };
-
-    let http_loader = HttpLoader::new(ldraw_url, document_base_url);
-    let local_loader = LocalLoader::new(ldraw_path, document_base_path);
-
-    let colors = if is_library_remote {
-        http_loader.load_colors().await
-    } else {
-        local_loader.load_colors().await
-    }
-    .unwrap();
+    let colors = loader.load_colors().await.unwrap();
 
     let path_local = PathBuf::from(&path);
-    let document = if is_document_remote {
-        http_loader.load_document(&path, &colors).await
-    } else {
-        local_loader.load_document(&path_local, &colors).await
-    }
-    .unwrap();
+    let document = loader.load_document(&path_local, &colors).await.unwrap();
 
-    let loader: Rc<dyn LibraryLoader> = if is_library_remote {
-        Rc::new(http_loader)
-    } else {
-        Rc::new(local_loader)
-    };
-
-    main_loop(document, colors, loader).await;
+    main_loop(document, colors, Rc::new(loader)).await;
 }

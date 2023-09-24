@@ -15,12 +15,12 @@ serde.workspace = true
 async-std = { version = "1", features = ["attributes"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-reqwest = { version = "~0.11.8", optional = true, features = ["brotli"] }
+reqwest = { version = "~0.11.20", optional = true, features = ["brotli"] }
 encoding_rs = "~0.8.29"
 encoding_rs_io = "~0.1.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-reqwest = { version = "~0.11.8" }
+reqwest = { version = "~0.11.20" }
 
 [features]
 http = ["reqwest"]

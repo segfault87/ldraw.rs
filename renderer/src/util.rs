@@ -1,5 +1,7 @@
+use std::hash::Hash;
+
 use cgmath::SquareMatrix;
-use ldraw::{Matrix4, PartAlias};
+use ldraw::Matrix4;
 use ldraw_ir::{geometry::BoundingBox3, model};
 use uuid::Uuid;
 
@@ -35,12 +37,12 @@ pub async fn request_device(
     Err(wgpu::RequestDeviceError)
 }
 
-fn calculate_bounding_box_recursive(
+fn calculate_bounding_box_recursive<K: Clone + Eq + PartialEq + Hash, Q: PartQuerier<K>>(
     bb: &mut BoundingBox3,
-    parts: &impl PartQuerier<PartAlias>,
+    parts: &Q,
     matrix: Matrix4,
-    items: &[model::Object],
-    model: &model::Model,
+    items: &[model::Object<K>],
+    model: &model::Model<K>,
 ) {
     for item in items.iter() {
         match &item.data {
@@ -67,10 +69,10 @@ fn calculate_bounding_box_recursive(
     }
 }
 
-pub fn calculate_model_bounding_box(
-    model: &model::Model,
+pub fn calculate_model_bounding_box<K: Clone + Eq + PartialEq + Hash, Q: PartQuerier<K>>(
+    model: &model::Model<K>,
     group_id: Option<Uuid>,
-    parts: &impl PartQuerier<PartAlias>,
+    parts: &Q,
 ) -> BoundingBox3 {
     let mut bb = BoundingBox3::zero();
 

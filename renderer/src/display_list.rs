@@ -99,8 +99,10 @@ impl<K, G: Display> Instances<K, G> {
     }
 }
 
-impl<K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
-    Instances<K, G>
+impl<
+        K: Clone + Debug + Eq + PartialEq + Hash + Display,
+        G: Clone + Eq + PartialEq + Hash + Display,
+    > Instances<K, G>
 {
     pub fn new(device: &wgpu::Device, group: G) -> Self {
         let instance_data = Vec::new();
@@ -169,8 +171,11 @@ pub struct InstanceTransaction<'a, K, G> {
     ops: Vec<Ops<K>>,
 }
 
-impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
-    InstanceTransaction<'a, K, G>
+impl<
+        'a,
+        K: Clone + Debug + Eq + PartialEq + Hash + Display,
+        G: Clone + Eq + PartialEq + Hash + Display,
+    > InstanceTransaction<'a, K, G>
 {
     pub fn new(instances: &'a mut Instances<K, G>) -> Self {
         Self {
@@ -439,8 +444,10 @@ impl<K, G> DisplayList<K, G> {
     }
 }
 
-impl<K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
-    DisplayList<K, G>
+impl<
+        K: Clone + Debug + Eq + PartialEq + Hash + Display,
+        G: Clone + Eq + PartialEq + Hash + Display,
+    > DisplayList<K, G>
 {
     fn get_or_create(&mut self, group: Group<G>, device: &wgpu::Device) -> &mut Instances<K, G> {
         self.map
@@ -478,13 +485,13 @@ fn uuid_xor(a: Uuid, b: Uuid) -> Uuid {
     Uuid::from_slice(&bc).unwrap()
 }
 
-impl DisplayList<Uuid, PartAlias> {
+impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<Uuid, P> {
     fn expand_object_group(
-        t: &mut DisplayListTransaction<Uuid, PartAlias>,
+        t: &mut DisplayListTransaction<Uuid, P>,
         color_catalog: &ColorCatalog,
         parent_uuid: Uuid,
-        groups: &HashMap<Uuid, ObjectGroup>,
-        objects: &[Object],
+        groups: &HashMap<Uuid, ObjectGroup<P>>,
+        objects: &[Object<P>],
         matrix: Matrix4,
         color: ColorReference,
     ) {
@@ -535,7 +542,7 @@ impl DisplayList<Uuid, PartAlias> {
     }
 
     pub fn from_model(
-        model: &Model,
+        model: &Model<P>,
         group_id: Option<Uuid>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -573,8 +580,11 @@ pub struct DisplayListTransaction<'a, K, G> {
     ops: HashMap<Group<G>, Vec<Ops<K>>>,
 }
 
-impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + Hash + Display>
-    DisplayListTransaction<'a, K, G>
+impl<
+        'a,
+        K: Clone + Debug + Eq + PartialEq + Hash + Display,
+        G: Clone + Eq + PartialEq + Hash + Display,
+    > DisplayListTransaction<'a, K, G>
 {
     fn new(display_list: &'a mut DisplayList<K, G>) -> Self {
         let lookup_table = display_list.lookup_table.clone();
@@ -630,15 +640,12 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
             edge_color_vec.w = alpha;
         }
 
-        self.ops
-            .entry(group)
-            .or_default()
-            .push(Ops::Insert {
-                key,
-                matrix,
-                color: color_vec,
-                edge_color: edge_color_vec,
-            });
+        self.ops.entry(group).or_default().push(Ops::Insert {
+            key,
+            matrix,
+            color: color_vec,
+            edge_color: edge_color_vec,
+        });
     }
 
     pub fn update(&mut self, key: K, matrix: Matrix4, color: &Color) {
@@ -802,10 +809,7 @@ impl<'a, K: Clone + Debug + Eq + PartialEq + Hash, G: Clone + Eq + PartialEq + H
 
     pub fn remove(&mut self, key: K) {
         if let Some(group) = self.lookup_table.remove(&key) {
-            self.ops
-                .entry(group)
-                .or_default()
-                .push(Ops::Remove(key));
+            self.ops.entry(group).or_default().push(Ops::Remove(key));
         }
     }
 

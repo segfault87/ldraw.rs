@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use serde::de::{Deserializer, Error as DeError, Visitor};
+use serde::de::Deserializer;
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
@@ -145,37 +144,6 @@ pub enum ColorReference {
     Complement,
     Color(Color),
     Unresolved(u32),
-}
-
-impl Serialize for ColorReference {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u32(self.code())
-    }
-}
-
-impl<'de> Deserialize<'de> for ColorReference {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct ColorReferenceVisitor;
-
-        impl<'de> Visitor<'de> for ColorReferenceVisitor {
-            type Value = ColorReference;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("an unsigned 32-bit integer")
-            }
-
-            fn visit_u64<E: DeError>(self, value: u64) -> Result<Self::Value, E> {
-                Ok(ColorReference::Unresolved(value as u32))
-            }
-
-            fn visit_u32<E: DeError>(self, value: u32) -> Result<Self::Value, E> {
-                Ok(ColorReference::Unresolved(value))
-            }
-        }
-
-        // Needs to be resolved later
-        Ok(deserializer.deserialize_u32(ColorReferenceVisitor).unwrap())
-    }
 }
 
 impl Eq for ColorReference {}
@@ -325,5 +293,50 @@ impl ColorReference {
             ColorReference::Color(m) => Some(m.edge.into()),
             _ => None,
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for ColorReference {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        panic!("Deserializing ColorReference is not supported");
+    }
+}
+
+impl Serialize for ColorReference {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u32(self.code())
+    }
+}
+
+impl From<ColorReference> for u32 {
+    fn from(value: ColorReference) -> Self {
+        value.code()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
+pub struct ColorCode(u32);
+
+impl From<ColorReference> for ColorCode {
+    fn from(value: ColorReference) -> Self {
+        Self(value.code())
+    }
+}
+
+impl From<ColorCode> for u32 {
+    fn from(value: ColorCode) -> Self {
+        value.0
+    }
+}
+
+impl From<u32> for ColorCode {
+    fn from(value: u32) -> Self {
+        Self(value)
     }
 }

@@ -215,8 +215,8 @@ impl AnimatedModel {
 
     fn build_item_recursive(
         items: &mut Vec<RenderingStep>,
-        model: &model::Model,
-        objects: &[model::Object],
+        model: &model::Model<PartAlias>,
+        objects: &[model::Object<PartAlias>],
         parent_uuid: uuid::Uuid,
         matrix: Matrix4,
     ) {
@@ -246,7 +246,7 @@ impl AnimatedModel {
     }
 
     pub fn from_model(
-        model: &model::Model,
+        model: &model::Model<PartAlias>,
         group_id: Option<Uuid>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -399,7 +399,7 @@ impl AnimatedModel {
     }
 }
 
-pub struct App {
+pub struct App<L: LibraryLoader> {
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -415,20 +415,20 @@ pub struct App {
     projection: Projection,
     pipelines: RenderingPipelineManager,
 
-    loader: Rc<dyn LibraryLoader>,
+    loader: Rc<L>,
     colors: Rc<ColorCatalog>,
 
     parts: Arc<RwLock<SimplePartsPool>>,
-    model: Option<model::Model>,
+    model: Option<model::Model<PartAlias>>,
     animated_model: AnimatedModel,
 
     orbit_controller: RefCell<OrbitController>,
 }
 
-impl App {
+impl<L: LibraryLoader> App<L> {
     pub async fn new(
         window: Window,
-        loader: Rc<dyn LibraryLoader>,
+        loader: Rc<L>,
         colors: Rc<ColorCatalog>,
         supports_antialiasing: bool,
     ) -> Result<Self, error::AppCreationError> {

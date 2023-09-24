@@ -5,7 +5,7 @@ use std::{
 use cgmath::{AbsDiffEq, InnerSpace, Rad, SquareMatrix};
 use kdtree::{distance::squared_euclidean, KdTree};
 use ldraw::{
-    color::{ColorCatalog, ColorReference},
+    color::ColorReference,
     document::{Document, MultipartDocument},
     elements::{BfcStatement, Command, Meta},
     library::ResolutionResult,
@@ -258,19 +258,6 @@ pub struct PartBufferBundleBuilder {
 }
 
 impl PartBufferBundleBuilder {
-    pub fn resolve_colors(&mut self, colors: &ColorCatalog) {
-        let keys = self.colored_meshes.keys().cloned().collect::<Vec<_>>();
-        for key in keys.iter() {
-            let val = match self.colored_meshes.remove(key) {
-                Some(v) => v,
-                None => continue,
-            };
-            let mut key = key.clone();
-            key.resolve_color(colors);
-            self.colored_meshes.insert(key, val);
-        }
-    }
-
     fn query_mesh<'a>(&'a mut self, group: &MeshGroupKey) -> Option<&'a mut MeshBuffer> {
         match (&group.color_ref, group.bfc) {
             (ColorReference::Current | ColorReference::Complement, true) => {
@@ -279,11 +266,9 @@ impl PartBufferBundleBuilder {
             (ColorReference::Current | ColorReference::Complement, false) => {
                 Some(&mut self.uncolored_without_bfc_mesh)
             }
-            (ColorReference::Color(_), _) => Some(
-                self.colored_meshes
-                    .entry(group.clone())
-                    .or_default(),
-            ),
+            (ColorReference::Color(_), _) => {
+                Some(self.colored_meshes.entry(group.clone()).or_default())
+            }
             _ => None,
         }
     }

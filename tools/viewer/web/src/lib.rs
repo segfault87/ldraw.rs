@@ -153,7 +153,7 @@ pub async fn run(path: JsValue) -> JsValue {
     let mut location = Url::parse(&web_window.location().href().unwrap()).unwrap();
     location.set_fragment(None);
 
-    let loader: Rc<dyn LibraryLoader> = Rc::new(HttpLoader::new(
+    let loader = Rc::new(HttpLoader::new(
         Some(location.join("ldraw/").unwrap()),
         Some(location.clone()),
     ));

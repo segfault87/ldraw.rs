@@ -18,3 +18,9 @@ impl From<AspectRatio> for f32 {
         value.0
     }
 }
+
+impl From<f32> for AspectRatio {
+    fn from(value: f32) -> Self {
+        Self(value)
+    }
+}

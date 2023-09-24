@@ -752,7 +752,7 @@ impl RenderingPipelineManager {
     }
 
     pub fn render<'rp, K, G>(
-        &'rp mut self,
+        &'rp self,
         pass: &mut wgpu::RenderPass<'rp>,
         projection: &'rp Projection,
         part_querier: &'rp impl PartQuerier<G>,

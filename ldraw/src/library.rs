@@ -27,8 +27,8 @@ pub enum FileLocation {
     Local,
 }
 
-#[async_trait(?Send)]
-pub trait DocumentLoader<T> {
+#[async_trait]
+pub trait DocumentLoader<T: Send> {
     async fn load_document(
         &self,
         locator: &T,
@@ -36,7 +36,7 @@ pub trait DocumentLoader<T> {
     ) -> Result<MultipartDocument, ResolutionError>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait LibraryLoader {
     async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError>;
 
@@ -143,24 +143,26 @@ pub enum ResolutionState {
     Associated(Arc<MultipartDocument>),
 }
 
-struct DependencyResolver<'a, F> {
+struct DependencyResolver<'a, F, L> {
     colors: &'a ColorCatalog,
     cache: Arc<RwLock<PartCache>>,
     local_cache: TransientDocumentCache,
     on_update: &'a F,
-    loader: &'a dyn LibraryLoader,
+    loader: &'a L,
 
     pub map: HashMap<PartAlias, ResolutionState>,
     pub local_map: HashMap<PartAlias, ResolutionState>,
 }
 
-impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>)> DependencyResolver<'a, F> {
+impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>), L: LibraryLoader>
+    DependencyResolver<'a, F, L>
+{
     pub fn new(
         colors: &'a ColorCatalog,
         cache: Arc<RwLock<PartCache>>,
         on_update: &'a F,
-        loader: &'a dyn LibraryLoader,
-    ) -> DependencyResolver<'a, F> {
+        loader: &'a L,
+    ) -> DependencyResolver<'a, F, L> {
         DependencyResolver {
             colors,
             cache,
@@ -386,15 +388,16 @@ impl ResolutionResult {
     }
 }
 
-pub async fn resolve_dependencies_multipart<F>(
+pub async fn resolve_dependencies_multipart<F, L>(
     document: &MultipartDocument,
     cache: Arc<RwLock<PartCache>>,
     colors: &ColorCatalog,
-    loader: &dyn LibraryLoader,
+    loader: &L,
     on_update: &F,
 ) -> ResolutionResult
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
+    L: LibraryLoader,
 {
     let mut resolver = DependencyResolver::new(colors, cache, on_update, loader);
 
@@ -421,15 +424,16 @@ where
     }
 }
 
-pub async fn resolve_dependencies<F>(
+pub async fn resolve_dependencies<F, L>(
     document: &Document,
     cache: Arc<RwLock<PartCache>>,
     colors: &ColorCatalog,
-    loader: &dyn LibraryLoader,
+    loader: &L,
     on_update: &F,
 ) -> ResolutionResult
 where
     F: Fn(PartAlias, Result<(), ResolutionError>),
+    L: LibraryLoader,
 {
     let mut resolver = DependencyResolver::new(colors, cache, on_update, loader);
 

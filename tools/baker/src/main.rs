@@ -142,8 +142,8 @@ async fn main() {
     println!("Collected {} entries.", collected);
 }
 
-async fn bake(
-    loader: &dyn LibraryLoader,
+async fn bake<L: LibraryLoader>(
+    loader: &L,
     colors: &ColorCatalog,
     cache: Arc<RwLock<PartCache>>,
     path: PathBuf,

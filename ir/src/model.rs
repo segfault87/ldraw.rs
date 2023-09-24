@@ -1,6 +1,6 @@
 use std::{
-    collections::HashMap,
-    fmt::{Formatter, Result as FmtResult},
+    collections::{HashMap, HashSet},
+    hash::Hash,
     sync::{Arc, RwLock},
     vec::Vec,
 };
@@ -13,34 +13,30 @@ use ldraw::{
     library::{resolve_dependencies, LibraryLoader, PartCache, ResolutionResult},
     Matrix4, PartAlias, Vector3,
 };
-use serde::{
-    de::{Deserializer, Error as DeError, MapAccess, Visitor},
-    ser::{SerializeMap, Serializer},
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::part::{bake_part_from_document, bake_part_from_multipart_document, Part};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum ObjectInstance {
-    Part(PartInstance),
+pub enum ObjectInstance<P> {
+    Part(PartInstance<P>),
     PartGroup(PartGroupInstance),
     Step,
     Annotation(Annotation),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Object {
+pub struct Object<P> {
     pub id: Uuid,
-    pub data: ObjectInstance,
+    pub data: ObjectInstance<P>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PartInstance {
+pub struct PartInstance<P> {
     pub matrix: Matrix4,
     pub color: ColorReference,
-    pub part: PartAlias,
+    pub part: P,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -57,122 +53,41 @@ pub struct Annotation {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ObjectGroup {
+pub struct ObjectGroup<P> {
     pub id: Uuid,
     pub name: String,
-    pub objects: Vec<Object>,
+    pub objects: Vec<Object<P>>,
     pub pivot: Vector3,
 }
 
-#[derive(Clone, Debug)]
-pub struct Model {
-    pub object_groups: HashMap<Uuid, ObjectGroup>,
-    pub objects: Vec<Object>,
-    pub embedded_parts: HashMap<PartAlias, Part>,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Model<P: Clone + Eq + PartialEq + Hash> {
+    pub object_groups: HashMap<Uuid, ObjectGroup<P>>,
+    pub objects: Vec<Object<P>>,
+    pub embedded_parts: HashMap<P, Part>,
 }
 
-impl Serialize for Model {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut map = serializer.serialize_map(Some(2))?;
-        map.serialize_entry(
-            "object_groups",
-            &self.object_groups.values().collect::<Vec<_>>(),
-        )?;
-        map.serialize_entry("objects", &self.objects)?;
-        map.serialize_entry("embedded_parts", &self.embedded_parts)?;
-        map.end()
+impl<P: Clone + Eq + PartialEq + Hash> Default for Model<P> {
+    fn default() -> Self {
+        Self {
+            object_groups: HashMap::new(),
+            objects: Vec::new(),
+            embedded_parts: HashMap::new(),
+        }
     }
 }
 
-impl<'de> Deserialize<'de> for Model {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "snake_case")]
-        enum Field {
-            ObjectGroups,
-            Objects,
-            EmbeddedParts,
-        }
-
-        struct DocumentVisitor;
-
-        impl<'de> Visitor<'de> for DocumentVisitor {
-            type Value = Model;
-
-            fn expecting(&self, formatter: &mut Formatter) -> FmtResult {
-                formatter.write_str("struct Formatter")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<Model, V::Error>
-            where
-                V: MapAccess<'de>,
-            {
-                let mut object_groups = None;
-                let mut objects = None;
-                let mut embedded_parts = None;
-
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::ObjectGroups => {
-                            if object_groups.is_some() {
-                                return Err(DeError::duplicate_field("object_groups"));
-                            }
-                            object_groups = Some(map.next_value()?);
-                        }
-                        Field::Objects => {
-                            if objects.is_some() {
-                                return Err(DeError::duplicate_field("objects"));
-                            }
-                            objects = Some(map.next_value()?);
-                        }
-                        Field::EmbeddedParts => {
-                            if embedded_parts.is_some() {
-                                return Err(DeError::duplicate_field("embedded_parts"));
-                            }
-                            embedded_parts = Some(map.next_value()?);
-                        }
-                    }
-                }
-
-                let object_groups: Vec<ObjectGroup> = object_groups.unwrap_or_default();
-                let object_groups = object_groups
-                    .into_iter()
-                    .map(|v| (v.id, v))
-                    .collect::<HashMap<_, _>>();
-                let objects = objects.ok_or_else(|| DeError::missing_field("objects"))?;
-                let embedded_parts: HashMap<PartAlias, Part> = embedded_parts.unwrap_or_default();
-
-                Ok(Model {
-                    object_groups,
-                    objects,
-                    embedded_parts,
-                })
-            }
-        }
-
-        const FIELDS: &[&str] = &["object_groups", "items", "embedded_parts"];
-
-        deserializer.deserialize_struct("Document", FIELDS, DocumentVisitor)
-    }
-}
-
-fn build_objects(
+fn build_objects<P: Clone + Eq + PartialEq + Hash + From<PartAlias>>(
     document: &LdrawDocument,
-    subparts: Option<&HashMap<PartAlias, Uuid>>,
-) -> Vec<Object> {
+    subparts: Option<&HashMap<P, Uuid>>,
+) -> Vec<Object<P>> {
     document
         .commands
         .iter()
         .filter_map(|cmd| {
             let data = match cmd {
                 Command::PartReference(r) => match subparts {
-                    Some(subparts) => match subparts.get(&r.name) {
+                    Some(subparts) => match subparts.get(&r.name.clone().into()) {
                         Some(e) => Some(ObjectInstance::PartGroup(PartGroupInstance {
                             matrix: r.matrix,
                             color: r.color.clone(),
@@ -181,13 +96,13 @@ fn build_objects(
                         None => Some(ObjectInstance::Part(PartInstance {
                             matrix: r.matrix,
                             color: r.color.clone(),
-                            part: r.name.clone(),
+                            part: r.name.clone().into(),
                         })),
                     },
                     None => Some(ObjectInstance::Part(PartInstance {
                         matrix: r.matrix,
                         color: r.color.clone(),
-                        part: r.name.clone(),
+                        part: r.name.clone().into(),
                     })),
                 },
                 Command::Meta(Meta::Step) => Some(ObjectInstance::Step),
@@ -202,7 +117,7 @@ fn build_objects(
         .collect::<Vec<_>>()
 }
 
-fn resolve_colors(objects: &mut [Object], colors: &ColorCatalog) {
+fn resolve_colors<P>(objects: &mut [Object<P>], colors: &ColorCatalog) {
     for object in objects.iter_mut() {
         match &mut object.data {
             ObjectInstance::Part(ref mut p) => {
@@ -216,7 +131,9 @@ fn resolve_colors(objects: &mut [Object], colors: &ColorCatalog) {
     }
 }
 
-fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, Part, Object)> {
+fn extract_document_primitives<P: From<PartAlias>>(
+    document: &LdrawDocument,
+) -> Option<(P, Part, Object<P>)> {
     if document.has_primitives() {
         let name = &document.name;
         let prims = LdrawDocument {
@@ -248,29 +165,29 @@ fn extract_document_primitives(document: &LdrawDocument) -> Option<(PartAlias, P
             data: ObjectInstance::Part(PartInstance {
                 matrix: Matrix4::identity(),
                 color: ColorReference::Current,
-                part: PartAlias::from(name.clone()),
+                part: PartAlias::from(name.clone()).into(),
             }),
         };
 
-        Some((PartAlias::from(name.clone()), part, object))
+        Some((PartAlias::from(name.clone()).into(), part, object))
     } else {
         None
     }
 }
 
-impl Model {
-    pub async fn from_ldraw_multipart_document(
+impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
+    pub async fn from_ldraw_multipart_document<L: LibraryLoader>(
         document: &LdrawMultipartDocument,
         colors: &ColorCatalog,
-        inline_loader: Option<(&dyn LibraryLoader, Arc<RwLock<PartCache>>)>,
+        inline_loader: Option<(&L, Arc<RwLock<PartCache>>)>,
     ) -> Self {
         let subparts = document
             .subparts
             .keys()
-            .map(|alias| (alias.clone(), Uuid::new_v4()))
+            .map(|alias| (alias.clone().into(), Uuid::new_v4()))
             .collect::<HashMap<_, _>>();
 
-        let mut embedded_parts = HashMap::new();
+        let mut embedded_parts: HashMap<P, Part> = HashMap::new();
         if let Some((loader, cache)) = inline_loader {
             for (alias, subpart) in document.subparts.iter() {
                 if subpart.has_primitives() {
@@ -285,30 +202,31 @@ impl Model {
 
                     let part = bake_part_from_document(subpart, &resolution_result, true);
 
-                    embedded_parts.insert(alias.clone(), part);
+                    embedded_parts.insert(alias.clone().into(), part);
                 }
             }
         }
 
         let mut object_groups = HashMap::new();
         for (alias, subpart) in document.subparts.iter() {
-            if !embedded_parts.contains_key(alias) {
-                let id = *subparts.get(alias).unwrap();
+            let converted_alias = alias.clone().into();
+            if !embedded_parts.contains_key(&converted_alias) {
+                let id = *subparts.get(&converted_alias).unwrap();
                 object_groups.insert(
                     id,
                     ObjectGroup {
                         id,
                         name: subpart.name.clone(),
-                        objects: build_objects(subpart, Some(&subparts)),
+                        objects: build_objects::<P>(subpart, Some(&subparts)),
                         pivot: Vector3::new(0.0, 0.0, 0.0),
                     },
                 );
             }
         }
-        let mut objects = build_objects(&document.body, Some(&subparts));
+        let mut objects = build_objects::<P>(&document.body, Some(&subparts));
 
-        if let Some((alias, part, object)) = extract_document_primitives(&document.body) {
-            embedded_parts.insert(alias, part);
+        if let Some((alias, part, object)) = extract_document_primitives::<P>(&document.body) {
+            embedded_parts.insert(alias.clone(), part);
             objects.push(object);
         }
 
@@ -323,8 +241,8 @@ impl Model {
         let mut embedded_parts = HashMap::new();
         let mut objects = build_objects(document, None);
 
-        if let Some((alias, part, object)) = extract_document_primitives(document) {
-            embedded_parts.insert(alias, part);
+        if let Some((alias, part, object)) = extract_document_primitives::<P>(document) {
+            embedded_parts.insert(alias.clone(), part);
             objects.push(object);
         }
 
@@ -340,5 +258,31 @@ impl Model {
         for group in self.object_groups.values_mut() {
             resolve_colors(&mut group.objects, colors);
         }
+    }
+
+    fn build_dependencies(&self, deps: &mut HashSet<P>, objects: &[Object<P>]) {
+        for object in objects.iter() {
+            match &object.data {
+                ObjectInstance::Part(p) => {
+                    if !deps.contains(&p.part) {
+                        deps.insert(p.part.clone());
+                    }
+                }
+                ObjectInstance::PartGroup(pg) => {
+                    if let Some(pg) = self.object_groups.get(&pg.group_id) {
+                        self.build_dependencies(deps, &pg.objects);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn list_dependencies(&self) -> HashSet<P> {
+        let mut dependencies = HashSet::new();
+
+        self.build_dependencies(&mut dependencies, &self.objects);
+
+        dependencies
     }
 }

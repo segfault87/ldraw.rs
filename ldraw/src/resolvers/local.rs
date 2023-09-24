@@ -21,7 +21,7 @@ impl LocalLoader {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl DocumentLoader<PathBuf> for LocalLoader {
     async fn load_document(
         &self,
@@ -39,7 +39,7 @@ impl DocumentLoader<PathBuf> for LocalLoader {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl LibraryLoader for LocalLoader {
     async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError> {
         let ldrawdir = match self.ldrawdir.clone() {
