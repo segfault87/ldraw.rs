@@ -29,7 +29,7 @@ impl HttpLoader {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl DocumentLoader<String> for HttpLoader {
     async fn load_document(
         &self,
@@ -46,7 +46,7 @@ impl DocumentLoader<String> for HttpLoader {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LibraryLoader for HttpLoader {
     async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError> {
         let ldraw_url_base = self.ldraw_url_base.as_ref();

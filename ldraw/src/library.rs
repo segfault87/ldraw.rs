@@ -27,8 +27,8 @@ pub enum FileLocation {
     Local,
 }
 
-#[async_trait]
-pub trait DocumentLoader<T: Send> {
+#[async_trait(?Send)]
+pub trait DocumentLoader<T> {
     async fn load_document(
         &self,
         locator: &T,
@@ -36,7 +36,7 @@ pub trait DocumentLoader<T: Send> {
     ) -> Result<MultipartDocument, ResolutionError>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait LibraryLoader {
     async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError>;
 
