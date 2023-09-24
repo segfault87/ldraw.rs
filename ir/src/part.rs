@@ -5,7 +5,7 @@ use std::{
 use cgmath::{AbsDiffEq, InnerSpace, Rad, SquareMatrix};
 use kdtree::{distance::squared_euclidean, KdTree};
 use ldraw::{
-    color::ColorReference,
+    color::{ColorCatalog, ColorReference},
     document::{Document, MultipartDocument},
     elements::{BfcStatement, Command, Meta},
     library::ResolutionResult,
@@ -325,6 +325,28 @@ impl Part {
             bounding_box,
             rotation_center,
         }
+    }
+
+    // FIXME: deprecate this
+    pub fn resolve_colors(&mut self, colors: &ColorCatalog) {
+        let colored_meshes = std::mem::take(&mut self.geometry.colored_meshes);
+        self.geometry.colored_meshes = colored_meshes
+            .into_iter()
+            .map(|(k, v)| {
+                let color_ref = match k.color_ref {
+                    ColorReference::Unresolved(v) => ColorReference::resolve(v, colors),
+                    ColorReference::Unknown(v) => ColorReference::resolve(v, colors),
+                    _ => k.color_ref.clone(),
+                };
+                (
+                    MeshGroupKey {
+                        color_ref,
+                        bfc: k.bfc,
+                    },
+                    v,
+                )
+            })
+            .collect();
     }
 }
 
