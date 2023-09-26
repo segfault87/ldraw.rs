@@ -16,7 +16,12 @@ use ldraw::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::part::{bake_part_from_document, bake_part_from_multipart_document, Part};
+use crate::{
+    geometry::BoundingBox3,
+    part::{
+        bake_part_from_document, bake_part_from_multipart_document, Part, PartDimensionQuerier,
+    },
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectInstance<P> {
@@ -323,5 +328,11 @@ impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
         self.build_dependencies(&mut dependencies, &self.objects);
 
         dependencies
+    }
+
+    pub fn calculate_bounding_box(
+        &self,
+        querier: &impl PartDimensionQuerier<P>,
+    ) -> (BoundingBox3, bool) {
     }
 }

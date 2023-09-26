@@ -979,3 +979,7 @@ pub fn bake_part_from_document(
     );
     baker.bake()
 }
+
+pub trait PartDimensionQuerier<P> {
+    fn query_part_dimension(&self, alias: &P) -> Option<BoundingBox3>;
+}
