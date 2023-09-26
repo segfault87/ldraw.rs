@@ -16,7 +16,12 @@ use ldraw::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::part::{bake_part_from_document, bake_part_from_multipart_document, Part};
+use crate::{
+    geometry::BoundingBox3,
+    part::{
+        bake_part_from_document, bake_part_from_multipart_document, Part, PartDimensionQuerier,
+    },
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectInstance<P> {
@@ -323,5 +328,65 @@ impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
         self.build_dependencies(&mut dependencies, &self.objects);
 
         dependencies
+    }
+
+    fn calculate_bounding_box_recursive(
+        &self,
+        bounding_box: &mut BoundingBox3,
+        matrix: Matrix4,
+        objects: &[Object<P>],
+        mut complete: bool,
+        querier: &impl PartDimensionQuerier<P>,
+    ) -> bool {
+        for item in objects.iter() {
+            match &item.data {
+                ObjectInstance::Part(part) => {
+                    if let Some(dim) = querier.query_part_dimension(&part.part) {
+                        bounding_box.update(&dim.transform(&matrix));
+                    } else {
+                        complete = false;
+                    }
+                }
+                ObjectInstance::PartGroup(pg) => {
+                    if let Some(group) = self.object_groups.get(&pg.group_id) {
+                        self.calculate_bounding_box_recursive(
+                            bounding_box,
+                            matrix * pg.matrix,
+                            &group.objects,
+                            complete,
+                            querier,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        complete
+    }
+
+    pub fn calculate_bounding_box(
+        &self,
+        group_id: Option<Uuid>,
+        querier: &impl PartDimensionQuerier<P>,
+    ) -> Option<(BoundingBox3, bool)> {
+        let objects = if let Some(group_id) = group_id {
+            &self.object_groups.get(&group_id)?.objects
+        } else {
+            &self.objects
+        };
+
+        let matrix = Matrix4::identity();
+        let mut bounding_box = BoundingBox3::zero();
+
+        let complete = self.calculate_bounding_box_recursive(
+            &mut bounding_box,
+            matrix,
+            &objects,
+            true,
+            querier,
+        );
+
+        Some((bounding_box, complete))
     }
 }
