@@ -342,7 +342,7 @@ impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
             match &item.data {
                 ObjectInstance::Part(part) => {
                     if let Some(dim) = querier.query_part_dimension(&part.part) {
-                        bounding_box.update(&dim.transform(&matrix));
+                        bounding_box.update(&dim.transform(&(matrix * part.matrix)));
                     } else {
                         complete = false;
                     }
