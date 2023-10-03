@@ -214,7 +214,7 @@ impl ViewBounds {
         match self {
             Self::BoundingBox3(bb) => {
                 let transformed_bb = {
-                    let mut pbb = BoundingBox2::zero();
+                    let mut pbb = BoundingBox2::nil();
                     for point in bb.points() {
                         let p = model_view * point.extend(1.0);
                         pbb.update_point(&Vector2::new(p.x, p.y));
@@ -250,7 +250,7 @@ impl ViewBounds {
         match self {
             Self::BoundingBox3(bb) => {
                 let transformed_bb = {
-                    let mut pbb = BoundingBox2::zero();
+                    let mut pbb = BoundingBox2::nil();
                     for point in bb.points() {
                         let p = model_view * point.extend(1.0);
                         pbb.update_point(&Vector2::new(p.x, p.y));

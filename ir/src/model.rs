@@ -377,7 +377,7 @@ impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
         };
 
         let matrix = Matrix4::identity();
-        let mut bounding_box = BoundingBox3::zero();
+        let mut bounding_box = BoundingBox3::nil();
 
         let complete = self.calculate_bounding_box_recursive(
             &mut bounding_box,

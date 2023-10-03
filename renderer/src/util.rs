@@ -74,7 +74,7 @@ pub fn calculate_model_bounding_box<K: Clone + Eq + PartialEq + Hash, Q: PartQue
     group_id: Option<Uuid>,
     parts: &Q,
 ) -> BoundingBox3 {
-    let mut bb = BoundingBox3::zero();
+    let mut bb = BoundingBox3::nil();
 
     if let Some(group_id) = group_id {
         if let Some(subpart) = model.object_groups.get(&group_id) {

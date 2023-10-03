@@ -8,7 +8,7 @@ pub struct BoundingBox2 {
 }
 
 impl BoundingBox2 {
-    pub fn zero() -> Self {
+    pub fn nil() -> Self {
         BoundingBox2 {
             min: Vector2::new(0.0, 0.0),
             max: Vector2::new(0.0, 0.0),
@@ -76,6 +76,12 @@ impl BoundingBox2 {
     }
 }
 
+impl Default for BoundingBox2 {
+    fn default() -> Self {
+        Self::nil()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BoundingBox3 {
     pub min: Vector3,
@@ -84,7 +90,7 @@ pub struct BoundingBox3 {
 }
 
 impl BoundingBox3 {
-    pub fn zero() -> Self {
+    pub fn nil() -> Self {
         BoundingBox3 {
             min: Vector3::new(0.0, 0.0, 0.0),
             max: Vector3::new(0.0, 0.0, 0.0),
@@ -105,7 +111,7 @@ impl BoundingBox3 {
     }
 
     pub fn transform(&self, matrix: &Matrix4) -> Self {
-        let mut bb = BoundingBox3::zero();
+        let mut bb = BoundingBox3::nil();
 
         for vertex in self.points() {
             let translated = matrix * vertex.extend(1.0);
@@ -137,6 +143,10 @@ impl BoundingBox3 {
         } else {
             self.max.z - self.min.z
         }
+    }
+
+    pub fn len(&self) -> f32 {
+        (self.len_x().powi(2) + self.len_y().powi(2) + self.len_z().powi(2)).sqrt()
     }
 
     pub fn is_null(&self) -> bool {
@@ -194,5 +204,11 @@ impl BoundingBox3 {
             Vector3::new(self.max.x, self.max.y, self.min.z),
             Vector3::new(self.max.x, self.max.y, self.max.z),
         ]
+    }
+}
+
+impl Default for BoundingBox3 {
+    fn default() -> Self {
+        Self::nil()
     }
 }

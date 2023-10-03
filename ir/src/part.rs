@@ -912,7 +912,7 @@ impl<'a> PartBaker<'a> {
     }
 
     pub fn bake(mut self) -> Part {
-        let mut bounding_box = BoundingBox3::zero();
+        let mut bounding_box = BoundingBox3::nil();
         self.mesh_builder.smooth_normals();
         self.mesh_builder.bake(&mut self.builder, &mut bounding_box);
 
