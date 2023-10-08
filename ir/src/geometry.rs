@@ -74,6 +74,13 @@ impl BoundingBox2 {
             Vector2::new(self.max.x, self.max.y),
         ]
     }
+
+    pub fn intersects(&self, other: &Self) -> bool {
+        self.min.x < other.max.x
+            && self.max.x > other.min.x
+            && self.min.y < other.max.y
+            && self.max.y > other.min.y
+    }
 }
 
 impl Default for BoundingBox2 {
@@ -116,6 +123,21 @@ impl BoundingBox3 {
         for vertex in self.points() {
             let translated = matrix * vertex.extend(1.0);
             bb.update_point(&translated.truncate())
+        }
+
+        bb
+    }
+
+    pub fn project(&self, matrix: &Matrix4) -> BoundingBox2 {
+        let mut bb = BoundingBox2::nil();
+
+        for vertex in self.points() {
+            let translated = matrix * vertex.extend(1.0);
+
+            bb.update_point(&Vector2::new(
+                translated.x / translated.w,
+                translated.y / translated.w,
+            ));
         }
 
         bb

@@ -176,6 +176,24 @@ impl Projection {
         );
     }
 
+    pub fn select_objects<T>(
+        &self,
+        area: &BoundingBox2,
+        objects: impl Iterator<Item = (T, Matrix4, BoundingBox3)>,
+    ) -> Vec<T> {
+        let mvp = self.data.projection_matrix * self.data.get_model_view_matrix();
+
+        objects
+            .filter_map(|(id, matrix, bb)| {
+                if bb.project(&(mvp * matrix)).intersects(area) {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+    }
+
     pub fn desc() -> wgpu::BindGroupLayoutDescriptor<'static> {
         wgpu::BindGroupLayoutDescriptor {
             label: Some("Bind group descriptor for projection"),

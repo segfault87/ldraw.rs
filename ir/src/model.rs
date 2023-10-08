@@ -23,6 +23,36 @@ use crate::{
     },
 };
 
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ObjectId(Uuid);
+
+impl From<Uuid> for ObjectId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl From<ObjectId> for Uuid {
+    fn from(value: ObjectId) -> Self {
+        value.0
+    }
+}
+
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Deserialize, Serialize)]
+pub struct GroupId(Uuid);
+
+impl From<Uuid> for GroupId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl From<GroupId> for Uuid {
+    fn from(value: GroupId) -> Self {
+        value.0
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectInstance<P> {
     Part(PartInstance<P>),
@@ -33,7 +63,7 @@ pub enum ObjectInstance<P> {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Object<P> {
-    pub id: Uuid,
+    pub id: ObjectId,
     pub data: ObjectInstance<P>,
 }
 
@@ -48,7 +78,7 @@ pub struct PartInstance<P> {
 pub struct PartGroupInstance {
     pub matrix: Matrix4,
     pub color: ColorReference,
-    pub group_id: Uuid,
+    pub group_id: GroupId,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,7 +89,7 @@ pub struct Annotation {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ObjectGroup<P> {
-    pub id: Uuid,
+    pub id: GroupId,
     pub name: String,
     pub objects: Vec<Object<P>>,
     pub pivot: Vector3,
@@ -67,7 +97,7 @@ pub struct ObjectGroup<P> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Model<P: Clone + Eq + PartialEq + Hash> {
-    pub object_groups: HashMap<Uuid, ObjectGroup<P>>,
+    pub object_groups: HashMap<GroupId, ObjectGroup<P>>,
     pub objects: Vec<Object<P>>,
     pub embedded_parts: HashMap<P, Part>,
 }
@@ -84,7 +114,7 @@ impl<P: Clone + Eq + PartialEq + Hash> Default for Model<P> {
 
 fn build_objects<P: Clone + Eq + PartialEq + Hash + From<PartAlias>>(
     document: &LdrawDocument,
-    subparts: Option<&HashMap<P, Uuid>>,
+    subparts: Option<&HashMap<P, GroupId>>,
 ) -> Vec<Object<P>> {
     document
         .commands
@@ -115,7 +145,7 @@ fn build_objects<P: Clone + Eq + PartialEq + Hash + From<PartAlias>>(
             };
 
             data.map(|v| Object {
-                id: Uuid::new_v4(),
+                id: Uuid::new_v4().into(),
                 data: v,
             })
         })
@@ -166,7 +196,7 @@ fn extract_document_primitives<P: From<PartAlias>>(
 
         let part = bake_part_from_multipart_document(&prims, &ResolutionResult::default(), true);
         let object = Object {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().into(),
             data: ObjectInstance::Part(PartInstance {
                 matrix: Matrix4::identity(),
                 color: ColorReference::Current,
@@ -185,7 +215,7 @@ impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
         let subparts = document
             .subparts
             .keys()
-            .map(|alias| (alias.clone().into(), Uuid::new_v4()))
+            .map(|alias| (alias.clone().into(), Uuid::new_v4().into()))
             .collect::<HashMap<_, _>>();
 
         let mut embedded_parts: HashMap<P, Part> = HashMap::new();
@@ -228,7 +258,7 @@ impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
         let subparts = document
             .subparts
             .keys()
-            .map(|alias| (alias.clone().into(), Uuid::new_v4()))
+            .map(|alias| (alias.clone().into(), GroupId::from(Uuid::new_v4())))
             .collect::<HashMap<_, _>>();
 
         let mut embedded_parts: HashMap<P, Part> = HashMap::new();
@@ -367,7 +397,7 @@ impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
 
     pub fn calculate_bounding_box(
         &self,
-        group_id: Option<Uuid>,
+        group_id: Option<GroupId>,
         querier: &impl PartDimensionQuerier<P>,
     ) -> Option<(BoundingBox3, bool)> {
         let objects = if let Some(group_id) = group_id {
@@ -382,11 +412,24 @@ impl<P: Eq + PartialEq + Hash + Clone + From<PartAlias>> Model<P> {
         let complete = self.calculate_bounding_box_recursive(
             &mut bounding_box,
             matrix,
-            &objects,
+            objects,
             true,
             querier,
         );
 
         Some((bounding_box, complete))
+    }
+
+    pub fn get_objects(
+        &self,
+        group_id: Option<GroupId>,
+    ) -> Option<impl Iterator<Item = &Object<P>>> {
+        match group_id {
+            Some(group_id) => self
+                .object_groups
+                .get(&group_id)
+                .map(|groups| groups.objects.iter()),
+            None => Some(self.objects.iter()),
+        }
     }
 }

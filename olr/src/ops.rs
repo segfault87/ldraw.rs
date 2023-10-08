@@ -4,14 +4,16 @@ use ldraw::{
     color::{Color, ColorCatalog},
     Matrix4, PartAlias, Point3,
 };
-use ldraw_ir::{geometry::BoundingBox2, model::Model};
+use ldraw_ir::{
+    geometry::BoundingBox2,
+    model::{GroupId, Model},
+};
 use ldraw_renderer::{
     camera::{OrthographicCamera, ViewBounds},
     display_list::DisplayList,
     part::{Part, PartQuerier},
     util::calculate_model_bounding_box,
 };
-use uuid::Uuid;
 
 use crate::context::Context;
 
@@ -96,7 +98,7 @@ impl<'a> Ops<'a> {
     pub async fn render_model(
         mut self,
         model: &Model<PartAlias>,
-        group_id: Option<Uuid>,
+        group_id: Option<GroupId>,
         parts: &impl PartQuerier<PartAlias>,
         colors: &ColorCatalog,
     ) -> RgbaImage {

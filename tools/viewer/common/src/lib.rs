@@ -20,7 +20,10 @@ use ldraw::{
     library::{resolve_dependencies_multipart, LibraryLoader, PartCache},
     Matrix4, PartAlias, Point2, Point3, Vector2,
 };
-use ldraw_ir::{model, part::bake_part_from_multipart_document};
+use ldraw_ir::{
+    model::{self, GroupId, ObjectId},
+    part::bake_part_from_multipart_document,
+};
 use ldraw_renderer::{
     camera::{PerspectiveCamera, Projection},
     display_list::DisplayList,
@@ -217,14 +220,14 @@ impl AnimatedModel {
         items: &mut Vec<RenderingStep>,
         model: &model::Model<PartAlias>,
         objects: &[model::Object<PartAlias>],
-        parent_uuid: uuid::Uuid,
+        parent_uuid: ObjectId,
         matrix: Matrix4,
     ) {
         for object in objects {
             match &object.data {
                 model::ObjectInstance::Step => items.push(RenderingStep::Step),
                 model::ObjectInstance::Part(p) => items.push(RenderingStep::Item(RenderingItem {
-                    id: Self::uuid_xor(parent_uuid, object.id),
+                    id: Self::uuid_xor(parent_uuid.into(), object.id.into()),
                     alias: p.part.clone(),
                     matrix: matrix * p.matrix,
                     color: p.color.get_color().cloned().unwrap_or_default(),
@@ -247,7 +250,7 @@ impl AnimatedModel {
 
     pub fn from_model(
         model: &model::Model<PartAlias>,
-        group_id: Option<Uuid>,
+        group_id: Option<GroupId>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color_catalog: &ColorCatalog,
@@ -269,7 +272,7 @@ impl AnimatedModel {
                     &mut items,
                     model,
                     objects,
-                    uuid::Uuid::nil(),
+                    uuid::Uuid::nil().into(),
                     Matrix4::identity(),
                 );
             }
@@ -716,7 +719,7 @@ impl<L: LibraryLoader> App<L> {
         Ok(now.elapsed())
     }
 
-    pub fn get_subparts(&self) -> Vec<(Uuid, String)> {
+    pub fn get_subparts(&self) -> Vec<(GroupId, String)> {
         if let Some(model) = &self.model {
             let mut result = model
                 .object_groups
@@ -730,7 +733,7 @@ impl<L: LibraryLoader> App<L> {
         }
     }
 
-    pub fn set_render_target(&mut self, group_id: Option<Uuid>) {
+    pub fn set_render_target(&mut self, group_id: Option<GroupId>) {
         if let Some(model) = &mut self.model {
             self.animated_model = AnimatedModel::from_model(
                 model,

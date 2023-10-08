@@ -11,7 +11,7 @@ use ldraw::{
     color::{Color, ColorCatalog, ColorReference},
     Matrix4, PartAlias, Vector4,
 };
-use ldraw_ir::model::{Model, Object, ObjectGroup, ObjectInstance};
+use ldraw_ir::model::{GroupId, Model, Object, ObjectGroup, ObjectId, ObjectInstance};
 use uuid::Uuid;
 use wgpu::util::DeviceExt;
 
@@ -489,8 +489,8 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<U
     fn expand_object_group(
         t: &mut DisplayListTransaction<Uuid, P>,
         color_catalog: &ColorCatalog,
-        parent_uuid: Uuid,
-        groups: &HashMap<Uuid, ObjectGroup<P>>,
+        parent_uuid: ObjectId,
+        groups: &HashMap<GroupId, ObjectGroup<P>>,
         objects: &[Object<P>],
         matrix: Matrix4,
         color: ColorReference,
@@ -510,7 +510,7 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<U
                     };
                     t.insert(
                         p.part.clone(),
-                        uuid_xor(parent_uuid, object.id),
+                        uuid_xor(parent_uuid.into(), object.id.into()),
                         local_matrix,
                         color,
                         None,
@@ -543,7 +543,7 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<U
 
     pub fn from_model(
         model: &Model<P>,
-        group_id: Option<Uuid>,
+        group_id: Option<GroupId>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color_catalog: &ColorCatalog,
@@ -560,7 +560,7 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<U
                 Self::expand_object_group(
                     t,
                     color_catalog,
-                    Uuid::nil(),
+                    Uuid::nil().into(),
                     &model.object_groups,
                     objects,
                     Matrix4::identity(),

@@ -2,8 +2,10 @@ use std::hash::Hash;
 
 use cgmath::SquareMatrix;
 use ldraw::Matrix4;
-use ldraw_ir::{geometry::BoundingBox3, model};
-use uuid::Uuid;
+use ldraw_ir::{
+    geometry::BoundingBox3,
+    model::{self, GroupId},
+};
 
 use crate::part::PartQuerier;
 
@@ -71,7 +73,7 @@ fn calculate_bounding_box_recursive<K: Clone + Eq + PartialEq + Hash, Q: PartQue
 
 pub fn calculate_model_bounding_box<K: Clone + Eq + PartialEq + Hash, Q: PartQuerier<K>>(
     model: &model::Model<K>,
-    group_id: Option<Uuid>,
+    group_id: Option<GroupId>,
     parts: &Q,
 ) -> BoundingBox3 {
     let mut bb = BoundingBox3::nil();
