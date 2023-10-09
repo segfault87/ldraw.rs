@@ -1,3 +1,5 @@
+use std::{collections::HashSet, hash::Hash};
+
 use cgmath::{prelude::*, Deg, Matrix, Ortho, PerspectiveFov, Point3, SquareMatrix};
 use ldraw::{Matrix3, Matrix4, Vector2, Vector3};
 use ldraw_ir::geometry::{BoundingBox2, BoundingBox3};
@@ -176,11 +178,11 @@ impl Projection {
         );
     }
 
-    pub fn select_objects<T>(
+    pub fn select_objects<T: Eq + PartialEq + Hash>(
         &self,
         area: &BoundingBox2,
         objects: impl Iterator<Item = (T, Matrix4, BoundingBox3)>,
-    ) -> Vec<T> {
+    ) -> HashSet<T> {
         let mvp = self.data.projection_matrix * self.data.get_model_view_matrix();
 
         objects
@@ -191,7 +193,7 @@ impl Projection {
                     None
                 }
             })
-            .collect::<Vec<_>>()
+            .collect::<HashSet<_>>()
     }
 
     pub fn desc() -> wgpu::BindGroupLayoutDescriptor<'static> {
