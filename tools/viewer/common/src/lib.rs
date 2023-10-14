@@ -163,7 +163,7 @@ const FALL_DURATION: f32 = 0.5;
 
 #[derive(Clone, Debug)]
 struct RenderingItem {
-    id: uuid::Uuid,
+    id: ObjectId,
     alias: PartAlias,
     matrix: Matrix4,
     color: Color,
@@ -182,7 +182,7 @@ struct AnimatingRenderingItem {
 }
 
 struct AnimatedModel {
-    display_list: DisplayList<uuid::Uuid, PartAlias>,
+    display_list: DisplayList<ObjectId, PartAlias>,
     items: Vec<RenderingStep>,
     animating: RefCell<Vec<AnimatingRenderingItem>>,
 
@@ -208,26 +208,26 @@ impl Default for AnimatedModel {
 }
 
 impl AnimatedModel {
-    fn uuid_xor(a: Uuid, b: Uuid) -> Uuid {
-        let ba = a.to_bytes_le();
-        let bb = b.to_bytes_le();
+    fn uuid_xor(a: ObjectId, b: ObjectId) -> ObjectId {
+        let ba = Uuid::from(a).to_bytes_le();
+        let bb = Uuid::from(b).to_bytes_le();
 
         let bc: Vec<_> = ba.iter().zip(bb).map(|(x, y)| x ^ y).collect();
-        Uuid::from_slice(&bc).unwrap()
+        Uuid::from_slice(&bc).unwrap().into()
     }
 
     fn build_item_recursive(
         items: &mut Vec<RenderingStep>,
         model: &model::Model<PartAlias>,
         objects: &[model::Object<PartAlias>],
-        parent_uuid: ObjectId,
+        parent_id: ObjectId,
         matrix: Matrix4,
     ) {
         for object in objects {
             match &object.data {
                 model::ObjectInstance::Step => items.push(RenderingStep::Step),
                 model::ObjectInstance::Part(p) => items.push(RenderingStep::Item(RenderingItem {
-                    id: Self::uuid_xor(parent_uuid.into(), object.id.into()),
+                    id: Self::uuid_xor(parent_id, object.id),
                     alias: p.part.clone(),
                     matrix: matrix * p.matrix,
                     color: p.color.get_color().cloned().unwrap_or_default(),

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     hash::Hash,
     sync::{Arc, RwLock},
     vec::Vec,
@@ -35,6 +36,12 @@ impl From<Uuid> for ObjectId {
 impl From<ObjectId> for Uuid {
     fn from(value: ObjectId) -> Self {
         value.0
+    }
+}
+
+impl fmt::Display for ObjectId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

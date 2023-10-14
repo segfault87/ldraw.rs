@@ -3,13 +3,17 @@ use std::ops::Range;
 use cgmath::SquareMatrix;
 use image::GenericImageView;
 use ldraw::{color::Color, Matrix4, Vector3, Vector4};
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, TextureViewDescriptor};
 
 use super::{
     camera::Projection,
-    display_list::{DisplayList, Instances},
+    display_list::{DisplayList, Instances, SelectionDisplayList, SelectionInstances},
+    error,
     part::{EdgeBuffer, MeshBuffer, OptionalEdgeBuffer, Part, PartQuerier},
+    ObjectSelection,
 };
+
+const DEFAULT_OBJECT_SELECTION_FRAMEBUFFER_SIZE: u32 = 1024;
 
 pub struct MaterialUniformData {
     diffuse: Vector3,
@@ -618,11 +622,143 @@ impl OptionalEdgeRenderingPipeline {
     }
 }
 
+pub struct ObjectSelectionRenderingPipeline {
+    pipeline: wgpu::RenderPipeline,
+
+    framebuffer_size: u32,
+
+    framebuffer_texture: wgpu::Texture,
+    framebuffer_texture_view: wgpu::TextureView,
+
+    _depth_texture: wgpu::Texture,
+    depth_texture_view: wgpu::TextureView,
+
+    output_buffer: wgpu::Buffer,
+}
+
+impl ObjectSelectionRenderingPipeline {
+    pub fn new(device: &wgpu::Device, framebuffer_size: u32) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Vertex shader for object selection"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/selection.wgsl").into()),
+        });
+
+        let projection_bind_group_layout = device.create_bind_group_layout(&Projection::desc());
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render pipeline layout for object selection"),
+                bind_group_layouts: &[&projection_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render pipeline for object selection"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs",
+                buffers: &[MeshBuffer::desc(), SelectionInstances::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba32Uint,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
+        let framebuffer_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Framebuffer texture for object selection"),
+            format: wgpu::TextureFormat::Rgba32Uint,
+            dimension: wgpu::TextureDimension::D2,
+            size: wgpu::Extent3d {
+                width: framebuffer_size,
+                height: framebuffer_size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let framebuffer_texture_view =
+            framebuffer_texture.create_view(&TextureViewDescriptor::default());
+
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth texture for object selection"),
+            format: wgpu::TextureFormat::Depth32Float,
+            dimension: wgpu::TextureDimension::D2,
+            size: wgpu::Extent3d {
+                width: framebuffer_size,
+                height: framebuffer_size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let depth_texture_view = depth_texture.create_view(&TextureViewDescriptor::default());
+
+        let output_buffer_size = (std::mem::size_of::<u32>() as u32
+            * framebuffer_size
+            * framebuffer_size) as wgpu::BufferAddress;
+        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Object selection buffer"),
+            size: output_buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        Self {
+            pipeline: render_pipeline,
+
+            framebuffer_size,
+
+            framebuffer_texture,
+            framebuffer_texture_view,
+            _depth_texture: depth_texture,
+            depth_texture_view,
+
+            output_buffer,
+        }
+    }
+}
+
 pub struct RenderingPipelineManager {
     mesh_default: DefaultMeshRenderingPipeline,
     mesh_no_shading: NoShadingMeshRenderingPipeline,
     edge: EdgeRenderingPipeline,
     optional_edge: OptionalEdgeRenderingPipeline,
+    object_selection: ObjectSelectionRenderingPipeline,
 
     single_part_instance_buffer: Instances<i32, i32>,
 }
@@ -662,6 +798,10 @@ impl RenderingPipelineManager {
                 device,
                 render_texture_format,
                 sample_count,
+            ),
+            object_selection: ObjectSelectionRenderingPipeline::new(
+                device,
+                DEFAULT_OBJECT_SELECTION_FRAMEBUFFER_SIZE,
             ),
             single_part_instance_buffer,
         }
@@ -839,5 +979,108 @@ impl RenderingPipelineManager {
         }
 
         draws
+    }
+
+    pub async fn select_objects_render_pass<K, F: FnOnce(&mut wgpu::RenderPass<'_>)>(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        range: ObjectSelection,
+        callback: F,
+    ) -> Result<(), error::ObjectSelectionError> {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Command encoder for object selection pass"),
+        });
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Render pass for object selection"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.object_selection.framebuffer_texture_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 1.0,
+                        g: 1.0,
+                        b: 1.0,
+                        a: 1.0,
+                    }),
+                    store: false,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.object_selection.depth_texture_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: false,
+                }),
+                stencil_ops: None,
+            }),
+        });
+
+        callback(&mut render_pass);
+        drop(render_pass);
+
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &self.object_selection.framebuffer_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &self.object_selection.output_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(
+                        std::mem::size_of::<u32>() as u32 * self.object_selection.framebuffer_size,
+                    ),
+                    rows_per_image: Some(self.object_selection.framebuffer_size),
+                },
+            },
+            wgpu::Extent3d {
+                width: self.object_selection.framebuffer_size,
+                height: self.object_selection.framebuffer_size,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        queue.submit(std::iter::once(encoder.finish()));
+
+        let pixels = {
+            let buffer_slice = self.object_selection.output_buffer.slice(..);
+
+            let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                tx.send(result).unwrap();
+            });
+            device.poll(wgpu::Maintain::Wait);
+            rx.receive().await.unwrap()?;
+
+            buffer_slice.get_mapped_range()
+        };
+
+        let index = match range {
+            ObjectSelection::Point(point) => {
+                let x = point.x.clamp(0.0, 1.0);
+                let y = point.y.clamp(0.0, 1.0);
+
+                if x > 1.0 || y > 1.0 || x < 0.0 || y < 0.0 {
+                    return Err(error::ObjectSelectionError::OutOfRange(range.clone()));
+                }
+
+                let x = (x * self.object_selection.framebuffer_size as f32) as u32;
+                let y = (y * self.object_selection.framebuffer_size as f32) as u32;
+
+                let i = (4 * (y * self.object_selection.framebuffer_size + x)) as usize;
+                &pixels[i..i + 4]
+            }
+            ObjectSelection::Range(range) => {
+                unimplemented!()
+            }
+        };
+
+        println!("{index:?}");
+
+        Ok(())
     }
 }
