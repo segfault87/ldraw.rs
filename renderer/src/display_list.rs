@@ -908,9 +908,26 @@ pub struct SelectionDisplayList<G, K> {
     lookup_table: HashMap<u32, K>,
 }
 
-impl<G, K> SelectionDisplayList<G, K> {
+impl<G, K: Clone> SelectionDisplayList<G, K> {
     pub fn new(map: HashMap<G, SelectionInstances>, lookup_table: HashMap<u32, K>) -> Self {
         Self { map, lookup_table }
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a G, &'a SelectionInstances)> {
+        self.map.iter()
+    }
+
+    pub fn get_matches(
+        &self,
+        result: impl Iterator<Item = u32> + 'static,
+    ) -> impl Iterator<Item = K> + '_ {
+        result.filter_map(|v| {
+            if let Some(v) = self.lookup_table.get(&v) {
+                Some(v.clone())
+            } else {
+                None
+            }
+        })
     }
 }
 

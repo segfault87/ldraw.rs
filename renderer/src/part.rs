@@ -18,6 +18,7 @@ pub struct MeshBuffer {
     pub colored_opaque_without_bfc_range: Option<Range<u32>>,
     pub colored_translucent_range: Option<Range<u32>>,
     pub colored_translucent_without_bfc_range: Option<Range<u32>>,
+    pub index_length: u32,
 }
 
 #[derive(Eq, PartialEq, Hash)]
@@ -235,6 +236,8 @@ impl MeshBuffer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
+        let index_length = index.len() as u32;
+
         let (indices, index_format) = if data.len() / (3 * 10) < 2 << 16 {
             let mut shrunk_data = vec![];
             for item in index {
@@ -275,6 +278,7 @@ impl MeshBuffer {
             colored_translucent_range,
             colored_translucent_without_bfc_range,
             index_format,
+            index_length,
         }
     }
 

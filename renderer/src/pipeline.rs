@@ -751,6 +751,41 @@ impl ObjectSelectionRenderingPipeline {
             output_buffer,
         }
     }
+
+    pub fn render_part<'rp>(
+        &'rp self,
+        pass: &mut wgpu::RenderPass<'rp>,
+        projection: &'rp Projection,
+        part: &'rp Part,
+        instances: &'rp SelectionInstances,
+        range: Range<u32>,
+    ) {
+        pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
+        pass.set_index_buffer(part.mesh.indices.slice(..), part.mesh.index_format);
+        pass.draw_indexed(range, 0, instances.range());
+    }
+
+    pub fn render_display_list<'rp, G: 'rp, K: Clone + 'rp>(
+        &'rp self,
+        pass: &mut wgpu::RenderPass<'rp>,
+        projection: &'rp Projection,
+        part_querier: &'rp impl PartQuerier<G>,
+        display_list: &'rp SelectionDisplayList<G, K>,
+    ) -> u32 {
+        let mut draws = 0;
+
+        for (group, instances) in display_list.iter() {
+            if let Some(part) = part_querier.get(group) {
+                self.render_part(pass, projection, part, instances, 0..part.mesh.index_length);
+                draws += 1;
+            }
+        }
+
+        draws
+    }
 }
 
 pub struct RenderingPipelineManager {
@@ -981,8 +1016,11 @@ impl RenderingPipelineManager {
         draws
     }
 
-    pub async fn select_objects_render_pass<K, F: FnOnce(&mut wgpu::RenderPass<'_>)>(
-        &self,
+    pub async fn select_objects_render_pass<
+        'rp,
+        F: FnOnce(&'rp ObjectSelectionRenderingPipeline, &mut wgpu::RenderPass<'_>) + 'rp,
+    >(
+        &'rp self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         range: ObjectSelection,
@@ -1017,7 +1055,7 @@ impl RenderingPipelineManager {
             }),
         });
 
-        callback(&mut render_pass);
+        callback(&self.object_selection, &mut render_pass);
         drop(render_pass);
 
         encoder.copy_texture_to_buffer(
