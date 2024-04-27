@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod display_list;
+pub mod error;
 pub mod part;
 pub mod pipeline;
 pub mod util;
@@ -23,4 +24,10 @@ impl From<f32> for AspectRatio {
     fn from(value: f32) -> Self {
         Self(value)
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum ObjectSelection {
+    Point(cgmath::Point2<f32>),
+    Range(ldraw_ir::geometry::BoundingBox2),
 }

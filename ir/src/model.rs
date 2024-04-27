@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     hash::Hash,
     sync::{Arc, RwLock},
     vec::Vec,
@@ -38,6 +39,12 @@ impl From<ObjectId> for Uuid {
     }
 }
 
+impl fmt::Display for ObjectId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct GroupId(Uuid);
 
@@ -50,6 +57,12 @@ impl From<Uuid> for GroupId {
 impl From<GroupId> for Uuid {
     fn from(value: GroupId) -> Self {
         value.0
+    }
+}
+
+impl fmt::Display for GroupId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

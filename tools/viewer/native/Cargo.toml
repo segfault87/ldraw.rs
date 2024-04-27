@@ -5,7 +5,6 @@ version = "0.1.0"
 authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 
 [dependencies]
-async-std.workspace = true
 cgmath.workspace = true
 clap = "~2.33.0"
 futures = "~0.3.19"
@@ -13,7 +12,7 @@ ldraw = { path = "../../../ldraw", features = ["http"] }
 ldraw-ir = { path = "../../../ir" }
 ldraw-renderer = { path = "../../../renderer" }
 reqwest = { version = "~0.11.8", features = ["brotli"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 viewer-common = { path = "../common" }
 wgpu.workspace = true
-winit = "0.28"
+winit = "0.29"

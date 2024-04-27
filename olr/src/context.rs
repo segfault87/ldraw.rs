@@ -36,6 +36,8 @@ impl Context {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             dx12_shader_compiler: wgpu::Dx12Compiler::default(),
+            flags: wgpu::InstanceFlags::default(),
+            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptionsBase {
@@ -50,8 +52,8 @@ impl Context {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Device Descriptor"),
-                    features: wgpu::Features::POLYGON_MODE_LINE,
-                    limits: wgpu::Limits::default(),
+                    required_features: wgpu::Features::POLYGON_MODE_LINE,
+                    required_limits: wgpu::Limits::default(),
                 },
                 None,
             )

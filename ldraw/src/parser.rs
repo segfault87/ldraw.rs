@@ -1,8 +1,9 @@
 use std::{collections::HashMap, marker::Unpin, str::Chars};
 
-use async_std::io::BufRead;
 use cgmath::Matrix;
-use futures::{io::Lines, stream::Enumerate, AsyncBufReadExt, StreamExt};
+use futures::{stream::Enumerate, StreamExt};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt};
+use tokio_stream::wrappers::LinesStream;
 
 use crate::{
     color::{
@@ -333,9 +334,9 @@ fn parse_line_5(colors: &ColorCatalog, iterator: &mut Chars) -> Result<OptionalL
     })
 }
 
-async fn parse_inner<T: BufRead + Unpin>(
+async fn parse_inner<T: AsyncBufRead + Unpin>(
     colors: &ColorCatalog,
-    iterator: &mut Enumerate<Lines<T>>,
+    iterator: &mut Enumerate<LinesStream<T>>,
     multipart: bool,
 ) -> Result<(Document, Option<String>), DocumentParseError> {
     let mut next: Option<String> = None;
@@ -480,21 +481,21 @@ async fn parse_inner<T: BufRead + Unpin>(
     ))
 }
 
-pub async fn parse_single_document<T: BufRead + Unpin>(
+pub async fn parse_single_document<T: AsyncBufRead + Unpin>(
     reader: &mut T,
     colors: &ColorCatalog,
 ) -> Result<Document, DocumentParseError> {
-    let mut it = reader.lines().enumerate();
+    let mut it = LinesStream::new(reader.lines()).enumerate();
     let (document, _) = parse_inner(colors, &mut it, false).await?;
 
     Ok(document)
 }
 
-pub async fn parse_multipart_document<T: BufRead + Unpin>(
+pub async fn parse_multipart_document<T: AsyncBufRead + Unpin>(
     reader: &mut T,
     colors: &ColorCatalog,
 ) -> Result<MultipartDocument, DocumentParseError> {
-    let mut it = reader.lines().enumerate();
+    let mut it = LinesStream::new(reader.lines()).enumerate();
     let (document, mut next) = parse_inner(colors, &mut it, true).await?;
     let mut subparts = HashMap::new();
 
@@ -640,7 +641,7 @@ fn parse_customized_material(
     }
 }
 
-pub async fn parse_color_definitions<T: BufRead + Unpin>(
+pub async fn parse_color_definitions<T: AsyncBufRead + Unpin>(
     reader: &mut T,
 ) -> Result<ColorCatalog, ColorDefinitionParseError> {
     // Use an empty context here
@@ -1039,7 +1040,7 @@ mod tests {
 0 !COLOUR Speckle                                               CODE   8   VALUE #123456   EDGE #654321   MATERIAL SPECKLE VALUE #898788 FRACTION 0.4 MINSIZE 1 MAXSIZE 3
 0 !COLOUR Rubber                                                CODE   9   VALUE #ABCDEF   EDGE #FEDCBA   RUBBER";
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_parse_color_definition() {
         let parsed = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
@@ -1154,7 +1155,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_parse_line_1() {
         let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
@@ -1173,7 +1174,7 @@ mod tests {
         );
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_parse_line_2() {
         let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
@@ -1190,7 +1191,7 @@ mod tests {
         );
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_parse_line_3() {
         let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
@@ -1208,7 +1209,7 @@ mod tests {
         );
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_parse_line_4() {
         let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
@@ -1227,7 +1228,7 @@ mod tests {
         );
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_parse_line_5() {
         let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
@@ -1247,7 +1248,7 @@ mod tests {
         );
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_parse_single_document() {
         let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await
@@ -1290,7 +1291,7 @@ mod tests {
         );
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_parse_multipart_document() {
         let colors = parse_color_definitions(&mut COLOR_DEFINITIONS.as_bytes())
             .await

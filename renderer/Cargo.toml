@@ -7,10 +7,12 @@ edition = "2021"
 [dependencies]
 bytemuck = { version = "1.13", features = ["derive"] }
 cgmath.workspace = true
+futures-intrusive = "0.4"
 image.workspace = true
 itertools = "~0.10"
 ldraw = { path = "../ldraw" }
 ldraw-ir = { path = "../ir" }
 serde.workspace = true
+thiserror = "1"
 uuid.workspace = true
 wgpu.workspace = true

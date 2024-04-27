@@ -5,14 +5,14 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-async-std.workspace = true
 bincode.workspace = true
 cgmath.workspace = true
 clap = "~2.33.0"
-futures = "~0.3.19"
+futures.workspace = true
 itertools = "~0.10.3"
 ldraw = { path = "../../ldraw" }
 ldraw-ir = { path = "../../ir" }
 num_cpus = "~1.13.1"
 serde_json = "~1.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-stream = { workspace = true, features = ["fs"] }

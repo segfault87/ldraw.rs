@@ -1,7 +1,7 @@
-use async_std::io::BufReader;
 use async_trait::async_trait;
 use futures::join;
 use reqwest::{Client, Error, Response, StatusCode, Url};
+use tokio::io::BufReader;
 
 use crate::{
     color::ColorCatalog,

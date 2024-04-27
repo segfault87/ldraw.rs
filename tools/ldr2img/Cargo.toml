@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-std.workspace = true
 cgmath.workspace = true
 clap = "~2.33.3"
 image.workspace = true
@@ -12,5 +11,5 @@ ldraw = { path = "../../ldraw" }
 ldraw-ir = { path = "../../ir" }
 ldraw-olr = { path = "../../olr" }
 ldraw-renderer = { path = "../../renderer" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 wgpu.workspace = true

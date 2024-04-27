@@ -477,19 +477,19 @@ impl<
     }
 }
 
-fn uuid_xor(a: Uuid, b: Uuid) -> Uuid {
-    let ba = a.to_bytes_le();
-    let bb = b.to_bytes_le();
+fn uuid_xor(a: ObjectId, b: ObjectId) -> ObjectId {
+    let ba = Uuid::from(a).to_bytes_le();
+    let bb = Uuid::from(b).to_bytes_le();
 
     let bc: Vec<_> = ba.iter().zip(bb).map(|(x, y)| x ^ y).collect();
-    Uuid::from_slice(&bc).unwrap()
+    Uuid::from_slice(&bc).unwrap().into()
 }
 
-impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<Uuid, P> {
+impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<ObjectId, P> {
     fn expand_object_group(
-        t: &mut DisplayListTransaction<Uuid, P>,
+        t: &mut DisplayListTransaction<ObjectId, P>,
         color_catalog: &ColorCatalog,
-        parent_uuid: ObjectId,
+        parent_id: ObjectId,
         groups: &HashMap<GroupId, ObjectGroup<P>>,
         objects: &[Object<P>],
         matrix: Matrix4,
@@ -510,7 +510,7 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<U
                     };
                     t.insert(
                         p.part.clone(),
-                        uuid_xor(parent_uuid.into(), object.id.into()),
+                        uuid_xor(parent_id, object.id),
                         local_matrix,
                         color,
                         None,
@@ -528,7 +528,7 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<U
                         Self::expand_object_group(
                             t,
                             color_catalog,
-                            object.id,
+                            uuid_xor(parent_id, object.id),
                             groups,
                             &group.objects,
                             matrix * g.matrix,
@@ -827,5 +827,194 @@ impl<
 
         self.display_list.map.retain(|_k, v| v.count() > 0);
         self.display_list.lookup_table = self.lookup_table;
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SelectionInstanceData {
+    model_matrix: [[f32; 4]; 4],
+    instance_id: u32,
+    _padding: [u32; 3],
+}
+
+#[derive(Debug)]
+pub struct SelectionInstances {
+    instance_data: Vec<SelectionInstanceData>,
+
+    pub instance_buffer: wgpu::Buffer,
+}
+
+impl SelectionInstances {
+    pub fn new(device: &wgpu::Device, instance_data: Vec<SelectionInstanceData>) -> Self {
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance buffer for object selections"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        Self {
+            instance_data,
+            instance_buffer,
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.instance_data.len()
+    }
+
+    pub fn range(&self) -> Range<u32> {
+        0..self.count() as u32
+    }
+
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<SelectionInstanceData>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 10,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 11,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 12,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 13,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
+                    shader_location: 14,
+                    format: wgpu::VertexFormat::Uint32,
+                },
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SelectionDisplayList<G, K> {
+    map: HashMap<G, SelectionInstances>,
+    lookup_table: HashMap<u32, K>,
+}
+
+impl<G, K: Clone> SelectionDisplayList<G, K> {
+    pub fn new(map: HashMap<G, SelectionInstances>, lookup_table: HashMap<u32, K>) -> Self {
+        Self { map, lookup_table }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&G, &SelectionInstances)> {
+        self.map.iter()
+    }
+
+    pub fn get_matches(
+        &self,
+        result: impl Iterator<Item = u32> + 'static,
+    ) -> impl Iterator<Item = K> + '_ {
+        result.filter_map(|v| self.lookup_table.get(&v).cloned())
+    }
+}
+
+impl<G: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display>
+    SelectionDisplayList<G, ObjectId>
+{
+    #[allow(clippy::too_many_arguments)]
+    fn expand_object_group(
+        data: &mut HashMap<G, Vec<SelectionInstanceData>>,
+        lookup_table: &mut HashMap<u32, ObjectId>,
+        cur_instance_id: &mut u32,
+        use_parent_object_id: bool,
+        parent_id: ObjectId,
+        groups: &HashMap<GroupId, ObjectGroup<G>>,
+        objects: &[Object<G>],
+        matrix: Matrix4,
+        depth: u32,
+    ) {
+        for object in objects.iter() {
+            match &object.data {
+                ObjectInstance::Part(p) => {
+                    let id = if depth == 0 {
+                        object.id
+                    } else if use_parent_object_id {
+                        parent_id
+                    } else {
+                        uuid_xor(parent_id, object.id)
+                    };
+                    lookup_table.insert(*cur_instance_id, id);
+                    data.entry(p.part.clone())
+                        .or_default()
+                        .push(SelectionInstanceData {
+                            model_matrix: (matrix * p.matrix).into(),
+                            instance_id: *cur_instance_id,
+                            _padding: [0; 3],
+                        });
+                    *cur_instance_id += 1;
+                }
+                ObjectInstance::PartGroup(g) => {
+                    if let Some(group) = groups.get(&g.group_id) {
+                        Self::expand_object_group(
+                            data,
+                            lookup_table,
+                            cur_instance_id,
+                            use_parent_object_id,
+                            object.id,
+                            groups,
+                            &group.objects,
+                            matrix * g.matrix,
+                            depth + 1,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn from_model(
+        model: &Model<G>,
+        group_id: Option<GroupId>,
+        device: &wgpu::Device,
+        instance_id_base: u32,
+        flatten_group: bool,
+    ) -> Self {
+        let objects = match group_id {
+            Some(group_id) => model.object_groups.get(&group_id).map(|v| &v.objects),
+            None => Some(&model.objects),
+        };
+
+        let mut instance_data = HashMap::new();
+        let mut lookup_table = HashMap::new();
+        let mut instance_id = instance_id_base;
+
+        if let Some(objects) = objects {
+            Self::expand_object_group(
+                &mut instance_data,
+                &mut lookup_table,
+                &mut instance_id,
+                flatten_group,
+                Uuid::nil().into(),
+                &model.object_groups,
+                objects,
+                Matrix4::identity(),
+                0,
+            );
+        }
+
+        let map = instance_data
+            .into_iter()
+            .map(|(k, v)| (k, SelectionInstances::new(device, v)))
+            .collect();
+
+        Self::new(map, lookup_table)
     }
 }

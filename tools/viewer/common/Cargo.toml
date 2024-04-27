@@ -13,4 +13,4 @@ ldraw-ir = { path = "../../../ir" }
 ldraw-renderer = { path = "../../../renderer" }
 uuid.workspace = true
 wgpu.workspace = true
-winit = "0.28"
+winit = "0.29"
