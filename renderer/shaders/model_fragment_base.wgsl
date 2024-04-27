@@ -195,10 +195,10 @@ fn textureCubeUV(envMapTexture: texture_2d<f32>, envMapSampler: sampler, sampleD
     let mipF = fract(mip);
     let mipInt = floor(mip);
     let color0 = bilinearCubeUV(envMapTexture, envMapSampler, sampleDir, mipInt);
+    let color1 = bilinearCubeUV(envMapTexture, envMapSampler, sampleDir, mipInt + 1.0);
     if (mipF == 0.0) {
         return vec4<f32>(color0, 1.0);
     } else {
-        let color1 = bilinearCubeUV(envMapTexture, envMapSampler, sampleDir, mipInt + 1.0);
         return vec4<f32>(mix(color0, color1, mipF), 1.0);
     }
 }

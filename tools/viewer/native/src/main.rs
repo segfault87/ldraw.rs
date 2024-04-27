@@ -2,12 +2,12 @@
 
 use std::{
     env,
+    path::PathBuf,
     rc::Rc,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
-use async_std::path::PathBuf;
 use clap::{App as ClapApp, Arg};
 use ldraw::{
     color::ColorCatalog,
@@ -16,24 +16,22 @@ use ldraw::{
     resolvers::local::LocalLoader,
 };
 use viewer_common::App;
-use winit::{
-    event,
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
-};
+use winit::{event, event_loop::EventLoop, window::WindowBuilder};
 
 async fn main_loop<L: LibraryLoader + 'static>(
     document: MultipartDocument,
     colors: ColorCatalog,
     dependency_loader: Rc<L>,
 ) {
-    let evloop = EventLoop::new();
+    let evloop = EventLoop::new().unwrap();
     let window = WindowBuilder::new()
         .with_title("ldraw.rs demo")
         .build(&evloop)
         .unwrap();
 
-    let mut app = match App::new(window, dependency_loader, Rc::new(colors), true).await {
+    let main_window_id = window.id();
+
+    let mut app = match App::new(Arc::new(window), dependency_loader, Rc::new(colors), true).await {
         Ok(v) => v,
         Err(e) => {
             panic!("Could not initialize app: {e}");
@@ -59,49 +57,56 @@ async fn main_loop<L: LibraryLoader + 'static>(
     let mut frames = 0;
     let mut now = started;
 
-    evloop.run(move |event, _, control_flow| match event {
-        event::Event::LoopDestroyed => {}
-        event::Event::RedrawRequested(_) => {
-            app.animate(started.elapsed().as_millis() as f32 / 1000.0);
-            match app.render() {
-                Ok(duration) => {
-                    total_duration += duration.as_millis();
-                    frames += 1;
+    let _ = evloop.run(move |event, target| match event {
+        event::Event::WindowEvent { window_id, event } if window_id == main_window_id => {
+            match event {
+                event::WindowEvent::CloseRequested => {
+                    target.exit();
+                }
+                event::WindowEvent::RedrawRequested => {
+                    app.animate(started.elapsed().as_millis() as f32 / 1000.0);
+                    match app.render() {
+                        Ok(duration) => {
+                            total_duration += duration.as_millis();
+                            frames += 1;
 
-                    if now.elapsed() > Duration::from_secs(1) {
-                        println!(
-                            "{} frames per second. {} msecs per frame.",
-                            frames,
-                            total_duration as f32 / frames as f32
-                        );
+                            if now.elapsed() > Duration::from_secs(1) {
+                                println!(
+                                    "{} frames per second. {} msecs per frame.",
+                                    frames,
+                                    total_duration as f32 / frames as f32
+                                );
 
-                        now = Instant::now();
-                        frames = 0;
-                        total_duration = 0;
+                                now = Instant::now();
+                                frames = 0;
+                                total_duration = 0;
+                            }
+                        }
+                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            app.resize(app.size);
+                        }
+                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                            target.exit();
+                        }
+                        Err(wgpu::SurfaceError::Timeout) => {
+                            println!("Surface timeout");
+                        }
                     }
                 }
-                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                    app.resize(app.size);
-                }
-                Err(wgpu::SurfaceError::OutOfMemory) => {
-                    *control_flow = ControlFlow::Exit;
-                }
-                Err(wgpu::SurfaceError::Timeout) => {
-                    println!("Surface timeout");
+                event => {
+                    app.handle_window_event(event, started.elapsed().as_millis() as f32 / 1000.0);
                 }
             }
         }
-        event::Event::NewEvents(
-            event::StartCause::Init | event::StartCause::ResumeTimeReached { .. },
-        ) => {
-            app.request_redraw();
-        }
-        event::Event::MainEventsCleared => {
-            app.request_redraw();
-        }
-        event::Event::WindowEvent { event, .. } => {
-            app.handle_window_event(event, started.elapsed().as_millis() as f32 / 1000.0);
-        }
+        event::Event::NewEvents(start_cause) => match start_cause {
+            event::StartCause::Init => {
+                target.set_control_flow(winit::event_loop::ControlFlow::Poll);
+            }
+            event::StartCause::Poll => {
+                app.request_redraw();
+            }
+            _ => {}
+        },
         _ => (),
     });
 }

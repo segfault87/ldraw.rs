@@ -68,7 +68,7 @@ impl Texture {
             sample_count,
             dimension: wgpu::TextureDimension::D2,
             format: Self::DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[Self::DEPTH_FORMAT],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());

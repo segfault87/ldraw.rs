@@ -1,17 +1,12 @@
 use std::{
     env,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 
-use async_std::{
-    fs::File,
-    io::{BufReader, BufWriter},
-    path::{Path, PathBuf},
-    stream::StreamExt,
-};
 use bincode::serialize;
 use clap::{App, Arg};
-use futures::{future::join_all, AsyncWriteExt};
+use futures::{future::join_all, StreamExt};
 use itertools::Itertools;
 use ldraw::{
     color::ColorCatalog,
@@ -20,7 +15,12 @@ use ldraw::{
     resolvers::local::LocalLoader,
 };
 use ldraw_ir::part::bake_part_from_multipart_document;
-use tokio::task::spawn_blocking;
+use tokio::{
+    fs::{self, File},
+    io::{AsyncWriteExt, BufReader, BufWriter},
+    task::spawn_blocking,
+};
+use tokio_stream::wrappers::ReadDirStream;
 
 #[tokio::main]
 async fn main() {
@@ -62,7 +62,7 @@ async fn main() {
     let output_path = match matches.value_of("output_path") {
         Some(v) => {
             let path = Path::new(v);
-            if !path.is_dir().await {
+            if !path.is_dir() {
                 panic!("{} is not a proper output directory", v);
             }
             Some(path)
@@ -88,10 +88,14 @@ async fn main() {
     if let Some(files) = matches.values_of("files") {
         for file in files {
             let path = PathBuf::from(&file);
-            if !path.exists().await {
+            if !fs::try_exists(&path).await.unwrap_or(false) {
                 panic!("Path {} does not exists.", file);
-            } else if path.is_dir().await {
-                let mut dir = path.read_dir().await.expect("Could not read directory.");
+            } else if path.is_dir() {
+                let mut dir = ReadDirStream::new(
+                    fs::read_dir(&path)
+                        .await
+                        .expect("Could not read directory."),
+                );
                 while let Some(entry) = dir.next().await {
                     let entry = entry.unwrap();
                     let path = entry.path();
@@ -163,7 +167,7 @@ async fn bake<L: LibraryLoader>(
         }
     };
 
-    let document = match parse_multipart_document(&mut BufReader::new(&file), colors).await {
+    let document = match parse_multipart_document(&mut BufReader::new(file), colors).await {
         Ok(v) => v,
         Err(err) => {
             println!(
@@ -214,7 +218,7 @@ async fn bake<L: LibraryLoader>(
             Ok(file) => {
                 let mut writer = BufWriter::new(file);
                 writer.write_all(&serialized).await.unwrap();
-                writer.close().await.unwrap();
+                writer.shutdown().await.unwrap();
             }
             Err(_err) => {
                 format!("Could not create {}", outpath.to_str().unwrap());

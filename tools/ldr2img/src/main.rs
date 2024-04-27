@@ -1,14 +1,10 @@
 use std::{
     collections::HashMap,
     env,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 
-use async_std::{
-    fs::File,
-    io::BufReader,
-    path::{Path, PathBuf},
-};
 use clap::{App, Arg};
 use ldraw::{
     library::{resolve_dependencies_multipart, PartCache},
@@ -19,6 +15,7 @@ use ldraw::{
 use ldraw_ir::{model::Model, part::bake_part_from_multipart_document};
 use ldraw_olr::{context::Context, ops::Ops};
 use ldraw_renderer::part::{Part, PartQuerier};
+use tokio::{fs::File, io::BufReader};
 
 #[tokio::main]
 async fn main() {

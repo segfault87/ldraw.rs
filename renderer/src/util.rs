@@ -15,28 +15,33 @@ pub async fn request_device(
 ) -> Result<(wgpu::Device, wgpu::Queue, u32), wgpu::RequestDeviceError> {
     let texture_sizes = vec![8192, 4096, 2048];
 
+    let mut error = None;
+
     for texture_size in texture_sizes {
-        let limits = wgpu::Limits {
+        let required_limits = wgpu::Limits {
             max_texture_dimension_2d: texture_size,
             ..wgpu::Limits::downlevel_webgl2_defaults()
         };
 
-        if let Ok((device, queue)) = adapter
+        match adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label,
-                    features: wgpu::Features::default(),
-                    limits,
+                    required_features: wgpu::Features::default(),
+                    required_limits,
                 },
                 None,
             )
             .await
         {
-            return Ok((device, queue, texture_size));
+            Ok((device, queue)) => return Ok((device, queue, texture_size)),
+            Err(e) => {
+                error = Some(e);
+            }
         }
     }
 
-    Err(wgpu::RequestDeviceError)
+    Err(error.unwrap())
 }
 
 fn calculate_bounding_box_recursive<K: Clone + Eq + PartialEq + Hash, Q: PartQuerier<K>>(

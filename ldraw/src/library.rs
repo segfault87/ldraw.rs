@@ -82,7 +82,7 @@ impl PartCache {
     pub fn query(&self, alias: &PartAlias) -> Option<Arc<MultipartDocument>> {
         match self.parts.get(alias) {
             Some(part) => Some(Arc::clone(part)),
-            None => self.primitives.get(alias).map(Arc::clone),
+            None => self.primitives.get(alias).cloned(),
         }
     }
 
@@ -131,7 +131,7 @@ impl TransientDocumentCache {
     }
 
     pub fn query(&self, alias: &PartAlias) -> Option<Arc<MultipartDocument>> {
-        self.documents.get(alias).map(Arc::clone)
+        self.documents.get(alias).cloned()
     }
 }
 

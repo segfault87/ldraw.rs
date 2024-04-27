@@ -5,22 +5,19 @@ authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-async-std.workspace = true
 async-trait = "~0.1.52"
 cgmath.workspace = true
-futures = "~0.3.19"
+futures.workspace = true
 serde.workspace = true
-
-[dev-dependencies]
-async-std = { version = "1", features = ["attributes"] }
+tokio-stream.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-reqwest = { version = "~0.11.20", optional = true, features = ["brotli"] }
-encoding_rs = "~0.8.29"
-encoding_rs_io = "~0.1.4"
+reqwest = { version = "~0.12.4", optional = true, features = ["brotli"] }
+tokio = { workspace = true, features = ["fs"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-reqwest = { version = "~0.11.20" }
+reqwest = { version = "~0.12.4" }
+tokio.workspace = true
 
 [features]
 http = ["reqwest"]

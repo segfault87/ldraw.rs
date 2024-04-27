@@ -32,7 +32,11 @@ use ldraw_renderer::{
     util::calculate_model_bounding_box,
 };
 use uuid::Uuid;
-use winit::{event, window::Window};
+use winit::{
+    event,
+    keyboard::{Key, NamedKey},
+    window::Window,
+};
 
 use self::texture::Texture;
 
@@ -403,12 +407,13 @@ impl AnimatedModel {
 }
 
 pub struct App<L: LibraryLoader> {
-    surface: wgpu::Surface,
+    window: Arc<Window>,
+    surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
-    window: Window,
+    pub adapter_info: wgpu::AdapterInfo,
 
     max_texture_size: u32,
     framebuffer_texture: Option<Texture>,
@@ -421,7 +426,7 @@ pub struct App<L: LibraryLoader> {
     loader: Rc<L>,
     colors: Rc<ColorCatalog>,
 
-    parts: Arc<RwLock<SimplePartsPool>>,
+    parts: Rc<RefCell<SimplePartsPool>>,
     model: Option<model::Model<PartAlias>>,
     animated_model: AnimatedModel,
 
@@ -430,30 +435,40 @@ pub struct App<L: LibraryLoader> {
 
 impl<L: LibraryLoader> App<L> {
     pub async fn new(
-        window: Window,
+        window: Arc<Window>,
         loader: Rc<L>,
         colors: Rc<ColorCatalog>,
         supports_antialiasing: bool,
     ) -> Result<Self, error::AppCreationError> {
+        let window_size = window.inner_size();
+
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             dx12_shader_compiler: Default::default(),
+            flags: if cfg!(debug_assertions) {
+                wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION
+            } else {
+                Default::default()
+            },
+            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
 
         let sample_count = if supports_antialiasing { 4 } else { 1 };
 
-        let surface = unsafe { instance.create_surface(&window) }?;
+        let surface = instance.create_surface(Arc::clone(&window))?;
 
         let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
             .await
             .ok_or(error::AppCreationError::NoAdapterFound)?;
 
+        let adapter_info = adapter.get_info();
+
         let (device, queue, max_texture_size) =
             ldraw_renderer::util::request_device(&adapter, None).await?;
 
         let size = winit::dpi::PhysicalSize {
-            width: min(window.inner_size().width, max_texture_size),
-            height: min(window.inner_size().height, max_texture_size),
+            width: min(window_size.width, max_texture_size),
+            height: min(window_size.height, max_texture_size),
         };
 
         let surface_caps = surface.get_capabilities(&adapter);
@@ -472,6 +487,7 @@ impl<L: LibraryLoader> App<L> {
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![surface_format],
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
 
@@ -501,12 +517,13 @@ impl<L: LibraryLoader> App<L> {
         let pipelines = RenderingPipelineManager::new(&device, &queue, config.format, sample_count);
 
         Ok(App {
+            window,
             surface,
             device,
             queue,
             config,
             size,
-            window,
+            adapter_info,
 
             max_texture_size,
             framebuffer_texture,
@@ -519,7 +536,7 @@ impl<L: LibraryLoader> App<L> {
             loader,
             colors,
 
-            parts: Arc::new(RwLock::new(SimplePartsPool::default())),
+            parts: Rc::new(RefCell::new(SimplePartsPool::default())),
             model: None,
             animated_model: AnimatedModel::default(),
 
@@ -530,7 +547,7 @@ impl<L: LibraryLoader> App<L> {
     pub fn loaded_parts(&self) -> HashSet<PartAlias> {
         let mut result = HashSet::new();
 
-        result.extend(self.parts.read().unwrap().0.keys().cloned());
+        result.extend(self.parts.borrow().0.keys().cloned());
 
         result
     }
@@ -558,8 +575,7 @@ impl<L: LibraryLoader> App<L> {
         .await;
 
         self.parts
-            .write()
-            .unwrap()
+            .borrow_mut()
             .0
             .extend(
                 document
@@ -583,7 +599,7 @@ impl<L: LibraryLoader> App<L> {
                     }),
             );
 
-        let bounding_box = calculate_model_bounding_box(&model, None, &*self.parts.read().unwrap());
+        let bounding_box = calculate_model_bounding_box(&model, None, &*self.parts.borrow());
         let center = bounding_box.center();
 
         self.animated_model =
@@ -659,7 +675,7 @@ impl<L: LibraryLoader> App<L> {
     pub fn render(&mut self) -> Result<Duration, wgpu::SurfaceError> {
         let now = Instant::now();
 
-        let part_querier = self.parts.read().unwrap();
+        let part_querier = self.parts.borrow();
 
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -692,17 +708,19 @@ impl<L: LibraryLoader> App<L> {
                             b: 1.0,
                             a: 0.0,
                         }),
-                        store: false,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
                 }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
 
             self.pipelines.render::<_, _>(
@@ -744,8 +762,7 @@ impl<L: LibraryLoader> App<L> {
                 false,
             );
 
-            let bounding_box =
-                calculate_model_bounding_box(model, group_id, &*self.parts.read().unwrap());
+            let bounding_box = calculate_model_bounding_box(model, group_id, &*self.parts.borrow());
             let center = bounding_box.center();
 
             let mut orbit_controller = self.orbit_controller.borrow_mut();
@@ -767,12 +784,9 @@ impl<L: LibraryLoader> App<L> {
             event::WindowEvent::Resized(size) => {
                 self.resize(size);
             }
-            event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                self.resize(*new_inner_size);
-            }
-            event::WindowEvent::KeyboardInput { input, .. } => {
-                if input.virtual_keycode == Some(event::VirtualKeyCode::Space)
-                    && input.state == event::ElementState::Pressed
+            event::WindowEvent::KeyboardInput { event, .. } => {
+                if event.logical_key == Key::Named(NamedKey::Space)
+                    && event.state == event::ElementState::Pressed
                 {
                     self.advance(current_time);
                 }

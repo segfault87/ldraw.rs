@@ -25,7 +25,7 @@ struct InstanceInput {
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) instanceId: vec4<u32>,
+    @location(0) instanceId: u32,
 }
 
 @vertex
@@ -47,21 +47,17 @@ fn vs(
         instanceModelMatrix[1].xyz,
         instanceModelMatrix[2].xyz,
     );
-    
+
     var mvPosition = vec4<f32>(vertex.position, 1.0);
     mvPosition = projection.viewMatrix * projection.modelMatrix * instanceModelMatrix * mvPosition;
 
-    out.instanceId = vec4<u32>(
-        instance.instanceId & 0x00ff0000u >> 16u,
-        instance.instanceId & 0x0000ff00u >> 8u,
-        instance.instanceId & 0x000000ffu,
-        instance.instanceId & 0xff000000u >> 24u
-    );
+    out.position = projection.projectionMatrix * mvPosition;
+    out.instanceId = instance.instanceId;
 
     return out;
 }
 
 @fragment
-fn fs(in: VertexOutput) -> @location(0) vec4<u32> {
+fn fs(in: VertexOutput) -> @location(0) u32 {
     return in.instanceId;
 }

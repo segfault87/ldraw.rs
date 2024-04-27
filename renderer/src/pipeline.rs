@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Range;
 
 use cgmath::SquareMatrix;
@@ -664,7 +665,7 @@ impl ObjectSelectionRenderingPipeline {
                 module: &shader,
                 entry_point: "fs",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba32Uint,
+                    format: wgpu::TextureFormat::R32Uint,
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -695,7 +696,7 @@ impl ObjectSelectionRenderingPipeline {
 
         let framebuffer_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Framebuffer texture for object selection"),
-            format: wgpu::TextureFormat::Rgba32Uint,
+            format: wgpu::TextureFormat::R32Uint,
             dimension: wgpu::TextureDimension::D2,
             size: wgpu::Extent3d {
                 width: framebuffer_size,
@@ -752,12 +753,12 @@ impl ObjectSelectionRenderingPipeline {
         }
     }
 
-    pub fn render_part<'rp>(
+    pub fn render_part<'rp, 'dl: 'rp>(
         &'rp self,
         pass: &mut wgpu::RenderPass<'rp>,
         projection: &'rp Projection,
         part: &'rp Part,
-        instances: &'rp SelectionInstances,
+        instances: &'dl SelectionInstances,
         range: Range<u32>,
     ) {
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
@@ -768,12 +769,12 @@ impl ObjectSelectionRenderingPipeline {
         pass.draw_indexed(range, 0, instances.range());
     }
 
-    pub fn render_display_list<'rp, G: 'rp, K: Clone + 'rp>(
+    pub fn render_display_list<'rp, 'dl: 'rp, G: 'rp, K: Clone + 'rp>(
         &'rp self,
         pass: &mut wgpu::RenderPass<'rp>,
         projection: &'rp Projection,
         part_querier: &'rp impl PartQuerier<G>,
-        display_list: &'rp SelectionDisplayList<G, K>,
+        display_list: &'dl SelectionDisplayList<G, K>,
     ) -> u32 {
         let mut draws = 0;
 
@@ -1016,16 +1017,15 @@ impl RenderingPipelineManager {
         draws
     }
 
-    pub async fn select_objects_render_pass<
-        'rp,
-        F: FnOnce(&'rp ObjectSelectionRenderingPipeline, &mut wgpu::RenderPass<'_>) + 'rp,
+    pub async fn select_objects_render_pass_cb<
+        F: FnOnce(&ObjectSelectionRenderingPipeline, &mut wgpu::RenderPass<'_>),
     >(
-        &'rp self,
+        &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         range: ObjectSelection,
         callback: F,
-    ) -> Result<(), error::ObjectSelectionError> {
+    ) -> Result<HashSet<u32>, error::ObjectSelectionError> {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Command encoder for object selection pass"),
         });
@@ -1042,21 +1042,27 @@ impl RenderingPipelineManager {
                         b: 1.0,
                         a: 1.0,
                     }),
-                    store: false,
+                    store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &self.object_selection.depth_texture_view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
-                    store: false,
+                    store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,
             }),
+            occlusion_query_set: None,
+            timestamp_writes: None,
         });
 
         callback(&self.object_selection, &mut render_pass);
+
         drop(render_pass);
+
+        let framebuffer_size = self.object_selection.framebuffer_size;
+        let bytes_per_row = std::mem::size_of::<u32>() as u32 * framebuffer_size;
 
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
@@ -1084,7 +1090,7 @@ impl RenderingPipelineManager {
 
         queue.submit(std::iter::once(encoder.finish()));
 
-        let pixels = {
+        let matches = {
             let buffer_slice = self.object_selection.output_buffer.slice(..);
 
             let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
@@ -1094,31 +1100,53 @@ impl RenderingPipelineManager {
             device.poll(wgpu::Maintain::Wait);
             rx.receive().await.unwrap()?;
 
-            buffer_slice.get_mapped_range()
-        };
+            let (x, y, mut w, mut h) = match range {
+                ObjectSelection::Point(point) => (
+                    (point.x * framebuffer_size as f32) as usize,
+                    (point.y * framebuffer_size as f32) as usize,
+                    1,
+                    1,
+                ),
+                ObjectSelection::Range(bbox) => (
+                    (bbox.min.x * framebuffer_size as f32) as usize,
+                    (bbox.min.y * framebuffer_size as f32) as usize,
+                    (bbox.len_x() * framebuffer_size as f32) as usize,
+                    (bbox.len_y() * framebuffer_size as f32) as usize,
+                ),
+            };
 
-        let index = match range {
-            ObjectSelection::Point(point) => {
-                let x = point.x.clamp(0.0, 1.0);
-                let y = point.y.clamp(0.0, 1.0);
+            if w == 0 {
+                w = 1;
+            }
+            if h == 0 {
+                h = 1;
+            }
 
-                if x > 1.0 || y > 1.0 || x < 0.0 || y < 0.0 {
-                    return Err(error::ObjectSelectionError::OutOfRange(range.clone()));
+            let slice = buffer_slice.get_mapped_range();
+            let chunks = slice.chunks(bytes_per_row as usize);
+
+            let mut matches = HashSet::new();
+
+            for (i, row) in chunks.enumerate() {
+                if i >= y && i < y + h {
+                    for (j, chunk) in row.chunks(4).enumerate() {
+                        if j >= x && j < x + w && chunk != [0, 0, 0, 0] {
+                            let instance_id: u32 = (chunk[0] as u32)
+                                | ((chunk[1] as u32) << 8)
+                                | ((chunk[2] as u32) << 16)
+                                | ((chunk[3] as u32) << 24);
+                            matches.insert(instance_id);
+                        }
+                    }
                 }
-
-                let x = (x * self.object_selection.framebuffer_size as f32) as u32;
-                let y = (y * self.object_selection.framebuffer_size as f32) as u32;
-
-                let i = (4 * (y * self.object_selection.framebuffer_size + x)) as usize;
-                &pixels[i..i + 4]
             }
-            ObjectSelection::Range(range) => {
-                unimplemented!()
-            }
+
+            drop(slice);
+            self.object_selection.output_buffer.unmap();
+
+            matches
         };
 
-        println!("{index:?}");
-
-        Ok(())
+        Ok(matches)
     }
 }

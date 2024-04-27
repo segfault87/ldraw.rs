@@ -1,8 +1,8 @@
 use std::fmt;
 
-use async_std::{io::Write, prelude::*};
 use async_trait::async_trait;
 use cgmath::{Matrix, Vector4};
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use crate::color::ColorReference;
 use crate::document::{BfcCertification, Document, MultipartDocument};
@@ -31,12 +31,18 @@ impl fmt::Display for ColorReference {
 
 #[async_trait]
 trait LDrawWriter {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError>;
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError>;
 }
 
 #[async_trait]
 impl LDrawWriter for Header {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         writer
             .write_all(format!("0 !{} {}\n", self.0, self.1).as_bytes())
             .await?;
@@ -46,7 +52,10 @@ impl LDrawWriter for Header {
 
 #[async_trait]
 impl LDrawWriter for BfcCertification {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         match self {
             BfcCertification::NoCertify => writer.write_all(b"0 BFC NOCERTIFY\n").await?,
             BfcCertification::Certify(Winding::Ccw) => {
@@ -63,7 +72,10 @@ impl LDrawWriter for BfcCertification {
 
 #[async_trait]
 impl LDrawWriter for BfcStatement {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         match self {
             BfcStatement::Winding(Winding::Cw) => writer.write_all(b"0 BFC CW\n").await?,
             BfcStatement::Winding(Winding::Ccw) => writer.write_all(b"0 BFC CCW\n").await?,
@@ -79,7 +91,10 @@ impl LDrawWriter for BfcStatement {
 
 #[async_trait]
 impl LDrawWriter for Document {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         writer
             .write_all(format!("0 {}\n", self.description).as_bytes())
             .await?;
@@ -111,7 +126,10 @@ impl LDrawWriter for Document {
 
 #[async_trait]
 impl LDrawWriter for MultipartDocument {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         self.body.write(writer).await?;
         for subpart in self.subparts.values() {
             writer
@@ -126,7 +144,10 @@ impl LDrawWriter for MultipartDocument {
 
 #[async_trait]
 impl LDrawWriter for Meta {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         match self {
             Meta::Comment(message) => {
                 for line in message.lines() {
@@ -172,7 +193,10 @@ impl LDrawWriter for Meta {
 
 #[async_trait]
 impl LDrawWriter for PartReference {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         let m = self.matrix.transpose();
         writer
             .write_all(
@@ -201,7 +225,10 @@ impl LDrawWriter for PartReference {
 
 #[async_trait]
 impl LDrawWriter for Line {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         writer
             .write_all(
                 format!(
@@ -219,7 +246,10 @@ impl LDrawWriter for Line {
 
 #[async_trait]
 impl LDrawWriter for Triangle {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         writer
             .write_all(
                 format!(
@@ -238,7 +268,10 @@ impl LDrawWriter for Triangle {
 
 #[async_trait]
 impl LDrawWriter for Quad {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         writer
             .write_all(
                 format!(
@@ -258,7 +291,10 @@ impl LDrawWriter for Quad {
 
 #[async_trait]
 impl LDrawWriter for OptionalLine {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         writer
             .write_all(
                 format!(
@@ -278,7 +314,10 @@ impl LDrawWriter for OptionalLine {
 
 #[async_trait]
 impl LDrawWriter for Command {
-    async fn write(&self, writer: &mut (dyn Write + Unpin + Send)) -> Result<(), SerializeError> {
+    async fn write(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
+    ) -> Result<(), SerializeError> {
         match self {
             Command::Meta(meta) => meta.write(writer).await,
             Command::PartReference(ref_) => ref_.write(writer).await,

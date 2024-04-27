@@ -60,6 +60,12 @@ impl From<GroupId> for Uuid {
     }
 }
 
+impl fmt::Display for GroupId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectInstance<P> {
     Part(PartInstance<P>),

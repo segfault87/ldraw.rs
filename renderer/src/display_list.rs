@@ -848,7 +848,7 @@ pub struct SelectionInstances {
 impl SelectionInstances {
     pub fn new(device: &wgpu::Device, instance_data: Vec<SelectionInstanceData>) -> Self {
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("Instance buffer for object selections")),
+            label: Some("Instance buffer for object selections"),
             contents: bytemuck::cast_slice(&instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
@@ -913,7 +913,7 @@ impl<G, K: Clone> SelectionDisplayList<G, K> {
         Self { map, lookup_table }
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a G, &'a SelectionInstances)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&G, &SelectionInstances)> {
         self.map.iter()
     }
 
@@ -921,19 +921,14 @@ impl<G, K: Clone> SelectionDisplayList<G, K> {
         &self,
         result: impl Iterator<Item = u32> + 'static,
     ) -> impl Iterator<Item = K> + '_ {
-        result.filter_map(|v| {
-            if let Some(v) = self.lookup_table.get(&v) {
-                Some(v.clone())
-            } else {
-                None
-            }
-        })
+        result.filter_map(|v| self.lookup_table.get(&v).cloned())
     }
 }
 
 impl<G: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display>
     SelectionDisplayList<G, ObjectId>
 {
+    #[allow(clippy::too_many_arguments)]
     fn expand_object_group(
         data: &mut HashMap<G, Vec<SelectionInstanceData>>,
         lookup_table: &mut HashMap<u32, ObjectId>,
@@ -943,18 +938,21 @@ impl<G: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display>
         groups: &HashMap<GroupId, ObjectGroup<G>>,
         objects: &[Object<G>],
         matrix: Matrix4,
+        depth: u32,
     ) {
         for object in objects.iter() {
             match &object.data {
                 ObjectInstance::Part(p) => {
-                    let id = if use_parent_object_id {
+                    let id = if depth == 0 {
+                        object.id
+                    } else if use_parent_object_id {
                         parent_id
                     } else {
                         uuid_xor(parent_id, object.id)
                     };
                     lookup_table.insert(*cur_instance_id, id);
                     data.entry(p.part.clone())
-                        .or_insert_with(Default::default)
+                        .or_default()
                         .push(SelectionInstanceData {
                             model_matrix: (matrix * p.matrix).into(),
                             instance_id: *cur_instance_id,
@@ -969,10 +967,11 @@ impl<G: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display>
                             lookup_table,
                             cur_instance_id,
                             use_parent_object_id,
-                            uuid_xor(parent_id, object.id),
+                            object.id,
                             groups,
                             &group.objects,
                             matrix * g.matrix,
+                            depth + 1,
                         );
                     }
                 }
@@ -1007,6 +1006,7 @@ impl<G: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display>
                 &model.object_groups,
                 objects,
                 Matrix4::identity(),
+                0,
             );
         }
 

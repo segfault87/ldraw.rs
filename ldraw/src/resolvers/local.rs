@@ -1,5 +1,10 @@
-use async_std::{fs::File, io::BufReader, path::PathBuf};
+use std::path::PathBuf;
+
 use async_trait::async_trait;
+use tokio::{
+    fs::{try_exists, File},
+    io::BufReader,
+};
 
 use crate::{
     color::ColorCatalog,
@@ -28,7 +33,7 @@ impl DocumentLoader<PathBuf> for LocalLoader {
         locator: &PathBuf,
         colors: &ColorCatalog,
     ) -> Result<MultipartDocument, ResolutionError> {
-        if !locator.exists().await {
+        if !try_exists(&locator).await? {
             return Err(ResolutionError::FileNotFound);
         }
 
@@ -53,7 +58,7 @@ impl LibraryLoader for LocalLoader {
             path
         };
 
-        if !path.exists().await {
+        if !try_exists(&path).await? {
             return Err(ResolutionError::FileNotFound);
         }
 
@@ -90,11 +95,11 @@ impl LibraryLoader for LocalLoader {
         };
 
         let (kind, path) =
-            if local && cwd_path.is_some() && cwd_path.as_ref().unwrap().exists().await {
+            if local && cwd_path.is_some() && try_exists(&cwd_path.as_ref().unwrap()).await? {
                 (FileLocation::Local, cwd_path.as_ref().unwrap())
-            } else if parts_path.exists().await {
+            } else if try_exists(&parts_path).await? {
                 (FileLocation::Library(PartKind::Part), &parts_path)
-            } else if p_path.exists().await {
+            } else if try_exists(&p_path).await? {
                 (FileLocation::Library(PartKind::Primitive), &p_path)
             } else {
                 return Err(ResolutionError::FileNotFound);

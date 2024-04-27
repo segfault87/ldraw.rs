@@ -9,7 +9,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use async_std::io::BufReader;
 use gloo::events::EventListener;
 use ldraw::{
     document::MultipartDocument,
@@ -20,6 +19,7 @@ use ldraw::{
     PartAlias,
 };
 use reqwest::{Client, Url};
+use tokio::io::BufReader;
 use uuid::Uuid;
 use viewer_common::{App, State};
 use wasm_bindgen::{prelude::*, JsCast};
@@ -28,15 +28,12 @@ use web_sys::{
     HtmlButtonElement, HtmlCanvasElement, HtmlDivElement, HtmlSelectElement, HtmlTextAreaElement,
 };
 use winit::{
-    event,
-    event_loop::{ControlFlow, EventLoop},
-    platform::web::WindowBuilderExtWebSys,
-    window::WindowBuilder,
+    event, event_loop::EventLoop, platform::web::WindowBuilderExtWebSys, window::WindowBuilder,
 };
 
 // A huge mess. Needs refactoring.
 
-const ANTIALIAS: bool = if cfg!(feature = "webgl") { false } else { true };
+const ANTIALIAS: bool = true;
 
 fn log(s: &str, error: bool) {
     let window = web_sys::window().unwrap();
@@ -127,7 +124,7 @@ pub async fn run(path: JsValue) -> JsValue {
     canvas.set_width(body.client_width() as u32);
     canvas.set_height(body.client_height() as u32);
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let builder = WindowBuilder::new()
         .with_title("ldraw.rs demo")
         .with_inner_size(winit::dpi::LogicalSize {
@@ -166,7 +163,17 @@ pub async fn run(path: JsValue) -> JsValue {
         }
     };
 
-    let app = match App::new(window, Rc::clone(&loader), Rc::clone(&colors), ANTIALIAS).await {
+    let main_window_id = window.id();
+    let window = Arc::new(window);
+
+    let app = match App::new(
+        Arc::clone(&window),
+        Rc::clone(&loader),
+        Rc::clone(&colors),
+        ANTIALIAS,
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => {
             console_error!("Could not initialize the app: {e}");
@@ -201,7 +208,7 @@ pub async fn run(path: JsValue) -> JsValue {
 
             let document = match parse_multipart_document(
                 &mut BufReader::new(document_text.as_bytes()),
-                &*colors,
+                &colors,
             )
             .await
             {
@@ -249,7 +256,7 @@ pub async fn run(path: JsValue) -> JsValue {
                 app.borrow_mut().set_render_target(if value.is_empty() {
                     None
                 } else {
-                    Some(value.parse::<Uuid>().unwrap())
+                    Some(value.parse::<Uuid>().unwrap().into())
                 });
             }) as Box<dyn FnMut(_)>);
             subparts
@@ -275,7 +282,7 @@ pub async fn run(path: JsValue) -> JsValue {
 
                 let document = match parse_multipart_document(
                     &mut BufReader::new(document_text.as_bytes()),
-                    &*colors,
+                    &colors,
                 )
                 .await
                 {
@@ -335,109 +342,118 @@ pub async fn run(path: JsValue) -> JsValue {
         let web_document = web_document.clone();
         let cache = Arc::clone(&cache);
 
-        event_loop.run(move |event, _, control_flow| match event {
-            event::Event::LoopDestroyed => {}
-            event::Event::RedrawRequested(_) => {
-                let mut app_ = app.borrow_mut();
+        event_loop
+            .run(move |event, target| match event {
+                event::Event::NewEvents(start_cause) => match start_cause {
+                    event::StartCause::Init => {
+                        target.set_control_flow(winit::event_loop::ControlFlow::Poll);
+                    }
+                    event::StartCause::Poll => {
+                        app.borrow().request_redraw();
+                    }
+                    _ => {}
+                },
+                event::Event::WindowEvent { event, window_id } if window_id == main_window_id => {
+                    match event {
+                        event::WindowEvent::RedrawRequested => {
+                            let mut app_ = app.borrow_mut();
 
-                app_.animate(((perf.now() - start_time) / 1000.0) as f32);
-                match app_.render() {
-                    Ok(duration) => {
-                        let next_button = web_document.get_element_by_id("next-button").unwrap();
-                        let next_button = JsCast::dyn_ref::<HtmlDivElement>(&next_button).unwrap();
-                        if app_.state() == State::Step {
-                            next_button.set_class_name("active");
-                        } else {
-                            next_button.set_class_name("");
+                            app_.animate(((perf.now() - start_time) / 1000.0) as f32);
+                            match app_.render() {
+                                Ok(duration) => {
+                                    let next_button =
+                                        web_document.get_element_by_id("next-button").unwrap();
+                                    let next_button =
+                                        JsCast::dyn_ref::<HtmlDivElement>(&next_button).unwrap();
+                                    if app_.state() == State::Step {
+                                        next_button.set_class_name("active");
+                                    } else {
+                                        next_button.set_class_name("");
+                                    }
+
+                                    let stats = web_document.get_element_by_id("stats").unwrap();
+                                    let stats = JsCast::dyn_ref::<HtmlDivElement>(&stats).unwrap();
+                                    stats.set_inner_html(&format!(
+                                        "Rendering backend: {}<br />{} msecs",
+                                        app_.adapter_info.backend.to_str(),
+                                        duration.as_millis(),
+                                    ));
+                                }
+                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                    //app.resize(app.size);
+                                }
+                                Err(wgpu::SurfaceError::OutOfMemory) => {
+                                    target.exit();
+                                }
+                                Err(wgpu::SurfaceError::Timeout) => {
+                                    println!("Surface timeout");
+                                }
+                            }
+
+                            if new_doc.borrow().is_some() {
+                                let document =
+                                    MultipartDocument::clone(new_doc.borrow().as_ref().unwrap());
+                                *new_doc.borrow_mut() = None;
+
+                                let app = Rc::clone(&app);
+                                let cache = Arc::clone(&cache);
+                                let web_document = web_document.clone();
+
+                                spawn_local(async move {
+                                    if let Err(err) = app
+                                        .borrow_mut()
+                                        .set_document(
+                                            Arc::clone(&cache),
+                                            &document,
+                                            &log_part_resolution,
+                                        )
+                                        .await
+                                    {
+                                        console_error!("Could not reload model: {}", err);
+                                    };
+
+                                    cache
+                                        .write()
+                                        .unwrap()
+                                        .collect(CacheCollectionStrategy::Parts);
+
+                                    let subparts =
+                                        web_document.get_element_by_id("subparts").unwrap();
+                                    subparts.set_inner_html("");
+
+                                    let body = web_document.create_element("option").unwrap();
+                                    body.set_attribute("value", "").unwrap();
+                                    body.set_inner_html("Base Model");
+                                    subparts.append_child(&body).unwrap();
+
+                                    console_log!("{:?}", body);
+
+                                    for (id, name) in app.borrow().get_subparts() {
+                                        let subpart =
+                                            web_document.create_element("option").unwrap();
+                                        subpart.set_attribute("value", &format!("{}", id)).unwrap();
+                                        subpart
+                                            .set_inner_html(&format!("Subpart {} ({})", name, id));
+                                        subparts.append_child(&subpart).unwrap();
+                                    }
+                                });
+                            }
                         }
-
-                        let backend = if cfg!(feature = "webgl") {
-                            "WebGL"
-                        } else {
-                            "WebGPU"
-                        };
-
-                        let stats = web_document.get_element_by_id("stats").unwrap();
-                        let stats = JsCast::dyn_ref::<HtmlDivElement>(&stats).unwrap();
-                        stats.set_inner_html(&format!(
-                            "Rendering backend: {}<br />{} msecs",
-                            backend,
-                            duration.as_millis(),
-                        ));
-                    }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        //app.resize(app.size);
-                    }
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        println!("Surface timeout");
-                    }
-                }
-
-                if new_doc.borrow().is_some() {
-                    let document = MultipartDocument::clone(new_doc.borrow().as_ref().unwrap());
-                    *new_doc.borrow_mut() = None;
-
-                    let app = Rc::clone(&app);
-                    let cache = Arc::clone(&cache);
-                    let web_document = web_document.clone();
-
-                    spawn_local(async move {
-                        if let Err(err) = app
-                            .borrow_mut()
-                            .set_document(Arc::clone(&cache), &document, &log_part_resolution)
-                            .await
-                        {
-                            console_error!("Could not reload model: {}", err);
-                        };
-
-                        cache
-                            .write()
-                            .unwrap()
-                            .collect(CacheCollectionStrategy::Parts);
-
-                        let subparts = web_document.get_element_by_id("subparts").unwrap();
-                        subparts.set_inner_html("");
-
-                        let body = web_document.create_element("option").unwrap();
-                        body.set_attribute("value", "").unwrap();
-                        body.set_inner_html("Base Model");
-                        subparts.append_child(&body).unwrap();
-
-                        console_log!("{:?}", body);
-
-                        for (id, name) in app.borrow().get_subparts() {
-                            let subpart = web_document.create_element("option").unwrap();
-                            subpart.set_attribute("value", &format!("{}", id)).unwrap();
-                            subpart.set_inner_html(&format!("Subpart {} ({})", name, id));
-                            subparts.append_child(&subpart).unwrap();
+                        event::WindowEvent::CloseRequested => {}
+                        event => {
+                            if let Ok(mut app) = app.try_borrow_mut() {
+                                app.handle_window_event(
+                                    event,
+                                    ((perf.now() - start_time) / 1000.0) as f32,
+                                );
+                            }
                         }
-                    });
+                    }
                 }
-            }
-            event::Event::NewEvents(
-                event::StartCause::Init | event::StartCause::ResumeTimeReached { .. },
-            ) => {
-                if let Ok(app) = app.try_borrow() {
-                    app.request_redraw();
-                }
-            }
-            event::Event::MainEventsCleared => {
-                if let Ok(app) = app.try_borrow() {
-                    app.request_redraw();
-                }
-            }
-            event::Event::WindowEvent { event, .. } => {
-                if let event::WindowEvent::Resized(s) = event {
-                    console_log!("Resized {:?}", s);
-                }
-                if let Ok(mut app) = app.try_borrow_mut() {
-                    app.handle_window_event(event, ((perf.now() - start_time) / 1000.0) as f32);
-                }
-            }
-            _ => (),
-        });
+                _ => (),
+            })
+            .unwrap();
     }
+
+    JsValue::undefined()
 }
