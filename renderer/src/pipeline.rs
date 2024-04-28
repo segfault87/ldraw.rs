@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-use std::ops::Range;
+use std::{collections::HashSet, hash::Hash, ops::Range};
 
 use cgmath::SquareMatrix;
 use image::GenericImageView;
@@ -753,12 +752,12 @@ impl ObjectSelectionRenderingPipeline {
         }
     }
 
-    pub fn render_part<'rp, 'dl: 'rp>(
+    pub fn render_part<'rp>(
         &'rp self,
         pass: &mut wgpu::RenderPass<'rp>,
         projection: &'rp Projection,
         part: &'rp Part,
-        instances: &'dl SelectionInstances,
+        instances: &'rp SelectionInstances,
         range: Range<u32>,
     ) {
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
@@ -769,12 +768,12 @@ impl ObjectSelectionRenderingPipeline {
         pass.draw_indexed(range, 0, instances.range());
     }
 
-    pub fn render_display_list<'rp, 'dl: 'rp, G: 'rp, K: Clone + 'rp>(
+    pub fn render_display_list<'rp, G, K: Clone>(
         &'rp self,
         pass: &mut wgpu::RenderPass<'rp>,
         projection: &'rp Projection,
-        part_querier: &'rp impl PartQuerier<G>,
-        display_list: &'dl SelectionDisplayList<G, K>,
+        part_querier: &'rp dyn PartQuerier<G>,
+        display_list: &'rp SelectionDisplayList<G, K>,
     ) -> u32 {
         let mut draws = 0;
 
@@ -786,6 +785,68 @@ impl ObjectSelectionRenderingPipeline {
         }
 
         draws
+    }
+}
+
+pub trait ObjectSelectionRenderingOp {
+    fn render<'ctx, 'rp>(
+        &'ctx self,
+        projection: &'ctx Projection,
+        pass: &mut wgpu::RenderPass<'rp>,
+    ) where
+        'ctx: 'rp;
+}
+
+pub trait ObjectSelectionTestOp {
+    type Result;
+
+    fn test(&self, ids: impl Iterator<Item = u32> + 'static) -> Option<Self::Result>;
+}
+
+pub trait ObjectSelectionOp: ObjectSelectionRenderingOp + ObjectSelectionTestOp {}
+impl<T> ObjectSelectionOp for T where T: ObjectSelectionRenderingOp + ObjectSelectionTestOp {}
+
+pub struct DisplayListObjectSelectionOp<'ctx, G, K> {
+    pipeline: &'ctx ObjectSelectionRenderingPipeline,
+    part_querier: &'ctx dyn PartQuerier<G>,
+    display_list: SelectionDisplayList<G, K>,
+}
+
+impl<'ctx, G, K> DisplayListObjectSelectionOp<'ctx, G, K> {
+    pub fn new(
+        pipeline_manager: &'ctx RenderingPipelineManager,
+        part_querier: &'ctx impl PartQuerier<G>,
+        display_list: SelectionDisplayList<G, K>,
+    ) -> Self {
+        Self {
+            pipeline: &pipeline_manager.object_selection,
+            part_querier,
+            display_list,
+        }
+    }
+}
+
+impl<'ctx_, G, K: Clone + Eq + PartialEq + Hash> ObjectSelectionRenderingOp
+    for DisplayListObjectSelectionOp<'ctx_, G, K>
+{
+    fn render<'ctx, 'rp>(&'ctx self, projection: &'ctx Projection, pass: &mut wgpu::RenderPass<'rp>)
+    where
+        'ctx: 'rp,
+    {
+        self.pipeline
+            .render_display_list(pass, projection, self.part_querier, &self.display_list);
+    }
+}
+
+impl<'ctx_, G, K: Clone + Eq + PartialEq + Hash> ObjectSelectionTestOp
+    for DisplayListObjectSelectionOp<'ctx_, G, K>
+{
+    type Result = HashSet<K>;
+
+    fn test(&self, ids: impl Iterator<Item = u32> + 'static) -> Option<Self::Result> {
+        let result: HashSet<K> = self.display_list.get_matches(ids).collect();
+
+        Some(result)
     }
 }
 
@@ -1017,14 +1078,13 @@ impl RenderingPipelineManager {
         draws
     }
 
-    pub async fn select_objects_render_pass_cb<
-        F: FnOnce(&ObjectSelectionRenderingPipeline, &mut wgpu::RenderPass<'_>),
-    >(
-        &self,
+    pub async fn select_objects_multiple_ops<'ctx>(
+        &'ctx self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        projection: &'ctx Projection,
         range: ObjectSelection,
-        callback: F,
+        ops: impl Iterator<Item = Box<&dyn ObjectSelectionRenderingOp>>,
     ) -> Result<HashSet<u32>, error::ObjectSelectionError> {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Command encoder for object selection pass"),
@@ -1057,8 +1117,9 @@ impl RenderingPipelineManager {
             timestamp_writes: None,
         });
 
-        callback(&self.object_selection, &mut render_pass);
-
+        for op in ops {
+            op.render(projection, &mut render_pass);
+        }
         drop(render_pass);
 
         let framebuffer_size = self.object_selection.framebuffer_size;
@@ -1148,5 +1209,31 @@ impl RenderingPipelineManager {
         };
 
         Ok(matches)
+    }
+
+    pub async fn select_objects_single_op<'ctx, K, OP>(
+        &'ctx self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        projection: &'ctx Projection,
+        range: ObjectSelection,
+        op: &OP,
+    ) -> Result<Option<K>, error::ObjectSelectionError>
+    where
+        OP: ObjectSelectionOp<Result = K>,
+    {
+        let casted = op as &dyn ObjectSelectionRenderingOp;
+
+        let matches = self
+            .select_objects_multiple_ops(
+                device,
+                queue,
+                projection,
+                range,
+                std::iter::once(Box::new(casted)),
+            )
+            .await?;
+
+        Ok(op.test(matches.into_iter()))
     }
 }
