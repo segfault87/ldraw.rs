@@ -344,15 +344,9 @@ pub async fn run(path: JsValue) -> JsValue {
 
         event_loop
             .run(move |event, target| match event {
-                event::Event::NewEvents(start_cause) => match start_cause {
-                    event::StartCause::Init => {
-                        target.set_control_flow(winit::event_loop::ControlFlow::Poll);
-                    }
-                    event::StartCause::Poll => {
-                        app.borrow().request_redraw();
-                    }
-                    _ => {}
-                },
+                event::Event::AboutToWait => {
+                    app.borrow().request_redraw();
+                }
                 event::Event::WindowEvent { event, window_id } if window_id == main_window_id => {
                     match event {
                         event::WindowEvent::RedrawRequested => {

@@ -266,6 +266,7 @@ impl DefaultMeshRenderingPipeline {
                 module: &vertex_shader,
                 entry_point: "vs",
                 buffers: &[MeshBuffer::desc(), Instances::<i32, i32>::desc()],
+                compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
@@ -278,6 +279,7 @@ impl DefaultMeshRenderingPipeline {
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -364,6 +366,7 @@ impl NoShadingMeshRenderingPipeline {
                 module: &vertex_shader,
                 entry_point: "vs",
                 buffers: &[MeshBuffer::desc(), Instances::<i32, i32>::desc()],
+                compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
@@ -376,6 +379,7 @@ impl NoShadingMeshRenderingPipeline {
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -458,6 +462,7 @@ impl EdgeRenderingPipeline {
                 module: &vertex_shader,
                 entry_point: "vs",
                 buffers: &[EdgeBuffer::desc(), Instances::<i32, i32>::desc()],
+                compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
@@ -470,6 +475,7 @@ impl EdgeRenderingPipeline {
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::LineList,
@@ -560,6 +566,7 @@ impl OptionalEdgeRenderingPipeline {
                 module: &vertex_shader,
                 entry_point: "vs",
                 buffers: &[OptionalEdgeBuffer::desc(), Instances::<i32, i32>::desc()],
+                compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
@@ -572,6 +579,7 @@ impl OptionalEdgeRenderingPipeline {
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::LineList,
@@ -659,6 +667,7 @@ impl ObjectSelectionRenderingPipeline {
                 module: &shader,
                 entry_point: "vs",
                 buffers: &[MeshBuffer::desc(), SelectionInstances::desc()],
+                compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -668,6 +677,7 @@ impl ObjectSelectionRenderingPipeline {
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,

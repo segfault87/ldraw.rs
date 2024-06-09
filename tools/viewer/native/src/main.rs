@@ -98,15 +98,9 @@ async fn main_loop<L: LibraryLoader + 'static>(
                 }
             }
         }
-        event::Event::NewEvents(start_cause) => match start_cause {
-            event::StartCause::Init => {
-                target.set_control_flow(winit::event_loop::ControlFlow::Poll);
-            }
-            event::StartCause::Poll => {
-                app.request_redraw();
-            }
-            _ => {}
-        },
+        event::Event::AboutToWait => {
+            app.request_redraw();
+        }
         _ => (),
     });
 }
