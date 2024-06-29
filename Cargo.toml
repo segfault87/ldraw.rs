@@ -9,6 +9,7 @@ members = [
     "tools/baker",
     "tools/ldr2img",
     "tools/viewer/common",
+    "tools/viewer/ios",
     "tools/viewer/native",
     "tools/viewer/web",
 ]
