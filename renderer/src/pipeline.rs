@@ -303,6 +303,7 @@ impl DefaultMeshRenderingPipeline {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         Self {
@@ -311,12 +312,12 @@ impl DefaultMeshRenderingPipeline {
         }
     }
 
-    pub fn render<'rp, K, G>(
-        &'rp self,
-        pass: &mut wgpu::RenderPass<'rp>,
-        projection: &'rp Projection,
-        part: &'rp Part,
-        instances: &'rp Instances<K, G>,
+    pub fn render<K, G>(
+        &self,
+        pass: &mut wgpu::RenderPass<'static>,
+        projection: &Projection,
+        part: &Part,
+        instances: &Instances<K, G>,
         range: Range<u32>,
     ) {
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
@@ -403,6 +404,7 @@ impl NoShadingMeshRenderingPipeline {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         Self {
@@ -410,12 +412,12 @@ impl NoShadingMeshRenderingPipeline {
         }
     }
 
-    pub fn render<'rp, K, G>(
-        &'rp self,
-        pass: &mut wgpu::RenderPass<'rp>,
-        projection: &'rp Projection,
-        part: &'rp Part,
-        instances: &'rp Instances<K, G>,
+    pub fn render<K, G>(
+        &self,
+        pass: &mut wgpu::RenderPass<'static>,
+        projection: &Projection,
+        part: &Part,
+        instances: &Instances<K, G>,
         range: Range<u32>,
     ) {
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
@@ -499,6 +501,7 @@ impl EdgeRenderingPipeline {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         Self {
@@ -506,12 +509,12 @@ impl EdgeRenderingPipeline {
         }
     }
 
-    pub fn render<'p, K, G>(
-        &'p self,
-        pass: &mut wgpu::RenderPass<'p>,
-        projection: &'p Projection,
-        part: &'p Part,
-        instances: &'p Instances<K, G>,
+    pub fn render<K, G>(
+        &self,
+        pass: &mut wgpu::RenderPass<'static>,
+        projection: &Projection,
+        part: &Part,
+        instances: &Instances<K, G>,
     ) -> bool {
         if let Some(edges) = part.edges.as_ref() {
             pass.set_vertex_buffer(0, edges.vertices.slice(..));
@@ -603,6 +606,7 @@ impl OptionalEdgeRenderingPipeline {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         Self {
@@ -610,12 +614,12 @@ impl OptionalEdgeRenderingPipeline {
         }
     }
 
-    pub fn render<'rp, K, G>(
-        &'rp self,
-        pass: &mut wgpu::RenderPass<'rp>,
-        projection: &'rp Projection,
-        part: &'rp Part,
-        instances: &'rp Instances<K, G>,
+    pub fn render<K, G>(
+        &self,
+        pass: &mut wgpu::RenderPass<'static>,
+        projection: &Projection,
+        part: &Part,
+        instances: &Instances<K, G>,
     ) -> bool {
         if let Some(ref optional_edges) = part.optional_edges {
             pass.set_vertex_buffer(0, optional_edges.vertices.slice(..));
@@ -701,6 +705,7 @@ impl ObjectSelectionRenderingPipeline {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         let framebuffer_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -762,12 +767,12 @@ impl ObjectSelectionRenderingPipeline {
         }
     }
 
-    pub fn render_part<'rp>(
-        &'rp self,
-        pass: &mut wgpu::RenderPass<'rp>,
-        projection: &'rp Projection,
-        part: &'rp Part,
-        instances: &'rp SelectionInstances,
+    pub fn render_part(
+        &self,
+        pass: &mut wgpu::RenderPass<'static>,
+        projection: &Projection,
+        part: &Part,
+        instances: &SelectionInstances,
         range: Range<u32>,
     ) {
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
@@ -778,12 +783,12 @@ impl ObjectSelectionRenderingPipeline {
         pass.draw_indexed(range, 0, instances.range());
     }
 
-    pub fn render_display_list<'rp, G, K: Clone>(
-        &'rp self,
-        pass: &mut wgpu::RenderPass<'rp>,
-        projection: &'rp Projection,
-        part_querier: &'rp dyn PartQuerier<G>,
-        display_list: &'rp SelectionDisplayList<G, K>,
+    pub fn render_display_list<G, K: Clone>(
+        &self,
+        pass: &mut wgpu::RenderPass<'static>,
+        projection: &Projection,
+        part_querier: &dyn PartQuerier<G>,
+        display_list: &SelectionDisplayList<G, K>,
     ) -> u32 {
         let mut draws = 0;
 
@@ -799,12 +804,7 @@ impl ObjectSelectionRenderingPipeline {
 }
 
 pub trait ObjectSelectionRenderingOp {
-    fn render<'ctx, 'rp>(
-        &'ctx self,
-        projection: &'ctx Projection,
-        pass: &mut wgpu::RenderPass<'rp>,
-    ) where
-        'ctx: 'rp;
+    fn render(&self, projection: &Projection, pass: &mut wgpu::RenderPass<'static>);
 }
 
 pub trait ObjectSelectionTestOp {
@@ -836,20 +836,17 @@ impl<'ctx, G, K> DisplayListObjectSelectionOp<'ctx, G, K> {
     }
 }
 
-impl<'ctx_, G, K: Clone + Eq + PartialEq + Hash> ObjectSelectionRenderingOp
-    for DisplayListObjectSelectionOp<'ctx_, G, K>
+impl<'ctx, G, K: Clone + Eq + PartialEq + Hash> ObjectSelectionRenderingOp
+    for DisplayListObjectSelectionOp<'ctx, G, K>
 {
-    fn render<'ctx, 'rp>(&'ctx self, projection: &'ctx Projection, pass: &mut wgpu::RenderPass<'rp>)
-    where
-        'ctx: 'rp,
-    {
+    fn render(&self, projection: &Projection, pass: &mut wgpu::RenderPass<'static>) {
         self.pipeline
             .render_display_list(pass, projection, self.part_querier, &self.display_list);
     }
 }
 
-impl<'ctx_, G, K: Clone + Eq + PartialEq + Hash> ObjectSelectionTestOp
-    for DisplayListObjectSelectionOp<'ctx_, G, K>
+impl<'ctx, G, K: Clone + Eq + PartialEq + Hash> ObjectSelectionTestOp
+    for DisplayListObjectSelectionOp<'ctx, G, K>
 {
     type Result = HashSet<K>;
 
@@ -915,15 +912,15 @@ impl RenderingPipelineManager {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn render_single_part<'rp>(
-        &'rp mut self,
+    pub fn render_single_part(
+        &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        pass: &mut wgpu::RenderPass<'rp>,
-        projection: &'rp Projection,
-        part: &'rp Part,
+        pass: &mut wgpu::RenderPass<'static>,
+        projection: &Projection,
+        part: &Part,
         matrix: Matrix4,
-        color: &'rp Color,
+        color: &Color,
     ) {
         self.single_part_instance_buffer
             .modify(device, queue, |tr| {
@@ -998,12 +995,12 @@ impl RenderingPipelineManager {
             .render(pass, projection, part, &self.single_part_instance_buffer);
     }
 
-    pub fn render<'rp, K, G>(
-        &'rp self,
-        pass: &mut wgpu::RenderPass<'rp>,
-        projection: &'rp Projection,
-        part_querier: &'rp impl PartQuerier<G>,
-        display_list: &'rp DisplayList<K, G>,
+    pub fn render<K, G>(
+        &self,
+        pass: &mut wgpu::RenderPass<'static>,
+        projection: &Projection,
+        part_querier: &impl PartQuerier<G>,
+        display_list: &DisplayList<K, G>,
     ) -> u32 {
         let mut draws = 0;
 
@@ -1100,32 +1097,34 @@ impl RenderingPipelineManager {
             label: Some("Command encoder for object selection pass"),
         });
 
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render pass for object selection"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.object_selection.framebuffer_texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 1.0,
-                        g: 1.0,
-                        b: 1.0,
-                        a: 1.0,
+        let mut render_pass = encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render pass for object selection"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.object_selection.framebuffer_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.object_selection.depth_texture_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
                     }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.object_selection.depth_texture_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            })
+            .forget_lifetime();
 
         for op in ops {
             op.render(projection, &mut render_pass);

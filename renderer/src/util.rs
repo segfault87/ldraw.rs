@@ -29,6 +29,7 @@ pub async fn request_device(
                     label,
                     required_features: wgpu::Features::default(),
                     required_limits,
+                    memory_hints: Default::default(),
                 },
                 None,
             )
