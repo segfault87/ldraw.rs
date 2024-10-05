@@ -187,7 +187,7 @@ pub enum InstanceOps<K> {
     Remove(K),
 }
 
-impl<K: Clone + Eq + PartialEq + Hash, G: Display> GpuUpdate for Instances<K, G> {
+impl<K: Clone + Eq + PartialEq + Hash + Debug, G: Display> GpuUpdate for Instances<K, G> {
     type Mutator = InstanceOps<K>;
 
     fn mutate(&mut self, mutator: Self::Mutator) -> GpuUpdateResult<Self::Mutator> {
@@ -204,6 +204,7 @@ impl<K: Clone + Eq + PartialEq + Hash, G: Display> GpuUpdate for Instances<K, G>
                 tr.rows_to_insert.insert(key, (matrix, color, edge_color));
             }
             InstanceOps::Remove(key) => {
+                tr.rows_to_insert.remove(&key);
                 tr.rows_to_remove.push(key);
             }
             InstanceOps::Update {
@@ -302,7 +303,7 @@ impl<K: Clone + Eq + PartialEq + Hash, G: Display> GpuUpdate for Instances<K, G>
 
         // Remove rows
         if !rows_to_remove.is_empty() {
-            let reverse_lookup = self
+            let mut reverse_lookup = self
                 .index
                 .clone()
                 .into_iter()
@@ -313,8 +314,10 @@ impl<K: Clone + Eq + PartialEq + Hash, G: Display> GpuUpdate for Instances<K, G>
                 let last = self.instance_data.len() - 1;
                 if let Some(last_key) = reverse_lookup.get(&last) {
                     self.index.insert(last_key.clone(), *index);
+                    reverse_lookup.insert(*index, last_key.clone());
                 }
                 self.index.remove(key);
+                reverse_lookup.remove(&last);
                 self.instance_data.swap_remove(*index);
                 layout_changed = true;
             }
