@@ -19,9 +19,16 @@ impl BoundingBox2 {
         let (min_x, max_x) = if a.x > b.x { (b.x, a.x) } else { (a.x, b.x) };
         let (min_y, max_y) = if a.y > b.y { (b.y, a.y) } else { (a.y, b.y) };
 
-        BoundingBox2 {
+        Self {
             min: Vector2::new(min_x, min_y),
             max: Vector2::new(max_x, max_y),
+        }
+    }
+
+    pub fn new_xywh(x: f32, y: f32, w: f32, h: f32) -> Self {
+        Self {
+            min: Vector2::new(x, y),
+            max: Vector2::new(x + w, y + h),
         }
     }
 

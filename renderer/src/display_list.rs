@@ -1,9 +1,10 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::{Debug, Display},
     hash::Hash,
     mem,
     ops::{Range, RangeInclusive},
+    sync::Mutex,
 };
 
 use cgmath::SquareMatrix;
@@ -15,6 +16,8 @@ use ldraw_ir::model::{GroupId, Model, Object, ObjectGroup, ObjectId, ObjectInsta
 use uuid::Uuid;
 use wgpu::util::DeviceExt;
 
+use crate::{Entity, GpuUpdate, GpuUpdateResult};
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct InstanceData {
@@ -23,13 +26,46 @@ struct InstanceData {
     edge_color: [f32; 4],
 }
 
+impl InstanceData {
+    pub fn get_matrix(&self) -> Matrix4 {
+        self.model_matrix.into()
+    }
+
+    pub fn get_color(&self) -> Vector4 {
+        self.color.into()
+    }
+
+    pub fn get_edge_color(&self) -> Vector4 {
+        self.edge_color.into()
+    }
+}
+
+#[derive(Debug)]
+struct InstanceTransaction<K> {
+    rows_to_insert: HashMap<K, (Matrix4, Vector4, Vector4)>,
+    rows_to_remove: Vec<K>,
+    changed_indices: Vec<usize>,
+}
+
+impl<K> Default for InstanceTransaction<K> {
+    fn default() -> Self {
+        Self {
+            rows_to_insert: HashMap::new(),
+            rows_to_remove: Vec::new(),
+            changed_indices: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Instances<K, G> {
     group: G,
     index: HashMap<K, usize>,
     instance_data: Vec<InstanceData>,
 
-    pub instance_buffer: wgpu::Buffer,
+    pub instance_buffer: Option<wgpu::Buffer>,
+
+    transaction: Mutex<Option<InstanceTransaction<K>>>,
 }
 
 impl<K, G> Instances<K, G> {
@@ -42,11 +78,13 @@ impl<K, G> Instances<K, G> {
     }
 
     fn update_buffer_partial(&self, queue: &wgpu::Queue, range: RangeInclusive<usize>) {
-        queue.write_buffer(
-            &self.instance_buffer,
-            (range.start() * mem::size_of::<InstanceData>()) as wgpu::BufferAddress,
-            bytemuck::cast_slice(&self.instance_data[range]),
-        )
+        if let Some(buffer) = &self.instance_buffer {
+            queue.write_buffer(
+                buffer,
+                (range.start() * mem::size_of::<InstanceData>()) as wgpu::BufferAddress,
+                bytemuck::cast_slice(&self.instance_data[range]),
+            )
+        }
     }
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
@@ -91,11 +129,13 @@ impl<K, G> Instances<K, G> {
 
 impl<K, G: Display> Instances<K, G> {
     fn rebuild_buffer(&mut self, device: &wgpu::Device) {
-        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("Instance buffer for {}", self.group)),
-            contents: bytemuck::cast_slice(&self.instance_data),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        self.instance_buffer = Some(
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("Instance buffer for {}", self.group)),
+                contents: bytemuck::cast_slice(&self.instance_data),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            }),
+        );
     }
 }
 
@@ -104,40 +144,21 @@ impl<
         G: Clone + Eq + PartialEq + Hash + Display,
     > Instances<K, G>
 {
-    pub fn new(device: &wgpu::Device, group: G) -> Self {
-        let instance_data = Vec::new();
-        let index = HashMap::new();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("Instance buffer for {}", group)),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-
+    pub fn new(group: G) -> Self {
         Self {
             group,
-            index,
-            instance_data,
+            index: HashMap::new(),
+            instance_data: Vec::new(),
 
-            instance_buffer,
-        }
-    }
+            instance_buffer: None,
 
-    pub fn modify<F: FnOnce(&mut InstanceTransaction<K, G>) -> bool>(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        f: F,
-    ) {
-        let mut transaction = InstanceTransaction::new(self);
-
-        if f(&mut transaction) {
-            transaction.commit(device, queue);
+            transaction: Mutex::new(None),
         }
     }
 }
 
 #[derive(Debug)]
-enum Ops<K> {
+pub enum InstanceOps<K> {
     Insert {
         key: K,
         matrix: Matrix4,
@@ -166,224 +187,155 @@ enum Ops<K> {
     Remove(K),
 }
 
-pub struct InstanceTransaction<'a, K, G> {
-    instances: &'a mut Instances<K, G>,
-    ops: Vec<Ops<K>>,
-}
+impl<K: Clone + Eq + PartialEq + Hash, G: Display> GpuUpdate for Instances<K, G> {
+    type Mutator = InstanceOps<K>;
 
-impl<
-        'a,
-        K: Clone + Debug + Eq + PartialEq + Hash + Display,
-        G: Clone + Eq + PartialEq + Hash + Display,
-    > InstanceTransaction<'a, K, G>
-{
-    pub fn new(instances: &'a mut Instances<K, G>) -> Self {
-        Self {
-            instances,
-            ops: Vec::new(),
-        }
-    }
+    fn mutate(&mut self, mutator: Self::Mutator) -> GpuUpdateResult<Self::Mutator> {
+        let mut tr_lock = self.transaction.lock().unwrap();
+        let tr = tr_lock.get_or_insert_with(Default::default);
 
-    pub fn insert(&mut self, key: K, matrix: Matrix4, color: Vector4, edge_color: Vector4) {
-        self.ops.push(Ops::Insert {
-            key,
-            matrix,
-            color,
-            edge_color,
-        });
-    }
-
-    pub fn update(&mut self, key: K, matrix: Matrix4, color: Vector4, edge_color: Vector4) {
-        self.ops.push(Ops::Update {
-            key,
-            matrix,
-            color,
-            edge_color,
-        });
-    }
-
-    pub fn update_matrix(&mut self, key: K, matrix: Matrix4) {
-        self.ops.push(Ops::UpdateMatrix { key, matrix });
-    }
-
-    pub fn update_color(&mut self, key: K, color: Vector4, edge_color: Vector4) {
-        self.ops.push(Ops::UpdateColor {
-            key,
-            color,
-            edge_color,
-        });
-    }
-
-    pub fn update_alpha(&mut self, key: K, alpha: f32) {
-        self.ops.push(Ops::UpdateAlpha { key, alpha });
-    }
-
-    pub fn remove(&mut self, key: K) {
-        self.ops.push(Ops::Remove(key));
-    }
-
-    fn push_ops(&mut self, ops: Ops<K>) {
-        self.ops.push(ops);
-    }
-
-    fn commit(mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        let mut rows_to_remove = vec![];
-        let mut rows_to_insert = HashMap::new();
-        let mut changed_indices = vec![];
-
-        let instances = &mut self.instances;
-
-        for op in self.ops {
-            match op {
-                Ops::Insert {
-                    key,
-                    matrix,
-                    color,
-                    edge_color,
-                } => {
-                    rows_to_insert.insert(key, (matrix, color, edge_color));
+        match mutator {
+            InstanceOps::Insert {
+                key,
+                matrix,
+                color,
+                edge_color,
+            } => {
+                tr.rows_to_insert.insert(key, (matrix, color, edge_color));
+            }
+            InstanceOps::Remove(key) => {
+                tr.rows_to_remove.push(key);
+            }
+            InstanceOps::Update {
+                key,
+                matrix,
+                color,
+                edge_color,
+            } => {
+                if let Some(entry_idx) = self.index.get(&key).cloned() {
+                    let data = &mut self.instance_data[entry_idx];
+                    data.model_matrix = matrix.into();
+                    data.color = color.into();
+                    data.edge_color = edge_color.into();
+                    tr.changed_indices.push(entry_idx);
+                } else if let Some(entry) = tr.rows_to_insert.get_mut(&key) {
+                    entry.0 = matrix;
+                    entry.1 = color;
+                    entry.2 = edge_color;
                 }
-                Ops::Remove(key) => rows_to_remove.push(key),
-                Ops::Update {
-                    key,
-                    matrix,
-                    color,
-                    edge_color,
-                } => {
-                    if let Some(entry_idx) = instances.index.get(&key).cloned() {
-                        let data = &mut instances.instance_data[entry_idx];
-                        data.model_matrix = matrix.into();
-                        data.color = color.into();
-                        data.edge_color = edge_color.into();
-                        changed_indices.push(entry_idx);
-                    } else if let Some(entry) = rows_to_insert.get_mut(&key) {
-                        entry.0 = matrix;
-                        entry.1 = color;
-                        entry.2 = edge_color;
-                    }
+            }
+            InstanceOps::UpdateMatrix { key, matrix } => {
+                if let Some(entry_idx) = self.index.get(&key).cloned() {
+                    let data = &mut self.instance_data[entry_idx];
+                    data.model_matrix = matrix.into();
+                    tr.changed_indices.push(entry_idx);
+                } else if let Some(entry) = tr.rows_to_insert.get_mut(&key) {
+                    entry.0 = matrix;
                 }
-                Ops::UpdateMatrix { key, matrix } => {
-                    if let Some(entry_idx) = instances.index.get(&key).cloned() {
-                        let data = &mut instances.instance_data[entry_idx];
-                        data.model_matrix = matrix.into();
-                        changed_indices.push(entry_idx);
-                    } else if let Some(entry) = rows_to_insert.get_mut(&key) {
-                        entry.0 = matrix;
-                    }
+            }
+            InstanceOps::UpdateColor {
+                key,
+                color,
+                edge_color,
+            } => {
+                if let Some(entry_idx) = self.index.get(&key).cloned() {
+                    let data = &mut self.instance_data[entry_idx];
+                    data.color = color.into();
+                    data.edge_color = edge_color.into();
+                    tr.changed_indices.push(entry_idx);
+                } else if let Some(entry) = tr.rows_to_insert.get_mut(&key) {
+                    entry.1 = color;
+                    entry.2 = edge_color;
                 }
-                Ops::UpdateColor {
-                    key,
-                    color,
-                    edge_color,
-                } => {
-                    if let Some(entry_idx) = instances.index.get(&key).cloned() {
-                        let data = &mut instances.instance_data[entry_idx];
-                        data.color = color.into();
-                        data.edge_color = edge_color.into();
-                        changed_indices.push(entry_idx);
-                    } else if let Some(entry) = rows_to_insert.get_mut(&key) {
-                        entry.1 = color;
-                        entry.2 = edge_color;
-                    }
-                }
-                Ops::UpdateAlpha { key, alpha } => {
-                    if let Some(entry_idx) = instances.index.get(&key).cloned() {
-                        let data = &mut instances.instance_data[entry_idx];
-                        data.color[3] = alpha;
-                        data.edge_color[3] = alpha;
-                        changed_indices.push(entry_idx);
-                    } else if let Some(entry) = rows_to_insert.get_mut(&key) {
-                        entry.1.w = alpha;
-                        entry.2.w = alpha;
-                    }
+            }
+            InstanceOps::UpdateAlpha { key, alpha } => {
+                if let Some(entry_idx) = self.index.get(&key).cloned() {
+                    let data = &mut self.instance_data[entry_idx];
+                    data.color[3] = alpha;
+                    data.edge_color[3] = alpha;
+                    tr.changed_indices.push(entry_idx);
+                } else if let Some(entry) = tr.rows_to_insert.get_mut(&key) {
+                    entry.1.w = alpha;
+                    entry.2.w = alpha;
                 }
             }
         }
 
+        GpuUpdateResult::Modified
+    }
+
+    fn handle_gpu_update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let Some(mut tr) = self.transaction.lock().unwrap().take() else {
+            return;
+        };
+
         let mut layout_changed = false;
 
-        let mut rows_to_remove = rows_to_remove
+        let mut rows_to_remove = tr
+            .rows_to_remove
             .into_iter()
-            .filter_map(|key| instances.index.get(&key).map(|v| (key, *v)))
+            .filter_map(|key| self.index.get(&key).map(|v| (key, *v)))
             .collect::<Vec<_>>();
         rows_to_remove.sort_by_key(|v| std::cmp::Reverse(v.1));
 
-        for (key, (matrix, color, edge_color)) in rows_to_insert.into_iter() {
+        for (key, (matrix, color, edge_color)) in tr.rows_to_insert.into_iter() {
             if let Some((old_key, idx_to_reuse)) = rows_to_remove.pop() {
                 // Take over removed rows and fill with inserted ones if available
-                let data = &mut instances.instance_data[idx_to_reuse];
+                let data = &mut self.instance_data[idx_to_reuse];
                 data.model_matrix = matrix.into();
                 data.color = color.into();
                 data.edge_color = edge_color.into();
-                instances.index.remove(&old_key);
-                instances.index.insert(key, idx_to_reuse);
-                changed_indices.push(idx_to_reuse);
+                self.index.remove(&old_key);
+                self.index.insert(key, idx_to_reuse);
+                tr.changed_indices.push(idx_to_reuse);
             } else {
                 // Insert new rows
                 layout_changed = true;
-                instances.instance_data.push(InstanceData {
+                self.instance_data.push(InstanceData {
                     model_matrix: matrix.into(),
                     color: color.into(),
                     edge_color: edge_color.into(),
                 });
-                instances
-                    .index
-                    .insert(key, instances.instance_data.len() - 1);
+                self.index.insert(key, self.instance_data.len() - 1);
             }
         }
 
         // Remove rows
         if !rows_to_remove.is_empty() {
-            rows_to_remove.reverse();
-
-            let len = instances.instance_data.len();
-            let mut removed_rows_set = HashSet::new();
-
-            let mut removed = 0;
-            for (key, index) in rows_to_remove.iter() {
-                instances.instance_data.remove(index - removed);
-                removed_rows_set.insert(key);
-                removed += 1;
-                layout_changed = true;
-            }
-
-            // Squash the index
-            removed = 0;
-            let reverse_lookup = instances
+            let reverse_lookup = self
                 .index
                 .clone()
                 .into_iter()
                 .map(|(k, v)| (v, k))
                 .collect::<HashMap<_, _>>();
 
-            for i in 0..len {
-                let v = reverse_lookup.get(&i).expect("Corrupted instance buffer");
-
-                if removed_rows_set.contains(v) {
-                    removed += 1;
-                    instances.index.remove(v);
-                } else if let Some(pos) = instances.index.get_mut(v) {
-                    *pos -= removed;
+            for (key, index) in rows_to_remove.iter() {
+                let last = self.instance_data.len() - 1;
+                if let Some(last_key) = reverse_lookup.get(&last) {
+                    self.index.insert(last_key.clone(), *index);
                 }
+                self.index.remove(key);
+                self.instance_data.swap_remove(*index);
+                layout_changed = true;
             }
         }
 
-        if layout_changed {
-            instances.rebuild_buffer(device);
-        } else if !changed_indices.is_empty() {
-            changed_indices.sort();
-            let mut start = changed_indices[0];
+        if layout_changed || self.instance_buffer.is_none() {
+            self.rebuild_buffer(device);
+        } else if !tr.changed_indices.is_empty() {
+            tr.changed_indices.sort();
+            let mut start = tr.changed_indices[0];
             let mut end = start;
-            for index in changed_indices {
+            for index in tr.changed_indices {
                 if index > end + 1 {
-                    instances.update_buffer_partial(queue, start..=end);
+                    self.update_buffer_partial(queue, start..=end);
                     start = index;
                     end = index;
                 } else {
                     end = index;
                 }
             }
-            instances.update_buffer_partial(queue, start..=end);
+            self.update_buffer_partial(queue, start..=end);
         }
     }
 }
@@ -405,7 +357,7 @@ struct Group<G>(GroupKind, G);
 
 #[derive(Debug, Default)]
 pub struct DisplayList<K, G> {
-    map: HashMap<Group<G>, Instances<K, G>>,
+    map: HashMap<Group<G>, Entity<Instances<K, G>>>,
     lookup_table: HashMap<K, Group<G>>,
 }
 
@@ -417,13 +369,13 @@ impl<K, G> DisplayList<K, G> {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&G, bool, &Instances<K, G>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&G, bool, &Entity<Instances<K, G>>)> {
         self.map
             .iter()
             .map(|(k, v)| (&k.1, matches!(k.0, GroupKind::Translucent), v))
     }
 
-    pub fn iter_opaque(&self) -> impl Iterator<Item = (&G, &Instances<K, G>)> {
+    pub fn iter_opaque(&self) -> impl Iterator<Item = (&G, &Entity<Instances<K, G>>)> {
         self.map.iter().filter_map(|(k, v)| {
             if matches!(k.0, GroupKind::Opaque) {
                 Some((&k.1, v))
@@ -433,7 +385,7 @@ impl<K, G> DisplayList<K, G> {
         })
     }
 
-    pub fn iter_translucent(&self) -> impl Iterator<Item = (&G, &Instances<K, G>)> {
+    pub fn iter_translucent(&self) -> impl Iterator<Item = (&G, &Entity<Instances<K, G>>)> {
         self.map.iter().filter_map(|(k, v)| {
             if matches!(k.0, GroupKind::Translucent) {
                 Some((&k.1, v))
@@ -449,30 +401,17 @@ impl<
         G: Clone + Eq + PartialEq + Hash + Display,
     > DisplayList<K, G>
 {
-    fn get_or_create(&mut self, group: Group<G>, device: &wgpu::Device) -> &mut Instances<K, G> {
+    fn get_or_create(&mut self, group: Group<G>) -> &mut Entity<Instances<K, G>> {
         self.map
             .entry(group.clone())
-            .or_insert_with(|| Instances::new(device, group.1))
+            .or_insert_with(|| Instances::new(group.1).into())
     }
 
-    pub fn get_by_key(&self, k: &K) -> Option<&Instances<K, G>> {
+    pub fn get_by_key(&self, k: &K) -> Option<&Entity<Instances<K, G>>> {
         if let Some(group) = self.lookup_table.get(k) {
             self.map.get(group)
         } else {
             None
-        }
-    }
-
-    pub fn modify<F: FnOnce(&mut DisplayListTransaction<K, G>) -> bool>(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        f: F,
-    ) {
-        let mut transaction = DisplayListTransaction::new(self);
-
-        if f(&mut transaction) {
-            transaction.commit(device, queue);
         }
     }
 }
@@ -487,7 +426,7 @@ fn uuid_xor(a: ObjectId, b: ObjectId) -> ObjectId {
 
 impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<ObjectId, P> {
     fn expand_object_group(
-        t: &mut DisplayListTransaction<ObjectId, P>,
+        ops: &mut Vec<DisplayListOps<ObjectId, P>>,
         color_catalog: &ColorCatalog,
         parent_id: ObjectId,
         groups: &HashMap<GroupId, ObjectGroup<P>>,
@@ -508,13 +447,13 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<O
                         ColorReference::Color(c) => c,
                         _ => color_catalog.get(&0).unwrap(),
                     };
-                    t.insert(
-                        p.part.clone(),
-                        uuid_xor(parent_id, object.id),
-                        local_matrix,
-                        color,
-                        None,
-                    );
+                    ops.push(DisplayListOps::Insert {
+                        group: p.part.clone(),
+                        key: uuid_xor(parent_id, object.id),
+                        matrix: local_matrix,
+                        color: color.clone(),
+                        alpha: None,
+                    });
                 }
                 ObjectInstance::PartGroup(g) => {
                     if let Some(group) = groups.get(&g.group_id) {
@@ -526,7 +465,7 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<O
                         .clone();
 
                         Self::expand_object_group(
-                            t,
+                            ops,
                             color_catalog,
                             uuid_xor(parent_id, object.id),
                             groups,
@@ -544,289 +483,328 @@ impl<P: Clone + Eq + PartialEq + Hash + From<PartAlias> + Display> DisplayList<O
     pub fn from_model(
         model: &Model<P>,
         group_id: Option<GroupId>,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
         color_catalog: &ColorCatalog,
-    ) -> Self {
-        let mut display_list = Self::new();
+    ) -> Entity<Self> {
+        let mut display_list = Entity::new(Self::new());
 
         let objects = match group_id {
             Some(group_id) => model.object_groups.get(&group_id).map(|v| &v.objects),
             None => Some(&model.objects),
         };
 
+        let mut ops = vec![];
         if let Some(objects) = objects {
-            display_list.modify(device, queue, |t| {
-                Self::expand_object_group(
-                    t,
-                    color_catalog,
-                    Uuid::nil().into(),
-                    &model.object_groups,
-                    objects,
-                    Matrix4::identity(),
-                    ColorReference::Color(color_catalog.get(&0).cloned().unwrap()),
-                );
-                true
-            });
+            Self::expand_object_group(
+                &mut ops,
+                color_catalog,
+                Uuid::nil().into(),
+                &model.object_groups,
+                objects,
+                Matrix4::identity(),
+                ColorReference::Color(color_catalog.get(&0).cloned().unwrap()),
+            )
         }
+        display_list.mutate_all(ops.into_iter());
 
         display_list
     }
 }
 
-pub struct DisplayListTransaction<'a, K, G> {
-    display_list: &'a mut DisplayList<K, G>,
-    lookup_table: HashMap<K, Group<G>>,
-    ops: HashMap<Group<G>, Vec<Ops<K>>>,
+pub struct DisplayListOpsReinstantiate<G, K> {
+    group: Group<G>,
+    key: K,
+    matrix: Matrix4,
+    color: Vector4,
+    edge_color: Vector4,
 }
 
-impl<
-        'a,
-        K: Clone + Debug + Eq + PartialEq + Hash + Display,
-        G: Clone + Eq + PartialEq + Hash + Display,
-    > DisplayListTransaction<'a, K, G>
-{
-    fn new(display_list: &'a mut DisplayList<K, G>) -> Self {
-        let lookup_table = display_list.lookup_table.clone();
-
-        Self {
-            display_list,
-            lookup_table,
-            ops: HashMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, group: G, key: K, matrix: Matrix4, color: &Color, alpha: Option<f32>) {
-        self.do_insert(
-            group,
-            key,
-            matrix,
-            color.color.into(),
-            color.edge.into(),
-            alpha,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn do_insert(
-        &mut self,
+pub enum DisplayListOps<K, G> {
+    Insert {
         group: G,
         key: K,
         matrix: Matrix4,
-        color: Vector4,
-        edge_color: Vector4,
+        color: Color,
         alpha: Option<f32>,
-    ) {
-        if self.lookup_table.contains_key(&key) {
-            return;
-        }
+    },
+    Update {
+        key: K,
+        matrix: Matrix4,
+        color: Color,
+    },
+    UpdateMatrix {
+        key: K,
+        matrix: Matrix4,
+    },
+    UpdateColor {
+        key: K,
+        color: Color,
+    },
+    UpdateAlpha {
+        key: K,
+        alpha: f32,
+    },
+    Remove {
+        key: K,
+    },
+    _Reinstantiate(DisplayListOpsReinstantiate<G, K>),
+}
 
-        let is_translucent = color.w < 1.0 || alpha.unwrap_or(1.0) < 1.0;
+impl<
+        K: Clone + Debug + Eq + PartialEq + Hash + Display,
+        G: Clone + Eq + PartialEq + Hash + Display,
+    > GpuUpdate for DisplayList<K, G>
+{
+    type Mutator = DisplayListOps<K, G>;
 
-        let group = if is_translucent {
-            Group(GroupKind::Translucent, group)
-        } else {
-            Group(GroupKind::Opaque, group)
-        };
+    fn mutate(&mut self, mutator: Self::Mutator) -> GpuUpdateResult<Self::Mutator> {
+        match mutator {
+            DisplayListOps::Insert {
+                group,
+                key,
+                matrix,
+                color,
+                alpha,
+            } => {
+                let mut main_color: Vector4 = color.color.into();
+                let mut edge_color: Vector4 = color.edge.into();
 
-        self.lookup_table.insert(key.clone(), group.clone());
+                if self.lookup_table.contains_key(&key) {
+                    GpuUpdateResult::NotModified
+                } else {
+                    let is_translucent = main_color.w < 1.0 || alpha.unwrap_or(1.0) < 1.0;
 
-        let mut color_vec: Vector4 = color;
-        let mut edge_color_vec: Vector4 = edge_color;
+                    let group = if is_translucent {
+                        Group(GroupKind::Translucent, group)
+                    } else {
+                        Group(GroupKind::Opaque, group)
+                    };
 
-        if alpha.unwrap_or(1.0) < 1.0 {
-            let alpha = alpha.unwrap();
-            color_vec.w = alpha;
-            edge_color_vec.w = alpha;
-        }
+                    self.lookup_table.insert(key.clone(), group.clone());
 
-        self.ops.entry(group).or_default().push(Ops::Insert {
-            key,
-            matrix,
-            color: color_vec,
-            edge_color: edge_color_vec,
-        });
-    }
-
-    pub fn update(&mut self, key: K, matrix: Matrix4, color: &Color) {
-        if let Some(group) = self.lookup_table.get(&key) {
-            if group.0.is_translucent() != color.is_translucent() {
-                let id = group.1.clone();
-                self.remove(key.clone());
-                self.insert(id, key, matrix, color, None);
-            } else {
-                self.ops
-                    .entry(group.clone())
-                    .or_default()
-                    .push(Ops::Update {
-                        key,
-                        matrix,
-                        color: color.color.into(),
-                        edge_color: color.edge.into(),
-                    });
-            }
-        }
-    }
-
-    pub fn update_matrix(&mut self, key: K, matrix: Matrix4) {
-        if let Some(group) = self.lookup_table.get(&key) {
-            self.ops
-                .entry(group.clone())
-                .or_default()
-                .push(Ops::UpdateMatrix { key, matrix });
-        }
-    }
-
-    pub fn update_color(&mut self, key: K, color: &Color) {
-        if let Some(group) = self.lookup_table.get(&key) {
-            if group.0.is_translucent() != color.is_translucent() {
-                let matrix = {
-                    // Take matrix from previous entries (quite cumbersome)
-                    let mut latest = None;
-                    if let Some(ops) = self.ops.get(group) {
-                        for op in ops.iter() {
-                            match op {
-                                Ops::Insert {
-                                    key: okey, matrix, ..
-                                } => {
-                                    if okey == &key {
-                                        latest = Some(*matrix);
-                                    }
-                                }
-                                Ops::Update {
-                                    key: okey, matrix, ..
-                                } => {
-                                    if okey == &key {
-                                        latest = Some(*matrix);
-                                    }
-                                }
-                                Ops::UpdateMatrix { key: okey, matrix } => {
-                                    if okey == &key {
-                                        latest = Some(*matrix);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
+                    if let Some(alpha) = alpha {
+                        main_color.w = alpha;
+                        edge_color.w = alpha;
                     }
-                    if latest.is_none() {
-                        if let Some(instances) = self.display_list.get_by_key(&key) {
-                            if let Some(index) = instances.index.get(&key) {
-                                latest = Some(instances.instance_data[*index].model_matrix.into());
-                            }
-                        }
-                    }
-                    match latest {
-                        Some(v) => v,
-                        None => {
-                            panic!("Corrupted transaction.")
-                        }
-                    }
-                };
-                let id = group.1.clone();
-                self.remove(key.clone());
-                self.insert(id, key, matrix, color, None);
-            } else {
-                self.ops
-                    .entry(group.clone())
-                    .or_default()
-                    .push(Ops::UpdateColor {
-                        key,
-                        color: color.color.into(),
-                        edge_color: color.edge.into(),
-                    });
-            }
-        }
-    }
 
-    pub fn update_alpha(&mut self, key: K, alpha: f32) {
-        let is_translucent = alpha < 1.0;
-        if let Some(group) = self.lookup_table.get(&key) {
-            if group.0.is_translucent() != is_translucent {
-                let entry = {
-                    // Take matrix from previous entries (quite cumbersome)
-                    let mut latest = None;
-                    if let Some(ops) = self.ops.get(group) {
-                        for op in ops.iter() {
-                            match op {
-                                Ops::Insert {
-                                    key: okey,
-                                    matrix,
-                                    color,
-                                    edge_color,
-                                } => {
-                                    if okey == &key {
-                                        latest = Some((*matrix, *color, *edge_color));
-                                    }
-                                }
-                                Ops::Update {
-                                    key: okey,
-                                    matrix,
-                                    color,
-                                    edge_color,
-                                } => {
-                                    if okey == &key {
-                                        latest = Some((*matrix, *color, *edge_color));
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    if latest.is_none() {
-                        if let Some(instances) = self.display_list.get_by_key(&key) {
-                            if let Some(index) = instances.index.get(&key) {
-                                latest = Some((
-                                    instances.instance_data[*index].model_matrix.into(),
-                                    instances.instance_data[*index].color.into(),
-                                    instances.instance_data[*index].edge_color.into(),
-                                ));
-                            }
-                        }
-                    }
-                    match latest {
-                        Some(v) => v,
-                        None => {
-                            panic!("Corrupted transaction.")
-                        }
-                    }
-                };
-                let id = group.1.clone();
-                let mut color = entry.1;
-                color.w = alpha;
-                let mut edge_color = entry.2;
-                edge_color.w = alpha;
-                self.remove(key.clone());
-                self.do_insert(id, key, entry.0, color, edge_color, Some(alpha));
-            } else {
-                self.ops
-                    .entry(group.clone())
-                    .or_default()
-                    .push(Ops::UpdateAlpha { key, alpha });
-            }
-        }
-    }
+                    self.lookup_table.insert(key.clone(), group.clone());
 
-    pub fn remove(&mut self, key: K) {
-        if let Some(group) = self.lookup_table.remove(&key) {
-            self.ops.entry(group).or_default().push(Ops::Remove(key));
-        }
-    }
-
-    fn commit(self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        for (part, ops) in self.ops.into_iter() {
-            let instances = self.display_list.get_or_create(part, device);
-            instances.modify(device, queue, |t| {
-                for op in ops {
-                    t.push_ops(op);
+                    let entity = self.get_or_create(group);
+                    entity
+                        .mutate(InstanceOps::Insert {
+                            key,
+                            matrix,
+                            color: main_color,
+                            edge_color,
+                        })
+                        .into()
                 }
+            }
+            DisplayListOps::Update { key, matrix, color } => {
+                if let Some(group) = self.lookup_table.get(&key) {
+                    if group.0.is_translucent() != color.is_translucent() {
+                        let id = group.1.clone();
+                        let new_group = if color.is_translucent() {
+                            Group(GroupKind::Translucent, id)
+                        } else {
+                            Group(GroupKind::Opaque, id)
+                        };
 
-                true
-            });
+                        GpuUpdateResult::AdditionalMutations {
+                            modified: false,
+                            mutations: vec![DisplayListOps::_Reinstantiate(
+                                DisplayListOpsReinstantiate {
+                                    group: new_group,
+                                    key,
+                                    matrix,
+                                    color: color.color.into(),
+                                    edge_color: color.edge.into(),
+                                },
+                            )],
+                        }
+                    } else if let Some(instances) = self.map.get_mut(group) {
+                        instances
+                            .mutate(InstanceOps::Update {
+                                key,
+                                matrix,
+                                color: color.color.into(),
+                                edge_color: color.edge.into(),
+                            })
+                            .into()
+                    } else {
+                        GpuUpdateResult::NotModified
+                    }
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
+            DisplayListOps::UpdateAlpha { key, alpha } => {
+                let is_translucent = alpha < 1.0;
+                if let Some((group, instances)) = self
+                    .lookup_table
+                    .get(&key)
+                    .and_then(|g| self.map.get_mut(g).map(|v| (g.clone(), v)))
+                {
+                    if group.0.is_translucent() != is_translucent {
+                        let id = group.1.clone();
+                        let group = if is_translucent {
+                            Group(GroupKind::Translucent, id)
+                        } else {
+                            Group(GroupKind::Opaque, id)
+                        };
+
+                        let Some(index) = instances.get().index.get(&key) else {
+                            return GpuUpdateResult::NotModified;
+                        };
+
+                        let instance = instances.get().instance_data[*index];
+
+                        let mut color = instance.get_color();
+                        color.w = alpha;
+                        let mut edge_color = instance.get_edge_color();
+                        edge_color.w = alpha;
+
+                        GpuUpdateResult::AdditionalMutations {
+                            modified: false,
+                            mutations: vec![DisplayListOps::_Reinstantiate(
+                                DisplayListOpsReinstantiate {
+                                    group,
+                                    key,
+                                    matrix: instance.get_matrix(),
+                                    color,
+                                    edge_color,
+                                },
+                            )],
+                        }
+                    } else if let Some(entity) = self.map.get_mut(&group) {
+                        entity
+                            .mutate(InstanceOps::UpdateAlpha { key, alpha })
+                            .into()
+                    } else {
+                        GpuUpdateResult::NotModified
+                    }
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
+            DisplayListOps::UpdateColor { key, color } => {
+                if let Some((group, instances)) = self
+                    .lookup_table
+                    .get(&key)
+                    .and_then(|g| self.map.get_mut(g).map(|v| (g.clone(), v)))
+                {
+                    if group.0.is_translucent() != color.is_translucent() {
+                        let id = group.1.clone();
+                        let group = if color.is_translucent() {
+                            Group(GroupKind::Translucent, id)
+                        } else {
+                            Group(GroupKind::Opaque, id)
+                        };
+
+                        let Some(index) = instances.get().index.get(&key) else {
+                            return GpuUpdateResult::NotModified;
+                        };
+
+                        let instance = instances.get().instance_data[*index];
+
+                        GpuUpdateResult::AdditionalMutations {
+                            modified: false,
+                            mutations: vec![DisplayListOps::_Reinstantiate(
+                                DisplayListOpsReinstantiate {
+                                    group,
+                                    key,
+                                    matrix: instance.get_matrix(),
+                                    color: color.color.into(),
+                                    edge_color: color.edge.into(),
+                                },
+                            )],
+                        }
+                    } else if let Some(entity) = self.map.get_mut(&group) {
+                        entity
+                            .mutate(InstanceOps::UpdateColor {
+                                key,
+                                color: color.color.into(),
+                                edge_color: color.edge.into(),
+                            })
+                            .into()
+                    } else {
+                        GpuUpdateResult::NotModified
+                    }
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
+            DisplayListOps::UpdateMatrix { key, matrix } => {
+                let Some(group) = self.lookup_table.get(&key) else {
+                    return GpuUpdateResult::NotModified;
+                };
+
+                if let Some(entity) = self.map.get_mut(group) {
+                    entity
+                        .mutate(InstanceOps::UpdateMatrix { key, matrix })
+                        .into()
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
+            DisplayListOps::Remove { key } => {
+                let Some(group) = self.lookup_table.remove(&key) else {
+                    return GpuUpdateResult::NotModified;
+                };
+                let Some(entity) = self.map.get_mut(&group) else {
+                    return GpuUpdateResult::NotModified;
+                };
+
+                if entity.mutate(InstanceOps::Remove(key.clone())) {
+                    self.lookup_table.remove(&key);
+                    if (*entity).count() == 0 {
+                        self.map.remove(&group);
+                    }
+
+                    GpuUpdateResult::Modified
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
+            DisplayListOps::_Reinstantiate(DisplayListOpsReinstantiate {
+                group,
+                key,
+                matrix,
+                color,
+                edge_color,
+            }) => {
+                let Some(prev_group) = self.lookup_table.remove(&key) else {
+                    return GpuUpdateResult::NotModified;
+                };
+
+                let Some(entity) = self.map.get_mut(&prev_group) else {
+                    return GpuUpdateResult::NotModified;
+                };
+
+                entity.mutate(InstanceOps::Remove(key.clone()));
+
+                if self
+                    .get_or_create(group.clone())
+                    .mutate(InstanceOps::Insert {
+                        key: key.clone(),
+                        matrix,
+                        color,
+                        edge_color,
+                    })
+                {
+                    self.lookup_table.insert(key.clone(), group);
+
+                    GpuUpdateResult::Modified
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
         }
+    }
 
-        self.display_list.map.retain(|_k, v| v.count() > 0);
-        self.display_list.lookup_table = self.lookup_table;
+    fn handle_gpu_update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        for entity in self.map.values_mut() {
+            entity.update(device, queue);
+        }
     }
 }
 

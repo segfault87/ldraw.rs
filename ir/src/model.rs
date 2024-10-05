@@ -108,6 +108,17 @@ pub struct ObjectGroup<P> {
     pub pivot: Vector3,
 }
 
+impl<P> ObjectGroup<P> {
+    pub fn new(id: GroupId, name: String, pivot: Option<Vector3>) -> Self {
+        Self {
+            id,
+            name,
+            objects: Vec::new(),
+            pivot: pivot.unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0)),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Model<P: Clone + Eq + PartialEq + Hash> {
     pub object_groups: HashMap<GroupId, ObjectGroup<P>>,

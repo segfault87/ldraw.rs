@@ -25,11 +25,12 @@ use ldraw_ir::{
     part::bake_part_from_multipart_document,
 };
 use ldraw_renderer::{
-    camera::{PerspectiveCamera, Projection},
-    display_list::DisplayList,
+    display_list::{DisplayList, DisplayListOps},
     part::{Part, PartQuerier},
     pipeline::RenderingPipelineManager,
+    projection::{PerspectiveCamera, Projection, ProjectionModifier, ProjectionMutator},
     util::calculate_model_bounding_box,
+    Entity,
 };
 use uuid::Uuid;
 use winit::{
@@ -106,14 +107,7 @@ impl OrbitController {
         }
     }
 
-    pub fn update(
-        &mut self,
-        projection: &mut Projection,
-        queue: &wgpu::Queue,
-        width: u32,
-        height: u32,
-        tick: Option<f32>,
-    ) {
+    pub fn update(&mut self, width: u32, height: u32, tick: Option<f32>) -> Vec<ProjectionMutator> {
         if let (Some(p), Some(n)) = (self.tick, tick) {
             let delta = n - p;
 
@@ -126,7 +120,7 @@ impl OrbitController {
         self.tick = tick;
 
         self.camera.position = self.derive_coordinate();
-        projection.update_camera(queue, &self.camera, (width, height).into());
+        self.camera.update_projections((width, height).into())
     }
 
     fn derive_coordinate(&self) -> Point3 {
@@ -186,7 +180,7 @@ struct AnimatingRenderingItem {
 }
 
 struct AnimatedModel {
-    display_list: DisplayList<ObjectId, PartAlias>,
+    display_list: Entity<DisplayList<ObjectId, PartAlias>>,
     items: Vec<RenderingStep>,
     animating: RefCell<Vec<AnimatingRenderingItem>>,
 
@@ -199,7 +193,7 @@ struct AnimatedModel {
 impl Default for AnimatedModel {
     fn default() -> Self {
         Self {
-            display_list: DisplayList::new(),
+            display_list: DisplayList::new().into(),
             items: Vec::new(),
             animating: RefCell::new(Vec::new()),
 
@@ -255,8 +249,6 @@ impl AnimatedModel {
     pub fn from_model(
         model: &model::Model<PartAlias>,
         group_id: Option<GroupId>,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
         color_catalog: &ColorCatalog,
         animated: bool,
     ) -> Self {
@@ -284,7 +276,7 @@ impl AnimatedModel {
             let items_len = items.len();
 
             Self {
-                display_list: DisplayList::new(),
+                display_list: DisplayList::new().into(),
                 items,
                 animating: RefCell::new(Vec::new()),
 
@@ -298,8 +290,7 @@ impl AnimatedModel {
                 last_time: None,
             }
         } else {
-            let display_list =
-                DisplayList::from_model(model, group_id, device, queue, color_catalog);
+            let display_list = DisplayList::from_model(model, group_id, color_catalog);
 
             Self {
                 display_list,
@@ -314,7 +305,7 @@ impl AnimatedModel {
         }
     }
 
-    pub fn advance(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, time: f32) {
+    pub fn advance(&mut self, time: f32) {
         if self.state == State::Step || self.pointer.is_none() {
             let start = self.pointer.unwrap_or(0);
 
@@ -354,15 +345,12 @@ impl AnimatedModel {
                     started_at: time,
                     progress: 0.0,
                 });
-                self.display_list.modify(device, queue, |tr| {
-                    tr.insert(
-                        item.alias.clone(),
-                        item.id,
-                        item.matrix,
-                        &item.color,
-                        Some(0.0),
-                    );
-                    true
+                self.display_list.mutate(DisplayListOps::Insert {
+                    group: item.alias.clone(),
+                    key: item.id,
+                    matrix: item.matrix,
+                    color: item.color.clone(),
+                    alpha: Some(0.0),
                 });
                 self.state = State::Playing;
                 self.last_time = Some(time);
@@ -373,36 +361,40 @@ impl AnimatedModel {
         }
     }
 
-    pub fn animate(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, time: f32) {
+    pub fn animate(&mut self, time: f32) {
         if self.state == State::Playing {
-            self.advance(device, queue, time);
+            self.advance(time);
         }
 
         let mut animating = self.animating.borrow_mut();
 
-        animating.retain(|v| time - v.started_at < FALL_DURATION * 2.0);
+        for item in animating.iter_mut() {
+            let elapsed = (time - item.started_at).clamp(0.0, FALL_DURATION) / FALL_DURATION;
 
-        self.display_list.modify(device, queue, move |tr| {
-            let mut modified = false;
+            let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
+            let alpha = ease * (item.item.color.color.alpha() as f32 / 255.0);
 
-            for item in animating.iter_mut() {
-                modified = true;
+            let mut matrix = item.item.matrix;
+            matrix[3][1] = item.item.matrix[3][1] + (-(1.0 - ease) * 300.0);
 
-                let elapsed = (time - item.started_at).clamp(0.0, FALL_DURATION) / FALL_DURATION;
+            self.display_list.mutate_all(
+                vec![
+                    DisplayListOps::UpdateMatrix {
+                        key: item.item.id,
+                        matrix,
+                    },
+                    DisplayListOps::UpdateAlpha {
+                        key: item.item.id,
+                        alpha,
+                    },
+                ]
+                .into_iter(),
+            );
 
-                let ease = -(f32::consts::FRAC_PI_2 + elapsed * f32::consts::FRAC_PI_2).cos();
-                let alpha = ease * (item.item.color.color.alpha() as f32 / 255.0);
+            item.progress = elapsed;
+        }
 
-                let mut matrix = item.item.matrix;
-                matrix[3][1] = item.item.matrix[3][1] + (-(1.0 - ease) * 300.0);
-                tr.update_matrix(item.item.id, matrix);
-                tr.update_alpha(item.item.id, alpha);
-
-                item.progress = elapsed;
-            }
-
-            modified
-        });
+        animating.retain(|v| time - v.started_at < FALL_DURATION);
     }
 }
 
@@ -421,7 +413,7 @@ pub struct App<L: LibraryLoader> {
     depth_texture: Texture,
     sample_count: u32,
 
-    projection: Projection,
+    projection: Entity<Projection>,
     pipelines: RenderingPipelineManager,
 
     loader: Rc<L>,
@@ -505,14 +497,14 @@ impl<L: LibraryLoader> App<L> {
         let depth_texture =
             Texture::create_depth_texture(&device, &config, sample_count, Some("Depth texture"));
 
-        let mut projection = Projection::new(&device);
+        let mut projection: Entity<Projection> = Projection::new(&device).into();
         let orbit_controller = RefCell::new(OrbitController::default());
-        orbit_controller.borrow_mut().update(
-            &mut projection,
-            &queue,
-            size.width,
-            size.height,
-            None,
+
+        projection.mutate_all(
+            orbit_controller
+                .borrow_mut()
+                .update(size.width, size.height, None)
+                .into_iter(),
         );
 
         let pipelines = RenderingPipelineManager::new(&device, &queue, config.format, sample_count);
@@ -603,8 +595,7 @@ impl<L: LibraryLoader> App<L> {
         let bounding_box = calculate_model_bounding_box(&model, None, &*self.parts.borrow());
         let center = bounding_box.center();
 
-        self.animated_model =
-            AnimatedModel::from_model(&model, None, &self.device, &self.queue, &self.colors, true);
+        self.animated_model = AnimatedModel::from_model(&model, None, &self.colors, true);
         self.model = Some(model);
 
         let mut orbit_controller = self.orbit_controller.borrow_mut();
@@ -619,19 +610,18 @@ impl<L: LibraryLoader> App<L> {
     }
 
     pub fn advance(&mut self, time: f32) {
-        self.animated_model.advance(&self.device, &self.queue, time);
+        self.animated_model.advance(time);
     }
 
     pub fn animate(&mut self, time: f32) {
-        self.orbit_controller.borrow_mut().update(
-            &mut self.projection,
-            &self.queue,
-            self.size.width,
-            self.size.height,
-            Some(time),
+        self.projection.mutate_all(
+            self.orbit_controller
+                .borrow_mut()
+                .update(self.size.width, self.size.height, Some(time))
+                .into_iter(),
         );
 
-        self.animated_model.animate(&self.device, &self.queue, time);
+        self.animated_model.animate(time);
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -646,12 +636,11 @@ impl<L: LibraryLoader> App<L> {
 
             self.size = new_size;
 
-            self.orbit_controller.borrow_mut().update(
-                &mut self.projection,
-                &self.queue,
-                self.size.width,
-                self.size.height,
-                None,
+            self.projection.mutate_all(
+                self.orbit_controller
+                    .borrow_mut()
+                    .update(self.size.width, self.size.height, None)
+                    .into_iter(),
             );
 
             self.framebuffer_texture = if self.sample_count > 1 {
@@ -675,6 +664,11 @@ impl<L: LibraryLoader> App<L> {
 
     pub fn render(&mut self) -> Result<Duration, wgpu::SurfaceError> {
         let now = Instant::now();
+
+        self.projection.update(&self.device, &self.queue);
+        self.animated_model
+            .display_list
+            .update(&self.device, &self.queue);
 
         let part_querier = self.parts.borrow();
 
@@ -728,7 +722,7 @@ impl<L: LibraryLoader> App<L> {
 
             self.pipelines.render::<_, _>(
                 &mut pass,
-                &self.projection,
+                self.projection.get(),
                 &*part_querier,
                 &self.animated_model.display_list,
             );
@@ -756,14 +750,7 @@ impl<L: LibraryLoader> App<L> {
 
     pub fn set_render_target(&mut self, group_id: Option<GroupId>) {
         if let Some(model) = &mut self.model {
-            self.animated_model = AnimatedModel::from_model(
-                model,
-                group_id,
-                &self.device,
-                &self.queue,
-                &self.colors,
-                false,
-            );
+            self.animated_model = AnimatedModel::from_model(model, group_id, &self.colors, false);
 
             let bounding_box = calculate_model_bounding_box(model, group_id, &*self.parts.borrow());
             let center = bounding_box.center();

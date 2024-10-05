@@ -1,16 +1,18 @@
-use std::{collections::HashSet, hash::Hash, ops::Range};
+use std::{collections::HashSet, fmt::Display, hash::Hash, ops::Range};
 
 use cgmath::SquareMatrix;
 use image::GenericImageView;
 use ldraw::{color::Color, Matrix4, Vector3, Vector4};
 use wgpu::{util::DeviceExt, TextureViewDescriptor};
 
+use crate::display_list::InstanceOps;
+
 use super::{
-    camera::Projection,
     display_list::{DisplayList, Instances, SelectionDisplayList, SelectionInstances},
     error,
     part::{EdgeBuffer, MeshBuffer, OptionalEdgeBuffer, Part, PartQuerier},
-    ObjectSelection,
+    projection::Projection,
+    Entity, ObjectSelection,
 };
 
 const DEFAULT_OBJECT_SELECTION_FRAMEBUFFER_SIZE: u32 = 1024;
@@ -320,11 +322,15 @@ impl DefaultMeshRenderingPipeline {
         instances: &Instances<K, G>,
         range: Range<u32>,
     ) {
+        let Some(buffer) = &instances.instance_buffer else {
+            return;
+        };
+
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &projection.bind_group, &[]);
         pass.set_bind_group(1, &self.shading_uniforms.bind_group, &[]);
-        pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
+        pass.set_vertex_buffer(1, buffer.slice(..));
         pass.set_index_buffer(part.mesh.indices.slice(..), part.mesh.index_format);
         pass.draw_indexed(range, 0, instances.range());
     }
@@ -420,10 +426,13 @@ impl NoShadingMeshRenderingPipeline {
         instances: &Instances<K, G>,
         range: Range<u32>,
     ) {
+        let Some(buffer) = &instances.instance_buffer else {
+            return;
+        };
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &projection.bind_group, &[]);
-        pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
+        pass.set_vertex_buffer(1, buffer.slice(..));
         pass.set_index_buffer(part.mesh.indices.slice(..), part.mesh.index_format);
         pass.draw_indexed(range, 0, instances.range());
     }
@@ -516,17 +525,21 @@ impl EdgeRenderingPipeline {
         part: &Part,
         instances: &Instances<K, G>,
     ) -> bool {
-        if let Some(edges) = part.edges.as_ref() {
-            pass.set_vertex_buffer(0, edges.vertices.slice(..));
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &projection.bind_group, &[]);
-            pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
-            pass.set_index_buffer(edges.indices.slice(..), edges.index_format);
-            pass.draw_indexed(edges.range.clone(), 0, instances.range());
-            true
-        } else {
-            false
-        }
+        let Some(instance_buffer) = &instances.instance_buffer else {
+            return false;
+        };
+
+        let Some(edges) = &part.edges else {
+            return false;
+        };
+
+        pass.set_vertex_buffer(0, edges.vertices.slice(..));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_vertex_buffer(1, instance_buffer.slice(..));
+        pass.set_index_buffer(edges.indices.slice(..), edges.index_format);
+        pass.draw_indexed(edges.range.clone(), 0, instances.range());
+        true
     }
 }
 
@@ -621,16 +634,20 @@ impl OptionalEdgeRenderingPipeline {
         part: &Part,
         instances: &Instances<K, G>,
     ) -> bool {
-        if let Some(ref optional_edges) = part.optional_edges {
-            pass.set_vertex_buffer(0, optional_edges.vertices.slice(..));
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &projection.bind_group, &[]);
-            pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
-            pass.draw(optional_edges.range.clone(), instances.range());
-            true
-        } else {
-            false
-        }
+        let Some(optional_edges) = &part.optional_edges else {
+            return false;
+        };
+
+        let Some(instance_buffer) = &instances.instance_buffer else {
+            return false;
+        };
+
+        pass.set_vertex_buffer(0, optional_edges.vertices.slice(..));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_vertex_buffer(1, instance_buffer.slice(..));
+        pass.draw(optional_edges.range.clone(), instances.range());
+        true
     }
 }
 
@@ -864,7 +881,7 @@ pub struct RenderingPipelineManager {
     optional_edge: OptionalEdgeRenderingPipeline,
     object_selection: ObjectSelectionRenderingPipeline,
 
-    single_part_instance_buffer: Instances<i32, i32>,
+    single_part_instance_buffer: Entity<Instances<i32, i32>>,
 }
 
 impl RenderingPipelineManager {
@@ -874,15 +891,12 @@ impl RenderingPipelineManager {
         render_texture_format: wgpu::TextureFormat,
         sample_count: u32,
     ) -> Self {
-        let mut single_part_instance_buffer = Instances::new(device, 0);
-        single_part_instance_buffer.modify(device, queue, |tr| {
-            tr.insert(
-                0,
-                Matrix4::identity(),
-                Vector4::new(0.0, 0.0, 0.0, 0.0),
-                Vector4::new(0.0, 0.0, 0.0, 0.0),
-            );
-            true
+        let mut single_part_instance_buffer = Entity::new(Instances::new(0));
+        single_part_instance_buffer.mutate(InstanceOps::Insert {
+            key: 0,
+            matrix: Matrix4::identity(),
+            color: Vector4::new(0.0, 0.0, 0.0, 0.0),
+            edge_color: Vector4::new(0.0, 0.0, 0.0, 0.0),
         });
 
         Self {
@@ -923,10 +937,13 @@ impl RenderingPipelineManager {
         color: &Color,
     ) {
         self.single_part_instance_buffer
-            .modify(device, queue, |tr| {
-                tr.update(0, matrix, color.color.into(), color.edge.into());
-                true
+            .mutate(InstanceOps::Update {
+                key: 0,
+                matrix,
+                color: color.color.into(),
+                edge_color: color.edge.into(),
             });
+        self.single_part_instance_buffer.update(device, queue);
 
         if !color.is_translucent() {
             if let Some(range) = &part.mesh.uncolored_range {
@@ -934,7 +951,7 @@ impl RenderingPipelineManager {
                     pass,
                     projection,
                     part,
-                    &self.single_part_instance_buffer,
+                    &*self.single_part_instance_buffer,
                     range.clone(),
                 );
             }
@@ -943,7 +960,7 @@ impl RenderingPipelineManager {
                     pass,
                     projection,
                     part,
-                    &self.single_part_instance_buffer,
+                    &*self.single_part_instance_buffer,
                     range.clone(),
                 );
             }
@@ -954,7 +971,7 @@ impl RenderingPipelineManager {
                 pass,
                 projection,
                 part,
-                &self.single_part_instance_buffer,
+                &*self.single_part_instance_buffer,
                 range.clone(),
             );
         }
@@ -963,7 +980,7 @@ impl RenderingPipelineManager {
                 pass,
                 projection,
                 part,
-                &self.single_part_instance_buffer,
+                &*self.single_part_instance_buffer,
                 range.clone(),
             );
         }
@@ -974,7 +991,7 @@ impl RenderingPipelineManager {
                     pass,
                     projection,
                     part,
-                    &self.single_part_instance_buffer,
+                    &*self.single_part_instance_buffer,
                     range.clone(),
                 );
             }
@@ -983,19 +1000,19 @@ impl RenderingPipelineManager {
                     pass,
                     projection,
                     part,
-                    &self.single_part_instance_buffer,
+                    &*self.single_part_instance_buffer,
                     range.clone(),
                 );
             }
         }
 
         self.edge
-            .render(pass, projection, part, &self.single_part_instance_buffer);
+            .render(pass, projection, part, &*self.single_part_instance_buffer);
         self.optional_edge
-            .render(pass, projection, part, &self.single_part_instance_buffer);
+            .render(pass, projection, part, &*self.single_part_instance_buffer);
     }
 
-    pub fn render<K, G>(
+    pub fn render<K: Clone + Eq + PartialEq + Hash, G: Display>(
         &self,
         pass: &mut wgpu::RenderPass<'static>,
         projection: &Projection,
@@ -1090,7 +1107,7 @@ impl RenderingPipelineManager {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         projection: &'ctx Projection,
-        range: ObjectSelection,
+        selection: ObjectSelection,
         ops: impl Iterator<Item = Box<&dyn ObjectSelectionRenderingOp>>,
     ) -> Result<HashSet<u32>, error::ObjectSelectionError> {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1170,7 +1187,7 @@ impl RenderingPipelineManager {
             device.poll(wgpu::Maintain::Wait);
             rx.receive().await.unwrap()?;
 
-            let (x, y, mut w, mut h) = match range {
+            let (x, y, mut w, mut h) = match selection {
                 ObjectSelection::Point(point) => (
                     (point.x * framebuffer_size as f32) as usize,
                     (point.y * framebuffer_size as f32) as usize,
@@ -1225,7 +1242,7 @@ impl RenderingPipelineManager {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         projection: &'ctx Projection,
-        range: ObjectSelection,
+        selection: ObjectSelection,
         op: &OP,
     ) -> Result<Option<K>, error::ObjectSelectionError>
     where
@@ -1238,7 +1255,7 @@ impl RenderingPipelineManager {
                 device,
                 queue,
                 projection,
-                range,
+                selection,
                 std::iter::once(Box::new(casted)),
             )
             .await?;

@@ -1,9 +1,12 @@
-pub mod camera;
 pub mod display_list;
+mod entity;
 pub mod error;
 pub mod part;
 pub mod pipeline;
+pub mod projection;
 pub mod util;
+
+pub use entity::{Entity, GpuUpdate, GpuUpdateResult};
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AspectRatio(f32);

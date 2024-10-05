@@ -1,7 +1,7 @@
 use image::RgbaImage;
 use ldraw::Vector2;
 use ldraw_ir::geometry::BoundingBox2;
-use ldraw_renderer::{camera::Projection, pipeline::RenderingPipelineManager};
+use ldraw_renderer::{pipeline::RenderingPipelineManager, projection::Projection, Entity};
 
 use crate::error::ContextCreationError;
 
@@ -13,7 +13,7 @@ pub struct Context {
     pub queue: wgpu::Queue,
 
     pub(super) pipelines: RenderingPipelineManager,
-    pub(super) projection: Projection,
+    pub(super) projection: Entity<Projection>,
 
     pub(super) framebuffer_texture: wgpu::Texture,
     pub(super) framebuffer_texture_view: wgpu::TextureView,
@@ -54,6 +54,7 @@ impl Context {
                     label: Some("Device Descriptor"),
                     required_features: wgpu::Features::POLYGON_MODE_LINE,
                     required_limits: wgpu::Limits::default(),
+                    memory_hints: Default::default(),
                 },
                 None,
             )
@@ -100,7 +101,7 @@ impl Context {
 
         let pipelines =
             RenderingPipelineManager::new(&device, &queue, framebuffer_format, sample_count);
-        let projection = Projection::new(&device);
+        let projection = Projection::new(&device).into();
 
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d {

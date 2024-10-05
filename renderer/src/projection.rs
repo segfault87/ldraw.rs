@@ -5,51 +5,46 @@ use ldraw::{Matrix3, Matrix4, Vector2, Vector3};
 use ldraw_ir::geometry::{BoundingBox2, BoundingBox3};
 use wgpu::util::DeviceExt;
 
-use crate::AspectRatio;
+use crate::{AspectRatio, GpuUpdate, GpuUpdateResult};
 
-#[rustfmt::skip]
-fn truncate_matrix4(m: Matrix4) -> Matrix3 {
-    Matrix3::new(
-        m[0][0], m[0][1], m[0][2],
-        m[1][0], m[1][1], m[1][2],
-        m[2][0], m[2][1], m[2][2],
-    )
+struct ProjectionData {
+    model_matrix_stack: Vec<Matrix4>,
+    projection_matrix: Matrix4,
+    view_matrix: Matrix4,
+    is_orthographic: bool,
 }
 
-fn derive_normal_matrix(m: Matrix4) -> Option<Matrix3> {
-    truncate_matrix4(m).invert().map(|v| v.transpose())
-}
-
-pub struct ProjectionData {
-    pub model_matrix: Vec<Matrix4>,
-    pub projection_matrix: Matrix4,
-    pub view_matrix: Matrix4,
-    pub is_orthographic: bool,
+pub enum ProjectionMutator {
+    PushModelMatrix(Matrix4),
+    PopModelMatrix,
+    SetProjectionMatrix {
+        matrix: Matrix4,
+        is_orthographic: bool,
+    },
+    SetViewMatrix(Matrix4),
 }
 
 impl ProjectionData {
-    pub fn push_model_matrix(&mut self, matrix: Matrix4) {
-        let last = self.model_matrix.last().unwrap();
-        self.model_matrix.push(last * matrix);
+    fn push_model_matrix(&mut self, mat: Matrix4) -> Matrix4 {
+        let multiplied = self.model_matrix_stack.last().cloned().unwrap() * mat;
+        self.model_matrix_stack.push(multiplied);
+        multiplied
     }
 
-    pub fn pop_model_matrix(&mut self) -> Option<Matrix4> {
-        if self.model_matrix.len() > 1 {
-            self.model_matrix.pop()
+    fn pop_model_matrix(&mut self) -> Option<Matrix4> {
+        if self.model_matrix_stack.len() > 1 {
+            self.model_matrix_stack.pop();
+            self.model_matrix_stack.last().cloned()
         } else {
             None
         }
-    }
-
-    pub fn get_model_view_matrix(&self) -> Matrix4 {
-        self.view_matrix * self.model_matrix.last().unwrap()
     }
 }
 
 impl Default for ProjectionData {
     fn default() -> Self {
         Self {
-            model_matrix: vec![Matrix4::identity()],
+            model_matrix_stack: vec![Matrix4::identity()],
             projection_matrix: Matrix4::identity(),
             view_matrix: Matrix4::identity(),
             is_orthographic: false,
@@ -73,44 +68,44 @@ struct RawProjectionData {
     _padding3: [u8; 12],
 }
 
-impl From<&ProjectionData> for RawProjectionData {
-    fn from(d: &ProjectionData) -> Self {
-        let model_view = d.view_matrix * d.model_matrix.last().unwrap();
-        let normal_matrix = derive_normal_matrix(model_view).unwrap_or_else(Matrix3::identity);
+impl Default for RawProjectionData {
+    fn default() -> Self {
         Self {
-            model_matrix: d
-                .model_matrix
-                .last()
-                .cloned()
-                .unwrap_or_else(Matrix4::identity)
-                .into(),
-            projection_matrix: d.projection_matrix.into(),
-            view_matrix: d.view_matrix.into(),
-            normal_matrix_0: normal_matrix.x.into(),
+            model_matrix: Matrix4::identity().into(),
+            projection_matrix: Matrix4::identity().into(),
+            view_matrix: Matrix4::identity().into(),
+            normal_matrix_0: [1.0, 0.0, 0.0],
             _padding0: [0; 4],
-            normal_matrix_1: normal_matrix.y.into(),
+            normal_matrix_1: [0.0, 1.0, 0.0],
             _padding1: [0; 4],
-            normal_matrix_2: normal_matrix.z.into(),
+            normal_matrix_2: [0.0, 0.0, 1.0],
             _padding2: [0; 4],
-            is_orthographic: if d.is_orthographic { 1 } else { 0 },
+            is_orthographic: 0,
             _padding3: [0; 12],
         }
     }
 }
 
 impl RawProjectionData {
-    fn update(&mut self, data: &ProjectionData) {
-        if let Some(model_matrix) = data.model_matrix.last() {
-            self.model_matrix = (*model_matrix).into();
-        }
-        self.projection_matrix = data.projection_matrix.into();
-        self.view_matrix = data.view_matrix.into();
-        let model_view = data.get_model_view_matrix();
-        let normal_matrix = derive_normal_matrix(model_view).unwrap_or_else(Matrix3::identity);
+    #[rustfmt::skip]
+    fn truncate_matrix4(m: Matrix4) -> Matrix3 {
+        Matrix3::new(
+            m[0][0], m[0][1], m[0][2],
+            m[1][0], m[1][1], m[1][2],
+            m[2][0], m[2][1], m[2][2],
+        )
+    }
+
+    fn derive_normal_matrix(m: Matrix4) -> Option<Matrix3> {
+        Self::truncate_matrix4(m).invert().map(|v| v.transpose())
+    }
+
+    fn update_normal_matrix(&mut self, model_view: Matrix4) {
+        let normal_matrix =
+            Self::derive_normal_matrix(model_view).unwrap_or_else(Matrix3::identity);
         self.normal_matrix_0 = normal_matrix.x.into();
         self.normal_matrix_1 = normal_matrix.y.into();
         self.normal_matrix_2 = normal_matrix.z.into();
-        self.is_orthographic = if data.is_orthographic { 1 } else { 0 };
     }
 }
 
@@ -118,14 +113,72 @@ pub struct Projection {
     pub bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
 
-    pub data: ProjectionData,
+    data: ProjectionData,
     raw: RawProjectionData,
+}
+
+impl GpuUpdate for Projection {
+    type Mutator = ProjectionMutator;
+
+    fn mutate(&mut self, mutator: Self::Mutator) -> GpuUpdateResult<Self::Mutator> {
+        match mutator {
+            ProjectionMutator::PushModelMatrix(matrix) => {
+                let mat = self.data.push_model_matrix(matrix);
+                self.raw.model_matrix = mat.into();
+                self.raw.update_normal_matrix(self.data.view_matrix * mat);
+                GpuUpdateResult::Modified
+            }
+            ProjectionMutator::PopModelMatrix => {
+                if let Some(mat) = self.data.pop_model_matrix() {
+                    self.raw.model_matrix = mat.into();
+                    self.raw.update_normal_matrix(self.data.view_matrix * mat);
+                    GpuUpdateResult::Modified
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
+            ProjectionMutator::SetProjectionMatrix {
+                matrix,
+                is_orthographic,
+            } => {
+                if self.data.projection_matrix != matrix
+                    || self.data.is_orthographic != is_orthographic
+                {
+                    self.data.projection_matrix = matrix;
+                    self.data.is_orthographic = is_orthographic;
+                    self.raw.projection_matrix = matrix.into();
+                    self.raw.is_orthographic = if is_orthographic { 1 } else { 0 };
+                    GpuUpdateResult::Modified
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
+            ProjectionMutator::SetViewMatrix(matrix) => {
+                if self.data.view_matrix != matrix {
+                    self.data.view_matrix = matrix;
+                    self.raw.view_matrix = matrix.into();
+                    self.raw.update_normal_matrix(self.get_model_view_matrix());
+                    GpuUpdateResult::Modified
+                } else {
+                    GpuUpdateResult::NotModified
+                }
+            }
+        }
+    }
+
+    fn handle_gpu_update(&mut self, _device: &wgpu::Device, queue: &wgpu::Queue) {
+        queue.write_buffer(
+            &self.uniform_buffer,
+            0 as wgpu::BufferAddress,
+            bytemuck::cast_slice(&[self.raw]),
+        );
+    }
 }
 
 impl Projection {
     pub fn new(device: &wgpu::Device) -> Self {
         let data = ProjectionData::default();
-        let raw = RawProjectionData::from(&data);
+        let raw = RawProjectionData::default();
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform buffer for projection"),
@@ -149,33 +202,8 @@ impl Projection {
         }
     }
 
-    pub fn update_camera(
-        &mut self,
-        queue: &wgpu::Queue,
-        camera: &impl ProjectionModifier,
-        aspect_ratio: AspectRatio,
-    ) {
-        if camera.update_projections(&mut self.data, aspect_ratio) {
-            self.update_buffer(queue);
-        }
-    }
-
-    pub fn push_model_matrix(&mut self, matrix: Matrix4) {
-        self.data.push_model_matrix(matrix)
-    }
-
-    pub fn pop_model_matrix(&mut self) -> Option<Matrix4> {
-        self.data.pop_model_matrix()
-    }
-
-    pub fn update_buffer(&mut self, queue: &wgpu::Queue) {
-        self.raw.update(&self.data);
-
-        queue.write_buffer(
-            &self.uniform_buffer,
-            0 as wgpu::BufferAddress,
-            bytemuck::cast_slice(&[self.raw]),
-        );
+    pub fn get_model_view_matrix(&self) -> Matrix4 {
+        self.data.view_matrix * self.data.model_matrix_stack.last().unwrap()
     }
 
     pub fn select_objects<T: Eq + PartialEq + Hash>(
@@ -183,7 +211,7 @@ impl Projection {
         area: &BoundingBox2,
         objects: impl Iterator<Item = (T, Matrix4, BoundingBox3)>,
     ) -> HashSet<T> {
-        let mvp = self.data.projection_matrix * self.data.get_model_view_matrix();
+        let mvp = self.data.projection_matrix * self.get_model_view_matrix();
 
         objects
             .filter_map(|(id, matrix, bb)| {
@@ -214,11 +242,7 @@ impl Projection {
 }
 
 pub trait ProjectionModifier {
-    fn update_projections(
-        &self,
-        projection: &mut ProjectionData,
-        aspect_ratio: AspectRatio,
-    ) -> bool;
+    fn update_projections(&self, aspect_ratio: AspectRatio) -> Vec<ProjectionMutator>;
 }
 
 #[derive(Clone, Debug)]
@@ -340,22 +364,23 @@ impl PerspectiveCamera {
 }
 
 impl ProjectionModifier for PerspectiveCamera {
-    fn update_projections(
-        &self,
-        projection: &mut ProjectionData,
-        aspect_ratio: AspectRatio,
-    ) -> bool {
-        projection.projection_matrix = Matrix4::from(PerspectiveFov {
+    fn update_projections(&self, aspect_ratio: AspectRatio) -> Vec<ProjectionMutator> {
+        let projection_matrix = Matrix4::from(PerspectiveFov {
             fovy: cgmath::Rad::from(self.fov),
             aspect: aspect_ratio.into(),
             near: 10.0,
             far: 100000.0,
         });
-        projection.view_matrix = Matrix4::look_at_rh(self.position, self.look_at, self.up);
 
-        projection.is_orthographic = false;
+        let view_matrix = Matrix4::look_at_rh(self.position, self.look_at, self.up);
 
-        true
+        vec![
+            ProjectionMutator::SetProjectionMatrix {
+                matrix: projection_matrix,
+                is_orthographic: false,
+            },
+            ProjectionMutator::SetViewMatrix(view_matrix),
+        ]
     }
 }
 
@@ -392,11 +417,7 @@ impl OrthographicCamera {
 }
 
 impl ProjectionModifier for OrthographicCamera {
-    fn update_projections(
-        &self,
-        projection: &mut ProjectionData,
-        aspect_ratio: AspectRatio,
-    ) -> bool {
+    fn update_projections(&self, aspect_ratio: AspectRatio) -> Vec<ProjectionMutator> {
         let view_matrix = Matrix4::look_at_rh(self.position, self.look_at, self.up);
         let view_bounds = self.view_bounds.project(&view_matrix, aspect_ratio);
 
@@ -409,10 +430,12 @@ impl ProjectionModifier for OrthographicCamera {
             far: 10000.0,
         });
 
-        projection.projection_matrix = projection_matrix;
-        projection.view_matrix = view_matrix;
-        projection.is_orthographic = true;
-
-        true
+        vec![
+            ProjectionMutator::SetProjectionMatrix {
+                matrix: projection_matrix,
+                is_orthographic: true,
+            },
+            ProjectionMutator::SetViewMatrix(view_matrix),
+        ]
     }
 }
