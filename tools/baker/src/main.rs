@@ -220,8 +220,8 @@ async fn bake<L: LibraryLoader>(
                 writer.write_all(&serialized).await.unwrap();
                 writer.shutdown().await.unwrap();
             }
-            Err(_err) => {
-                format!("Could not create {}", outpath.to_str().unwrap());
+            Err(err) => {
+                println!("Could not create {}: {}", outpath.to_str().unwrap(), err);
             }
         },
         Err(err) => {

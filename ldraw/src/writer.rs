@@ -30,7 +30,7 @@ impl fmt::Display for ColorReference {
 }
 
 #[async_trait]
-trait LDrawWriter {
+pub trait LDrawWriter {
     async fn write(
         &self,
         writer: &mut (dyn AsyncWrite + Unpin + Send),

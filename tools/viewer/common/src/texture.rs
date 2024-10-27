@@ -1,7 +1,7 @@
 pub struct Texture {
-    pub texture: wgpu::Texture,
+    pub _texture: wgpu::Texture,
     pub view: wgpu::TextureView,
-    pub sampler: wgpu::Sampler,
+    pub _sampler: wgpu::Sampler,
 }
 
 impl Texture {
@@ -44,9 +44,9 @@ impl Texture {
         });
 
         Self {
-            texture,
+            _texture: texture,
             view,
-            sampler,
+            _sampler: sampler,
         }
     }
 
@@ -86,9 +86,9 @@ impl Texture {
         });
 
         Self {
-            texture,
+            _texture: texture,
             view,
-            sampler,
+            _sampler: sampler,
         }
     }
 }
