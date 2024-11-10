@@ -77,6 +77,10 @@ impl<K, G> Instances<K, G> {
         0..self.count() as u32
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.count() == 0
+    }
+
     fn update_buffer_partial(&self, queue: &wgpu::Queue, range: RangeInclusive<usize>) {
         if let Some(buffer) = &self.instance_buffer {
             queue.write_buffer(

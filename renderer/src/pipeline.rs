@@ -266,13 +266,13 @@ impl DefaultMeshRenderingPipeline {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
-                entry_point: "vs",
+                entry_point: Some("vs"),
                 buffers: &[MeshBuffer::desc(), Instances::<i32, i32>::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
-                entry_point: "fs",
+                entry_point: Some("fs"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: texture_format,
                     blend: Some(wgpu::BlendState {
@@ -314,7 +314,7 @@ impl DefaultMeshRenderingPipeline {
         }
     }
 
-    pub fn render<K, G>(
+    fn render<K, G>(
         &self,
         pass: &mut wgpu::RenderPass<'static>,
         projection: &Projection,
@@ -371,13 +371,13 @@ impl NoShadingMeshRenderingPipeline {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
-                entry_point: "vs",
+                entry_point: Some("vs"),
                 buffers: &[MeshBuffer::desc(), Instances::<i32, i32>::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
-                entry_point: "fs",
+                entry_point: Some("fs"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: texture_format,
                     blend: Some(wgpu::BlendState {
@@ -418,7 +418,7 @@ impl NoShadingMeshRenderingPipeline {
         }
     }
 
-    pub fn render<K, G>(
+    fn render<K, G>(
         &self,
         pass: &mut wgpu::RenderPass<'static>,
         projection: &Projection,
@@ -471,13 +471,13 @@ impl EdgeRenderingPipeline {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
-                entry_point: "vs",
+                entry_point: Some("vs"),
                 buffers: &[EdgeBuffer::desc(), Instances::<i32, i32>::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
-                entry_point: "fs",
+                entry_point: Some("fs"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: texture_format,
                     blend: Some(wgpu::BlendState {
@@ -518,7 +518,7 @@ impl EdgeRenderingPipeline {
         }
     }
 
-    pub fn render<K, G>(
+    fn render<K, G>(
         &self,
         pass: &mut wgpu::RenderPass<'static>,
         projection: &Projection,
@@ -580,13 +580,13 @@ impl OptionalEdgeRenderingPipeline {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
-                entry_point: "vs",
+                entry_point: Some("vs"),
                 buffers: &[OptionalEdgeBuffer::desc(), Instances::<i32, i32>::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fragment_shader,
-                entry_point: "fs",
+                entry_point: Some("fs"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: texture_format,
                     blend: Some(wgpu::BlendState {
@@ -627,7 +627,7 @@ impl OptionalEdgeRenderingPipeline {
         }
     }
 
-    pub fn render<K, G>(
+    fn render<K, G>(
         &self,
         pass: &mut wgpu::RenderPass<'static>,
         projection: &Projection,
@@ -686,13 +686,13 @@ impl ObjectSelectionRenderingPipeline {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs",
+                entry_point: Some("vs"),
                 buffers: &[MeshBuffer::desc(), SelectionInstances::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs",
+                entry_point: Some("fs"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::R32Uint,
                     blend: None,
@@ -792,6 +792,10 @@ impl ObjectSelectionRenderingPipeline {
         instances: &SelectionInstances,
         range: Range<u32>,
     ) {
+        if instances.range().is_empty() {
+            return;
+        }
+
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &projection.bind_group, &[]);
@@ -1023,6 +1027,10 @@ impl RenderingPipelineManager {
 
         // Render opaque items first
         for (group, is_translucent, instances) in display_list.iter() {
+            if instances.is_empty() {
+                continue;
+            }
+
             if let Some(part) = part_querier.get(group) {
                 if let Some(range) = &part.mesh.colored_opaque_range {
                     self.mesh_default
@@ -1062,6 +1070,10 @@ impl RenderingPipelineManager {
         }
         // Then translucent items
         for (group, is_translucent, instances) in display_list.iter() {
+            if instances.is_empty() {
+                continue;
+            }
+
             if let Some(part) = part_querier.get(group) {
                 if let Some(range) = &part.mesh.colored_translucent_range {
                     self.mesh_default

@@ -1,7 +1,7 @@
 pub struct Texture {
-    pub _texture: wgpu::Texture,
+    _texture: wgpu::Texture,
     pub view: wgpu::TextureView,
-    pub _sampler: wgpu::Sampler,
+    _sampler: wgpu::Sampler,
 }
 
 impl Texture {
