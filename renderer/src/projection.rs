@@ -110,8 +110,8 @@ impl RawProjectionData {
 }
 
 pub struct Projection {
-    pub bind_group: wgpu::BindGroup,
-    uniform_buffer: wgpu::Buffer,
+    pub bind_group: Option<wgpu::BindGroup>,
+    uniform_buffer: Option<wgpu::Buffer>,
 
     data: ProjectionData,
     raw: RawProjectionData,
@@ -166,9 +166,28 @@ impl GpuUpdate for Projection {
         }
     }
 
-    fn handle_gpu_update(&mut self, _device: &wgpu::Device, queue: &wgpu::Queue) {
+    fn handle_gpu_update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let uniform_buffer = self.uniform_buffer.get_or_insert_with(|| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Uniform buffer for projection"),
+                contents: bytemuck::cast_slice(&[self.raw]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            })
+        });
+
+        if self.bind_group.is_none() {
+            self.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Bind group for projection"),
+                layout: &device.create_bind_group_layout(&Self::desc()),
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                }],
+            }));
+        }
+
         queue.write_buffer(
-            &self.uniform_buffer,
+            uniform_buffer,
             0 as wgpu::BufferAddress,
             bytemuck::cast_slice(&[self.raw]),
         );
@@ -176,27 +195,13 @@ impl GpuUpdate for Projection {
 }
 
 impl Projection {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new() -> Self {
         let data = ProjectionData::default();
         let raw = RawProjectionData::default();
 
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Uniform buffer for projection"),
-            contents: bytemuck::cast_slice(&[raw]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Bind group for projection"),
-            layout: &device.create_bind_group_layout(&Self::desc()),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
-
         Self {
-            uniform_buffer,
-            bind_group,
+            uniform_buffer: None,
+            bind_group: None,
             data,
             raw,
         }
@@ -238,6 +243,12 @@ impl Projection {
                 count: None,
             }],
         }
+    }
+}
+
+impl Default for Projection {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

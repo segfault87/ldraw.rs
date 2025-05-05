@@ -382,6 +382,9 @@ pub async fn run(path: JsValue) -> JsValue {
                                 Err(wgpu::SurfaceError::Timeout) => {
                                     println!("Surface timeout");
                                 }
+                                Err(wgpu::SurfaceError::Other) => {
+                                    println!("Unrecognized surface error");
+                                }
                             }
 
                             if new_doc.borrow().is_some() {

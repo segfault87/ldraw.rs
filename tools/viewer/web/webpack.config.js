@@ -26,7 +26,7 @@ module.exports = {
       overlay: false,
     },
     static: {
-      directory: path.join(__dirname, "."),
+      directory: path.join(__dirname, "static"),
     },
   },
   mode: process.env.NODE_ENV || "development",

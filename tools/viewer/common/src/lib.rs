@@ -435,15 +435,14 @@ impl<L: LibraryLoader> App<L> {
     ) -> Result<Self, error::AppCreationError> {
         let window_size = window.inner_size();
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            dx12_shader_compiler: Default::default(),
+            backend_options: Default::default(),
             flags: if cfg!(debug_assertions) {
                 wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION
             } else {
                 Default::default()
             },
-            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
 
         let sample_count = if supports_antialiasing { 4 } else { 1 };
@@ -452,7 +451,7 @@ impl<L: LibraryLoader> App<L> {
 
         let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
             .await
-            .ok_or(error::AppCreationError::NoAdapterFound)?;
+            .map_err(|_| error::AppCreationError::NoAdapterFound)?;
 
         let adapter_info = adapter.get_info();
 
@@ -497,7 +496,7 @@ impl<L: LibraryLoader> App<L> {
         let depth_texture =
             Texture::create_depth_texture(&device, &config, sample_count, Some("Depth texture"));
 
-        let mut projection: Entity<Projection> = Projection::new(&device).into();
+        let mut projection: Entity<Projection> = Projection::new().into();
         let orbit_controller = RefCell::new(OrbitController::default());
 
         projection.mutate_all(

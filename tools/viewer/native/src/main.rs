@@ -91,6 +91,9 @@ async fn main_loop<L: LibraryLoader + 'static>(
                         Err(wgpu::SurfaceError::Timeout) => {
                             println!("Surface timeout");
                         }
+                        Err(wgpu::SurfaceError::Other) => {
+                            println!("Unrecognized surface error");
+                        }
                     }
                 }
                 event => {

@@ -24,15 +24,13 @@ pub async fn request_device(
         };
 
         match adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label,
-                    required_features: wgpu::Features::default(),
-                    required_limits,
-                    memory_hints: Default::default(),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label,
+                required_features: wgpu::Features::default(),
+                required_limits,
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await
         {
             Ok((device, queue)) => return Ok((device, queue, texture_size)),

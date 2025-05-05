@@ -210,14 +210,14 @@ impl DefaultMeshRenderingPipeline {
         });
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 aspect: wgpu::TextureAspect::All,
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
             &rgba,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
@@ -325,10 +325,13 @@ impl DefaultMeshRenderingPipeline {
         let Some(buffer) = &instances.instance_buffer else {
             return;
         };
+        let Some(projection) = &projection.bind_group else {
+            return;
+        };
 
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_bind_group(0, projection, &[]);
         pass.set_bind_group(1, &self.shading_uniforms.bind_group, &[]);
         pass.set_vertex_buffer(1, buffer.slice(..));
         pass.set_index_buffer(part.mesh.indices.slice(..), part.mesh.index_format);
@@ -429,9 +432,13 @@ impl NoShadingMeshRenderingPipeline {
         let Some(buffer) = &instances.instance_buffer else {
             return;
         };
+        let Some(projection) = &projection.bind_group else {
+            return;
+        };
+
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_bind_group(0, projection, &[]);
         pass.set_vertex_buffer(1, buffer.slice(..));
         pass.set_index_buffer(part.mesh.indices.slice(..), part.mesh.index_format);
         pass.draw_indexed(range, 0, instances.range());
@@ -525,6 +532,10 @@ impl EdgeRenderingPipeline {
         part: &Part,
         instances: &Instances<K, G>,
     ) -> bool {
+        let Some(projection) = &projection.bind_group else {
+            return false;
+        };
+
         let Some(instance_buffer) = &instances.instance_buffer else {
             return false;
         };
@@ -535,7 +546,7 @@ impl EdgeRenderingPipeline {
 
         pass.set_vertex_buffer(0, edges.vertices.slice(..));
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_bind_group(0, projection, &[]);
         pass.set_vertex_buffer(1, instance_buffer.slice(..));
         pass.set_index_buffer(edges.indices.slice(..), edges.index_format);
         pass.draw_indexed(edges.range.clone(), 0, instances.range());
@@ -634,6 +645,10 @@ impl OptionalEdgeRenderingPipeline {
         part: &Part,
         instances: &Instances<K, G>,
     ) -> bool {
+        let Some(projection) = &projection.bind_group else {
+            return false;
+        };
+
         let Some(optional_edges) = &part.optional_edges else {
             return false;
         };
@@ -644,7 +659,7 @@ impl OptionalEdgeRenderingPipeline {
 
         pass.set_vertex_buffer(0, optional_edges.vertices.slice(..));
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_bind_group(0, projection, &[]);
         pass.set_vertex_buffer(1, instance_buffer.slice(..));
         pass.draw(optional_edges.range.clone(), instances.range());
         true
@@ -795,10 +810,13 @@ impl ObjectSelectionRenderingPipeline {
         if instances.range().is_empty() {
             return;
         }
+        let Some(projection) = &projection.bind_group else {
+            return;
+        };
 
         pass.set_vertex_buffer(0, part.mesh.vertices.slice(..));
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &projection.bind_group, &[]);
+        pass.set_bind_group(0, projection, &[]);
         pass.set_vertex_buffer(1, instances.instance_buffer.slice(..));
         pass.set_index_buffer(part.mesh.indices.slice(..), part.mesh.index_format);
         pass.draw_indexed(range, 0, instances.range());
@@ -1164,15 +1182,15 @@ impl RenderingPipelineManager {
         let bytes_per_row = std::mem::size_of::<u32>() as u32 * framebuffer_size;
 
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 aspect: wgpu::TextureAspect::All,
                 texture: &self.object_selection.framebuffer_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &self.object_selection.output_buffer,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(
                         std::mem::size_of::<u32>() as u32 * self.object_selection.framebuffer_size,
@@ -1196,7 +1214,9 @@ impl RenderingPipelineManager {
             buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
                 tx.send(result).unwrap();
             });
-            device.poll(wgpu::Maintain::Wait);
+            device
+                .poll(wgpu::PollType::Wait)
+                .expect("Polling from GPU failed");
             rx.receive().await.unwrap()?;
 
             let (x, y, mut w, mut h) = match selection {

@@ -25,7 +25,7 @@ struct InstanceInput {
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) instanceId: u32,
+    @interpolate(flat) @location(0) instanceId: u32,
 }
 
 @vertex

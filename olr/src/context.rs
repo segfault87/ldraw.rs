@@ -33,11 +33,10 @@ impl Context {
         height: u32,
         sample_count: u32,
     ) -> Result<Self, ContextCreationError> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
+            backend_options: Default::default(),
             flags: wgpu::InstanceFlags::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptionsBase {
@@ -46,18 +45,16 @@ impl Context {
                 compatible_surface: None,
             })
             .await
-            .ok_or(ContextCreationError::NoAdapterFound)?;
+            .map_err(|_| ContextCreationError::NoAdapterFound)?;
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("Device Descriptor"),
-                    required_features: wgpu::Features::POLYGON_MODE_LINE,
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: Default::default(),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("Device Descriptor"),
+                required_features: wgpu::Features::POLYGON_MODE_LINE,
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await?;
 
         let framebuffer_format = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -101,7 +98,7 @@ impl Context {
 
         let pipelines =
             RenderingPipelineManager::new(&device, &queue, framebuffer_format, sample_count);
-        let projection = Projection::new(&device).into();
+        let projection = Projection::new().into();
 
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
@@ -157,15 +154,15 @@ impl Context {
         bounds: Option<BoundingBox2>,
     ) -> RgbaImage {
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 aspect: wgpu::TextureAspect::All,
                 texture: &self.framebuffer_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &self.output_buffer,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(std::mem::size_of::<u32>() as u32 * self.width),
                     rows_per_image: Some(self.height),
@@ -187,7 +184,9 @@ impl Context {
             buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
                 tx.send(result).unwrap();
             });
-            self.device.poll(wgpu::Maintain::Wait);
+            self.device
+                .poll(wgpu::PollType::Wait)
+                .expect("Polling from GPU failed");
             rx.receive().await.unwrap().unwrap();
 
             buffer_slice.get_mapped_range()

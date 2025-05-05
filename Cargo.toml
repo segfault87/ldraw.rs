@@ -21,5 +21,5 @@ image = "~0.24.7"
 serde = { version = "1.0.80", features = ["derive"] }
 tokio = { version = "1.37", features = ["io-util"] }
 tokio-stream = { version = "0.1", features = ["io-util"] }
-uuid = { version = "1", features = ["v4", "serde", "js"] }
-wgpu = { version = "23.0" }
+uuid = { version = "1", features = ["v4", "serde"] }
+wgpu = { version = "25.0" }
