@@ -1159,6 +1159,7 @@ impl RenderingPipelineManager {
                         }),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.object_selection.depth_texture_view,

@@ -37,6 +37,7 @@ impl Context {
             backends: wgpu::Backends::all(),
             backend_options: Default::default(),
             flags: wgpu::InstanceFlags::default(),
+            memory_budget_thresholds: Default::default(),
         });
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptionsBase {

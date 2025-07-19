@@ -443,6 +443,7 @@ impl<L: LibraryLoader> App<L> {
             } else {
                 Default::default()
             },
+            memory_budget_thresholds: Default::default(),
         });
 
         let sample_count = if supports_antialiasing { 4 } else { 1 };
@@ -705,6 +706,7 @@ impl<L: LibraryLoader> App<L> {
                             }),
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &self.depth_texture.view,
