@@ -809,7 +809,7 @@ impl<L: LibraryLoader> App<L> {
                     .borrow_mut()
                     .on_mouse_move(touch.location.x as f32, touch.location.y as f32),
             },
-            event::WindowEvent::TouchpadMagnify { delta, .. } => {
+            event::WindowEvent::PinchGesture { delta, .. } => {
                 self.orbit_controller.borrow_mut().zoom(delta as f32);
             }
             event::WindowEvent::CursorMoved { position, .. } => {
