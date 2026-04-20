@@ -1,0 +1,16 @@
+[package]
+name = "viewer_ios"
+version = "0.1.0"
+authors = ["Park Joon-Kyu <segfault87@gmail.com>"]
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+ldraw = { path = "../../../ldraw", features = ["http"] }
+reqwest = { version = "~0.12.4" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+viewer-common = { path = "../common" }
+wgpu = { workspace = true }
+winit = "0.30"
