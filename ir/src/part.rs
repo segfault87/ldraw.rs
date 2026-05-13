@@ -257,18 +257,18 @@ pub struct PartBufferBundleBuilder {
 }
 
 impl PartBufferBundleBuilder {
-    fn query_mesh<'a>(&'a mut self, group: &MeshGroupKey) -> Option<&'a mut MeshBuffer> {
+    fn query_mesh<'a>(&'a mut self, group: &MeshGroupKey) -> &'a mut MeshBuffer {
         match (&group.color_ref, group.bfc) {
-            (ColorReference::Current | ColorReference::Complement, true) => {
-                Some(&mut self.uncolored_mesh)
-            }
+            (ColorReference::Current | ColorReference::Complement, true) => &mut self.uncolored_mesh,
             (ColorReference::Current | ColorReference::Complement, false) => {
-                Some(&mut self.uncolored_without_bfc_mesh)
+                &mut self.uncolored_without_bfc_mesh
             }
-            (ColorReference::Color(_), _) => {
-                Some(self.colored_meshes.entry(group.clone()).or_default())
-            }
-            _ => None,
+            (
+                ColorReference::Color(_)
+                | ColorReference::Unknown(_)
+                | ColorReference::Unresolved(_),
+                _,
+            ) => self.colored_meshes.entry(group.clone()).or_default(),
         }
     }
 
@@ -624,11 +624,9 @@ impl MeshBuilder {
                 }
             }
 
-            if let Some(mesh_buffer) = builder.query_mesh(group_key) {
-                mesh_buffer.add_indices(vertex_indices, normal_indices);
-            } else {
-                println!("Skipping unknown color group_key {:?}", group_key);
-            }
+            builder
+                .query_mesh(group_key)
+                .add_indices(vertex_indices, normal_indices);
         }
 
         if let Some(bounding_box_min) = bounding_box_min
