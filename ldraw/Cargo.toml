@@ -19,5 +19,8 @@ tokio = { workspace = true, features = ["fs"] }
 reqwest = { version = "~0.12.4" }
 tokio.workspace = true
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
 [features]
 http = ["reqwest"]

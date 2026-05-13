@@ -553,7 +553,7 @@ impl<L: LibraryLoader> App<L> {
         result
     }
 
-    pub async fn set_document<F: Fn(PartAlias, Result<(), ResolutionError>)>(
+    pub async fn set_document<F: Fn(PartAlias, Result<(), &ResolutionError>)>(
         &mut self,
         cache: Arc<RwLock<PartCache>>,
         document: &MultipartDocument,

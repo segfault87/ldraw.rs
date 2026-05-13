@@ -135,9 +135,9 @@ impl TransientDocumentCache {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum ResolutionState {
-    Missing,
+    Missing(ResolutionError),
     Pending,
     Subpart,
     Associated(Arc<MultipartDocument>),
@@ -154,7 +154,7 @@ struct DependencyResolver<'a, F, L> {
     pub local_map: HashMap<PartAlias, ResolutionState>,
 }
 
-impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>), L: LibraryLoader>
+impl<'a, F: Fn(PartAlias, Result<(), &ResolutionError>), L: LibraryLoader>
     DependencyResolver<'a, F, L>
 {
     pub fn new(
@@ -341,8 +341,8 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>), L: LibraryLoader>
                     ResolutionState::Associated(document)
                 }
                 Err(err) => {
-                    (self.on_update)(alias.clone(), Err(err));
-                    ResolutionState::Missing
+                    (self.on_update)(alias.clone(), Err(&err));
+                    ResolutionState::Missing(err)
                 }
             };
             self.put_state(alias.clone(), local, state);
@@ -356,6 +356,7 @@ impl<'a, F: Fn(PartAlias, Result<(), ResolutionError>), L: LibraryLoader>
 pub struct ResolutionResult {
     library_entries: HashMap<PartAlias, Arc<MultipartDocument>>,
     local_entries: HashMap<PartAlias, Arc<MultipartDocument>>,
+    failures: HashMap<PartAlias, ResolutionError>,
 }
 
 impl ResolutionResult {
@@ -363,6 +364,14 @@ impl ResolutionResult {
         Self::default()
     }
 
+    /// Looks up the resolved document for `alias`.
+    ///
+    /// When `local = true`, local entries are preferred over library entries
+    /// (with the same fallback behavior as [`LibraryLoader::load_ref`]). When
+    /// `local = false`, only the library entries are searched.
+    ///
+    /// The returned `bool` indicates whether the hit came from local entries
+    /// (`true`) or library entries (`false`).
     pub fn query(&self, alias: &PartAlias, local: bool) -> Option<(Arc<MultipartDocument>, bool)> {
         if local {
             let local_entry = self.local_entries.get(alias);
@@ -383,6 +392,43 @@ impl ResolutionResult {
 
         result
     }
+
+    /// Sub-part references that could not be resolved, keyed by alias.
+    ///
+    /// Entries appear here when [`LibraryLoader::load_ref`] returned an error
+    /// for a referenced part. A non-empty `failures()` typically means a
+    /// subsequent `bake_part_from_*` call will produce a part with missing
+    /// geometry; callers should inspect this before baking.
+    pub fn failures(&self) -> &HashMap<PartAlias, ResolutionError> {
+        &self.failures
+    }
+
+    /// Returns `true` if any sub-part reference failed to resolve.
+    pub fn has_failures(&self) -> bool {
+        !self.failures.is_empty()
+    }
+}
+
+/// Splits a resolver state map into successfully-resolved entries and failed
+/// entries (those that ended in [`ResolutionState::Missing`]). Other states
+/// (`Pending`, `Subpart`) are discarded.
+fn partition_resolver_map(
+    map: HashMap<PartAlias, ResolutionState>,
+    failures: &mut HashMap<PartAlias, ResolutionError>,
+) -> HashMap<PartAlias, Arc<MultipartDocument>> {
+    let mut entries = HashMap::new();
+    for (k, v) in map {
+        match v {
+            ResolutionState::Associated(e) => {
+                entries.insert(k, e);
+            }
+            ResolutionState::Missing(err) => {
+                failures.insert(k, err);
+            }
+            ResolutionState::Pending | ResolutionState::Subpart => {}
+        }
+    }
+    entries
 }
 
 pub async fn resolve_dependencies_multipart<F, L>(
@@ -393,7 +439,7 @@ pub async fn resolve_dependencies_multipart<F, L>(
     on_update: &F,
 ) -> ResolutionResult
 where
-    F: Fn(PartAlias, Result<(), ResolutionError>),
+    F: Fn(PartAlias, Result<(), &ResolutionError>),
     L: LibraryLoader,
 {
     let mut resolver = DependencyResolver::new(colors, cache, on_update, loader);
@@ -401,23 +447,14 @@ where
     resolver.scan_dependencies_with_parent(None, document, true);
     while resolver.resolve_pending_dependencies().await {}
 
+    let mut failures = HashMap::new();
+    let library_entries = partition_resolver_map(resolver.map, &mut failures);
+    let local_entries = partition_resolver_map(resolver.local_map, &mut failures);
+
     ResolutionResult {
-        library_entries: resolver
-            .map
-            .into_iter()
-            .filter_map(|(k, v)| match v {
-                ResolutionState::Associated(e) => Some((k, e)),
-                _ => None,
-            })
-            .collect::<HashMap<_, _>>(),
-        local_entries: resolver
-            .local_map
-            .into_iter()
-            .filter_map(|(k, v)| match v {
-                ResolutionState::Associated(e) => Some((k, e)),
-                _ => None,
-            })
-            .collect::<HashMap<_, _>>(),
+        library_entries,
+        local_entries,
+        failures,
     }
 }
 
@@ -429,7 +466,7 @@ pub async fn resolve_dependencies<F, L>(
     on_update: &F,
 ) -> ResolutionResult
 where
-    F: Fn(PartAlias, Result<(), ResolutionError>),
+    F: Fn(PartAlias, Result<(), &ResolutionError>),
     L: LibraryLoader,
 {
     let mut resolver = DependencyResolver::new(colors, cache, on_update, loader);
@@ -437,23 +474,14 @@ where
     resolver.scan_dependencies(document, true);
     while resolver.resolve_pending_dependencies().await {}
 
+    let mut failures = HashMap::new();
+    let library_entries = partition_resolver_map(resolver.map, &mut failures);
+    let local_entries = partition_resolver_map(resolver.local_map, &mut failures);
+
     ResolutionResult {
-        library_entries: resolver
-            .map
-            .into_iter()
-            .filter_map(|(k, v)| match v {
-                ResolutionState::Associated(e) => Some((k, e)),
-                _ => None,
-            })
-            .collect::<HashMap<_, _>>(),
-        local_entries: resolver
-            .local_map
-            .into_iter()
-            .filter_map(|(k, v)| match v {
-                ResolutionState::Associated(e) => Some((k, e)),
-                _ => None,
-            })
-            .collect::<HashMap<_, _>>(),
+        library_entries,
+        local_entries,
+        failures,
     }
 }
 
@@ -497,5 +525,92 @@ mod tests {
         let missing_key = PartAlias::from("missing".to_string());
 
         assert!(cache.query(&missing_key).is_none());
+    }
+
+    use async_trait::async_trait;
+    use std::sync::RwLock;
+
+    use super::{
+        FileLocation, LibraryLoader, ResolutionResult, resolve_dependencies_multipart,
+    };
+    use crate::{
+        color::{ColorCatalog, ColorReference},
+        elements::{Command, PartReference},
+        error::ResolutionError,
+        Matrix4,
+    };
+
+    /// A loader that always returns `FileNotFound` from `load_ref`. Used to
+    /// verify that resolution failures surface to `ResolutionResult::failures`.
+    struct AlwaysMissingLoader;
+
+    #[async_trait(?Send)]
+    impl LibraryLoader for AlwaysMissingLoader {
+        async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError> {
+            Ok(ColorCatalog::new())
+        }
+
+        async fn load_ref(
+            &self,
+            _alias: PartAlias,
+            _local: bool,
+            _colors: &ColorCatalog,
+        ) -> Result<(FileLocation, MultipartDocument), ResolutionError> {
+            Err(ResolutionError::FileNotFound)
+        }
+    }
+
+    fn doc_referencing(alias: &str) -> MultipartDocument {
+        MultipartDocument {
+            body: Document {
+                name: "root".to_string(),
+                author: "test".to_string(),
+                description: "doc with one missing sub-part".to_string(),
+                bfc: BfcCertification::NoCertify,
+                headers: vec![],
+                commands: vec![Command::PartReference(PartReference {
+                    color: ColorReference::Current,
+                    matrix: Matrix4::from_cols(
+                        [1.0, 0.0, 0.0, 0.0].into(),
+                        [0.0, 1.0, 0.0, 0.0].into(),
+                        [0.0, 0.0, 1.0, 0.0].into(),
+                        [0.0, 0.0, 0.0, 1.0].into(),
+                    ),
+                    name: PartAlias::from(alias.to_string()),
+                })],
+            },
+            subparts: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn resolution_result_surfaces_missing_subpart_with_noop_callback() {
+        let doc = doc_referencing("does-not-exist.dat");
+        let cache = Arc::new(RwLock::new(PartCache::default()));
+        let colors = ColorCatalog::new();
+        let loader = AlwaysMissingLoader;
+
+        let result: ResolutionResult = futures::executor::block_on(
+            resolve_dependencies_multipart(&doc, cache, &colors, &loader, &|_, _| {}),
+        );
+
+        assert!(
+            result.has_failures(),
+            "missing sub-part must surface even with a no-op callback"
+        );
+        assert!(
+            result
+                .failures()
+                .contains_key(&PartAlias::from("does-not-exist.dat".to_string())),
+            "the specific missing alias should appear in failures(): {:?}",
+            result.failures().keys().collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(
+                result.failures().values().next().unwrap(),
+                ResolutionError::FileNotFound
+            ),
+            "the error from load_ref should be preserved verbatim"
+        );
     }
 }
