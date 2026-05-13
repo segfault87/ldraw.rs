@@ -13,6 +13,7 @@ use serde::{
 
 pub mod constraints;
 pub mod geometry;
+pub mod loader;
 pub mod model;
 pub mod part;
 
