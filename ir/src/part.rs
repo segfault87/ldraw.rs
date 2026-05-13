@@ -939,6 +939,25 @@ impl<'a> PartBaker<'a> {
     }
 }
 
+/// Builds a baked [`Part`] from a [`MultipartDocument`] using previously-resolved
+/// sub-parts.
+///
+/// The `local` flag controls how sub-part references inside the document are
+/// resolved against `resolutions`, and must match the `local` value that was
+/// passed to [`LibraryLoader::load_ref`] / [`ResolutionResult::query`] when the
+/// document and its dependencies were loaded:
+///
+/// - `local = true`: this is a user-supplied / working-directory document.
+///   Sub-part references resolve against local entries first, then fall back
+///   to the stock library.
+/// - `local = false`: this is a stock library part. Sub-part references
+///   resolve only against library entries.
+///
+/// Passing the wrong value can produce a part with missing or incorrect
+/// sub-geometry; it is not validated.
+///
+/// [`LibraryLoader::load_ref`]: ldraw::library::LibraryLoader::load_ref
+/// [`ResolutionResult::query`]: ldraw::library::ResolutionResult::query
 pub fn bake_part_from_multipart_document<D: Deref<Target = MultipartDocument>>(
     document: D,
     resolutions: &ResolutionResult,
@@ -957,6 +976,12 @@ pub fn bake_part_from_multipart_document<D: Deref<Target = MultipartDocument>>(
     baker.bake()
 }
 
+/// Builds a baked [`Part`] from a single-page [`Document`] using
+/// previously-resolved sub-parts.
+///
+/// See [`bake_part_from_multipart_document`] for the semantics of `local`; the
+/// same value must be passed here as was used when resolving the document's
+/// dependencies.
 pub fn bake_part_from_document(
     document: &Document,
     resolutions: &ResolutionResult,

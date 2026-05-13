@@ -40,6 +40,12 @@ pub trait DocumentLoader<T> {
 pub trait LibraryLoader {
     async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError>;
 
+    /// Loads the document for `alias`.
+    ///
+    /// `local = true` indicates the alias is a user-supplied / working-directory
+    /// part: the loader should look in any caller-provided local roots before
+    /// falling back to the stock library. `local = false` restricts the search
+    /// to the stock library only.
     async fn load_ref(
         &self,
         alias: PartAlias,
@@ -363,6 +369,14 @@ impl ResolutionResult {
         Self::default()
     }
 
+    /// Looks up the resolved document for `alias`.
+    ///
+    /// When `local = true`, local entries are preferred over library entries
+    /// (with the same fallback behavior as [`LibraryLoader::load_ref`]). When
+    /// `local = false`, only the library entries are searched.
+    ///
+    /// The returned `bool` indicates whether the hit came from local entries
+    /// (`true`) or library entries (`false`).
     pub fn query(&self, alias: &PartAlias, local: bool) -> Option<(Arc<MultipartDocument>, bool)> {
         if local {
             let local_entry = self.local_entries.get(alias);
