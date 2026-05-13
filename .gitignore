@@ -15,3 +15,10 @@ Cargo.lock
 
 **/node_modules/
 **/dist/
+
+# MacOS
+.DS_Store
+
+# Visual Studio Code
+.vscode/
+
