@@ -27,7 +27,8 @@ pub enum FileLocation {
     Local,
 }
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait DocumentLoader<T> {
     async fn load_document(
         &self,
@@ -36,7 +37,8 @@ pub trait DocumentLoader<T> {
     ) -> Result<MultipartDocument, ResolutionError>;
 }
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait LibraryLoader {
     async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError>;
 

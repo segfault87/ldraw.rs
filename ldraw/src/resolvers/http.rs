@@ -29,7 +29,21 @@ impl HttpLoader {
     }
 }
 
-#[async_trait(?Send)]
+/// Compile-time check that `HttpLoader::load_ref` and `load_colors` return
+/// `Send` futures on non-wasm targets. See the parallel helper in
+/// `resolvers::local` for context.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
+fn _assert_httploader_futures_are_send(loader: &HttpLoader, colors: &ColorCatalog) {
+    fn assert_send<F: Send>(_: &F) {}
+    let f1 = loader.load_ref(PartAlias::from("dummy".to_string()), false, colors);
+    assert_send(&f1);
+    let f2 = loader.load_colors();
+    assert_send(&f2);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl DocumentLoader<String> for HttpLoader {
     async fn load_document(
         &self,
@@ -46,7 +60,8 @@ impl DocumentLoader<String> for HttpLoader {
     }
 }
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl LibraryLoader for HttpLoader {
     async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError> {
         let ldraw_url_base = self.ldraw_url_base.as_ref();

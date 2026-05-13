@@ -26,7 +26,25 @@ impl LocalLoader {
     }
 }
 
-#[async_trait(?Send)]
+/// Compile-time check: on non-wasm targets, `LocalLoader::load_ref` and
+/// `load_colors` must return `Send` futures so multi-threaded runtimes can
+/// `.await` them on a worker thread. If the future is `!Send`, this function
+/// fails to compile, which is the entire point.
+///
+/// The function is never called; its body exists only to be type-checked by
+/// the compiler.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
+fn _assert_localloader_futures_are_send(loader: &LocalLoader, colors: &ColorCatalog) {
+    fn assert_send<F: Send>(_: &F) {}
+    let f1 = loader.load_ref(PartAlias::from("dummy".to_string()), false, colors);
+    assert_send(&f1);
+    let f2 = loader.load_colors();
+    assert_send(&f2);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl DocumentLoader<PathBuf> for LocalLoader {
     async fn load_document(
         &self,
@@ -44,7 +62,8 @@ impl DocumentLoader<PathBuf> for LocalLoader {
     }
 }
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl LibraryLoader for LocalLoader {
     async fn load_colors(&self) -> Result<ColorCatalog, ResolutionError> {
         let ldrawdir = match self.ldrawdir.clone() {
