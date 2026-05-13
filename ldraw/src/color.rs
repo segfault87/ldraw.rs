@@ -102,6 +102,7 @@ pub enum CustomizedMaterial {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Material {
     Plastic,
     Chrome,
@@ -109,6 +110,7 @@ pub enum Material {
     Rubber,
     MatteMetallic,
     Metal,
+    Fabric,
     Custom(CustomizedMaterial),
 }
 
